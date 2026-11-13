@@ -64,7 +64,6 @@ export const apiConstraints = {
     firstName: { minLength: 1, maxLength: 100 },
     middleName: { maxLength: 100 },
     lastName: { minLength: 1, maxLength: 100 },
-    phoneNumber: { maxLength: 16 },
     timezone: { maxLength: 64 },
   },
   CreateWorkspaceDto: {
@@ -72,10 +71,14 @@ export const apiConstraints = {
     slug: { minLength: 2, maxLength: 60 },
     description: { maxLength: 1000 },
   },
+  CreateWorkspaceInvitationDto: {
+    identifier: { minLength: 3, maxLength: 254 },
+  },
   GdprEraseDto: { currentPassword: { minLength: 8, maxLength: 72 } },
   LoginDto: {
     password: { minLength: 8, maxLength: 72 },
     identifier: { minLength: 3, maxLength: 254 },
+    deviceTokens: { maxItems: 10 },
   },
   LogoutDto: { refreshToken: { minLength: 20, maxLength: 512 } },
   PlaylistItemInputDto: {
@@ -90,27 +93,6 @@ export const apiConstraints = {
     bookName: { minLength: 1, maxLength: 60 },
   },
   RefreshTokenDto: { refreshToken: { minLength: 20, maxLength: 512 } },
-  RegisterDto: {
-    password: {
-      minLength: 8,
-      maxLength: 72,
-      pattern: '^(?=.*[A-Za-z])(?=.*\\d).+$',
-    },
-    firstName: { minLength: 1, maxLength: 100 },
-    lastName: { minLength: 1, maxLength: 100 },
-  },
-  RequestPhoneVerificationDto: {
-    currentPassword: { minLength: 8, maxLength: 72 },
-    phoneNumber: { maxLength: 16 },
-  },
-  ResetPasswordDto: {
-    newPassword: {
-      minLength: 8,
-      maxLength: 72,
-      pattern: '^(?=.*[A-Za-z])(?=.*\\d).+$',
-    },
-    token: { maxLength: 256 },
-  },
   SongArrangementInputDto: {
     name: { minLength: 1, maxLength: 60 },
     sectionKeys: { minItems: 1 },
@@ -130,7 +112,6 @@ export const apiConstraints = {
     firstName: { minLength: 1, maxLength: 100 },
     middleName: { maxLength: 100 },
     lastName: { minLength: 1, maxLength: 100 },
-    phoneNumber: { maxLength: 16 },
     timezone: { maxLength: 64 },
   },
   UpdateAuthUsernameDto: {
@@ -144,7 +125,6 @@ export const apiConstraints = {
       pattern: '^(?=.*[A-Za-z])(?=.*\\d).+$',
     },
   },
-  UpdateAuthUserPhoneDto: { phoneNumber: { maxLength: 16 } },
   UpdateDeviceTokenDto: {
     token: { minLength: 1, maxLength: 512 },
     deviceOsVersion: { minLength: 1, maxLength: 50 },
@@ -176,7 +156,6 @@ export const apiConstraints = {
     firstName: { minLength: 1, maxLength: 100 },
     middleName: { maxLength: 100 },
     lastName: { minLength: 1, maxLength: 100 },
-    phoneNumber: { maxLength: 16 },
     timezone: { maxLength: 64 },
   },
   UpdateWorkspaceDto: {
@@ -185,10 +164,6 @@ export const apiConstraints = {
     description: { maxLength: 1000 },
   },
   UpdateWorkspaceMembershipDto: { notes: { maxLength: 1000 } },
-  VerifyAuthUserPhoneDto: {
-    phoneNumber: { maxLength: 16 },
-    otp: { minLength: 4, maxLength: 12 },
-  },
 } as const satisfies {
   readonly [Schema in keyof components['schemas']]?: Readonly<
     Record<string, FieldConstraints>

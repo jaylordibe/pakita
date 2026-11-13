@@ -1,54 +1,21 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { UsersService } from '../src/modules/users/users.service';
+import { MAX_FAILED_SIGN_INS } from '../src/modules/auth/sign-in-failure-limit.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './setup/test-app';
 import { truncateAll } from './setup/db';
 import {
-  captureEmails,
-  deliverQueuedEmails,
-  linkParameter,
-} from './setup/emails';
-import { seedRbacCatalog } from './setup/rbac';
-import { firstElement } from './setup/elements';
+  createPlatformAdmin,
+  createUser,
+  seedRbacCatalog,
+  TEST_PASSWORD,
+} from './setup/rbac';
 
-const VALID_PASSWORD = 'correct-horse-battery-1';
-
-// Mark a registered user as email-verified directly in the DB so
-// downstream tests can log in. Keeps test setup close to production
-// behavior (same row shape) without needing to intercept / parse the
-// stub-logged verification JWT.
-async function markVerified(
-  app: INestApplication<App>,
-  email: string,
-): Promise<void> {
-  const prisma = app.get(PrismaService);
-  // `email` is unique only among live rows (partial index), so it is not a
-  // Prisma unique selector — look the row up first, then update by id.
-  const user = await prisma.user.findFirstOrThrow({
-    where: { email: email.toLowerCase() },
-  });
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { emailVerifiedAt: new Date() },
-  });
-}
-
-// Fetches the user id after register — register returns only { message }
-// now, so the id isn't in the response. Used by the verify-email JWT
-// tests that need to sign a token with the user's sub.
-async function getUserIdByEmail(
-  app: INestApplication<App>,
-  email: string,
-): Promise<string> {
-  const prisma = app.get(PrismaService);
-  const row = await prisma.user.findFirstOrThrow({
-    where: { email: email.toLowerCase() },
-  });
-  return row.id;
-}
+const VALID_PASSWORD = TEST_PASSWORD;
+const NEW_PASSWORD = 'a-password-of-my-own-2';
 
 describe('Auth (e2e)', () => {
   let app: INestApplication<App>;
@@ -59,7 +26,6 @@ describe('Auth (e2e)', () => {
 
   beforeEach(async () => {
     await truncateAll(app);
-    // Registration assigns PLATFORM_USER, so the catalog must exist first.
     await seedRbacCatalog(app);
   });
 
@@ -67,336 +33,52 @@ describe('Auth (e2e)', () => {
     await app.close();
   });
 
-  describe('POST /api/auth/register', () => {
-    it('returns only a message (no user, no token) and creates an unverified row', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send({
-          email: 'alice@example.com',
-          password: VALID_PASSWORD,
-          firstName: 'Alice',
-          lastName: 'Smith',
-        })
-        .expect(201);
-
-      expect(res.body).toEqual({ message: expect.stringContaining('verify') });
-      expect(res.body).not.toHaveProperty('user');
-      expect(res.body).not.toHaveProperty('accessToken');
-
-      // Row exists, unverified, with createdBy/updatedBy null.
-      const prisma = app.get(PrismaService);
-      const row = await prisma.user.findFirstOrThrow({
-        where: { email: 'alice@example.com' },
-      });
-      expect(row.isActive).toBe(true);
-      expect(row.emailVerifiedAt).toBeNull();
-      expect(row.createdBy).toBeNull();
-      expect(row.updatedBy).toBeNull();
+  const login = (
+    identifier: string,
+    password: string,
+    address?: string,
+    deviceTokens?: string[],
+  ) => {
+    const call = request(app.getHttpServer()).post('/api/auth/login');
+    if (address) call.set('X-Forwarded-For', address);
+    return call.send({
+      identifier,
+      password,
+      ...(deviceTokens ? { deviceTokens } : {}),
     });
+  };
 
-    it('lowercases the email on storage', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send({
-          email: 'MIXED@Example.COM',
-          password: VALID_PASSWORD,
-          firstName: 'Mix',
-          lastName: 'Case',
-        })
-        .expect(201);
-      const prisma = app.get(PrismaService);
-      const row = await prisma.user.findFirstOrThrow({
-        where: { email: 'mixed@example.com' },
-      });
-      expect(row.email).toBe('mixed@example.com');
-    });
-
-    it('emails a verification link that verifies the account', async () => {
-      const emails = captureEmails(app);
-      try {
-        await request(app.getHttpServer())
-          .post('/api/auth/register')
-          .send({
-            email: 'linked@example.com',
-            password: VALID_PASSWORD,
-            firstName: 'Linked',
-            lastName: 'User',
-          })
-          .expect(201);
-        expect(await deliverQueuedEmails(app)).toBe(1);
-        expect(emails.sent).toHaveLength(1);
-        expect(emails.sent[0]).toMatchObject({
-          to: 'linked@example.com',
-          template: 'email-verification-link',
-        });
-
-        const token = linkParameter(
-          firstElement(emails.sent, 'sent email'),
-          'verifyUrl',
-          'token',
-        );
-        await request(app.getHttpServer())
-          .post('/api/auth/verify-email')
-          .send({ token })
-          .expect(200);
-        const row = await app
-          .get(PrismaService)
-          .user.findFirstOrThrow({ where: { email: 'linked@example.com' } });
-        expect(row.emailVerifiedAt).not.toBeNull();
-      } finally {
-        emails.restore();
-      }
-    });
-
-    it('answers an already-registered email as any other, creating nothing and telling its owner', async () => {
-      const payload = {
-        email: 'dup@example.com',
-        password: VALID_PASSWORD,
-        firstName: 'Dup',
-        lastName: 'User',
-      };
-      const first = await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send(payload)
-        .expect(201);
-      await deliverQueuedEmails(app);
-      await app.get(PrismaService).user.updateMany({
-        where: { email: 'dup@example.com' },
-        data: { emailVerifiedAt: new Date() },
-      });
-
-      const emails = captureEmails(app);
-      try {
-        const duplicate = await request(app.getHttpServer())
-          .post('/api/auth/register')
-          .send({ ...payload, email: 'DUP@example.com', firstName: 'Imposter' })
-          .expect(201);
-        // The same answer as a new address: nothing says this one is taken.
-        expect(duplicate.body).toEqual(first.body);
-
-        expect(await deliverQueuedEmails(app)).toBe(1);
-        expect(emails.sent).toEqual([
-          {
-            to: 'dup@example.com',
-            template: 'sign-up-account-exists',
-            vars: { appUrl: expect.stringMatching(/^https?:\/\//) },
-          },
-        ]);
-      } finally {
-        emails.restore();
-      }
-
-      const rows = await app
-        .get(PrismaService)
-        .user.findMany({ where: { email: 'dup@example.com' } });
-      expect(rows).toHaveLength(1);
-      expect(rows[0]?.firstName).toBe('Dup');
-      // The attempt is traceable, without the address in it.
-      expect(
-        await app.get(PrismaService).auditLog.count({
-          where: {
-            action: 'user.registration_attempted_existing',
-            targetUserId: rows[0]?.id,
-          },
-        }),
-      ).toBe(1);
-    });
-
-    it('sends an unverified account its verification link again, with the same answer', async () => {
-      const payload = {
-        email: 'again@example.com',
-        password: VALID_PASSWORD,
-        firstName: 'Again',
-        lastName: 'User',
-      };
-      const first = await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send(payload)
-        .expect(201);
-      await deliverQueuedEmails(app);
-
-      const emails = captureEmails(app);
-      try {
-        const again = await request(app.getHttpServer())
-          .post('/api/auth/register')
-          .send(payload)
-          .expect(201);
-        expect(again.body).toEqual(first.body);
-        await deliverQueuedEmails(app);
-        expect(emails.sent.map((email) => email.template)).toEqual([
-          'email-verification-link',
-        ]);
-      } finally {
-        emails.restore();
-      }
-    });
-
-    it('caps how often an address is told someone registered it', async () => {
-      const payload = {
-        email: 'capped@example.com',
-        password: VALID_PASSWORD,
-        firstName: 'Cap',
-        lastName: 'Ped',
-      };
-      await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send(payload)
-        .expect(201);
-      await deliverQueuedEmails(app);
-      await app.get(PrismaService).user.updateMany({
-        where: { email: 'capped@example.com' },
-        data: { emailVerifiedAt: new Date() },
-      });
-
-      const emails = captureEmails(app);
-      try {
-        for (let attempt = 0; attempt < 5; attempt += 1) {
-          await request(app.getHttpServer())
-            .post('/api/auth/register')
-            .send(payload)
-            .expect(201);
-        }
-        await deliverQueuedEmails(app);
-        expect(
-          emails.sent.filter(
-            (email) => email.template === 'sign-up-account-exists',
-          ),
-        ).toHaveLength(3);
-      } finally {
-        emails.restore();
-      }
-    });
-
-    it('audits a successful self-signup with the request envelope', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send({
-          email: 'audited@example.com',
-          password: VALID_PASSWORD,
-          firstName: 'Aud',
-          lastName: 'Ited',
-        })
-        .expect(201);
-
-      // `createdBy` is null on a self-signup and the users table stores no
-      // request context, so this entry is the only persisted record of WHERE
-      // the signup came from. Identity rides on `targetUserId`, not a copied
-      // email, so a later GDPR erasure isn't defeated by it.
-      const prisma = app.get(PrismaService);
-      const user = await prisma.user.findFirstOrThrow({
-        where: { email: 'audited@example.com' },
-      });
-      const audit = await prisma.auditLog.findFirstOrThrow({
-        where: { action: 'user.registered' },
-      });
-      expect(audit.targetUserId).toBe(user.id);
-      expect(audit.actorId).toBeNull();
-      expect(audit.metadata).toMatchObject({
-        request: { method: 'POST', path: '/api/auth/register' },
-      });
-      expect(audit.metadata).not.toHaveProperty('email');
-    });
-
-    it('rejects invalid email with 400', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send({
-          email: 'not-an-email',
-          password: VALID_PASSWORD,
-          firstName: 'X',
-          lastName: 'Y',
-        })
-        .expect(400);
-    });
-
-    it('rejects too-short password with 400', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send({
-          email: 'short@example.com',
-          password: 'short',
-          firstName: 'X',
-          lastName: 'Y',
-        })
-        .expect(400);
-    });
-
-    // 38 characters but 74 UTF-8 bytes: bcrypt would ignore the letter and
-    // digit past byte 72, so the password is measured in bytes when it is set.
-    it('rejects a password over 72 bytes with 400 and creates no user', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send({
-          email: 'bytes@example.com',
-          password: `${'ñ'.repeat(36)}a1`,
-          firstName: 'X',
-          lastName: 'Y',
-        })
-        .expect(400);
-      expect(res.body.errorCode).toBe('VALIDATION_FAILED');
-      expect(
-        await app
-          .get(PrismaService)
-          .user.count({ where: { email: 'bytes@example.com' } }),
-      ).toBe(0);
-    });
-
-    it('rejects extraneous fields with 400 (whitelist)', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send({
-          email: 'extra@example.com',
-          password: VALID_PASSWORD,
-          firstName: 'X',
-          lastName: 'Y',
-          phoneNumber: '+15551234',
-          role: 'admin',
-        })
-        .expect(400);
+  // There is no public sign-up: the routes that served it are gone.
+  describe('removed public account routes', () => {
+    it.each([
+      ['post', '/api/auth/register'],
+      ['post', '/api/auth/verify-email'],
+      ['get', '/api/auth/verify-email'],
+      ['post', '/api/auth/resend-verification'],
+      ['post', '/api/users/request-password-reset'],
+      ['post', '/api/users/reset-password'],
+    ] as const)('%s %s answers 404', async (method, path) => {
+      await request(app.getHttpServer())[method](path).send({}).expect(404);
     });
   });
 
   describe('POST /api/auth/login', () => {
     beforeEach(async () => {
-      await request(app.getHttpServer()).post('/api/auth/register').send({
-        email: 'bob@example.com',
-        password: VALID_PASSWORD,
-        firstName: 'Bob',
-        lastName: 'Jones',
-      });
+      await createUser(app, { email: 'bob@example.com', firstName: 'Bob' });
     });
 
-    it('blocks login when email is not verified (specific error)', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ identifier: 'bob@example.com', password: VALID_PASSWORD })
-        .expect(401);
-      expect(res.body.errorCode).toBe('EMAIL_NOT_VERIFIED');
-      expect(res.body.message).toMatch(/verify/i);
-    });
-
-    it('returns access token for valid credentials after verification', async () => {
-      await markVerified(app, 'bob@example.com');
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ identifier: 'bob@example.com', password: VALID_PASSWORD })
-        .expect(200);
+    it('returns an access token for valid credentials', async () => {
+      const res = await login('bob@example.com', VALID_PASSWORD).expect(200);
       expect(res.body.accessToken).toEqual(expect.any(String));
       expect(res.body.user.email).toBe('bob@example.com');
+      expect(res.body.user.isPasswordChangeRequired).toBe(false);
     });
 
     it('login is case-insensitive on email', async () => {
-      await markVerified(app, 'bob@example.com');
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ identifier: 'BOB@example.com', password: VALID_PASSWORD })
-        .expect(200);
+      await login('BOB@example.com', VALID_PASSWORD).expect(200);
     });
 
     it('logs in with a username identifier (not just email)', async () => {
-      await markVerified(app, 'bob@example.com');
-      // Register doesn't set a username; assign one directly so we can prove
-      // the email-OR-username lookup resolves the username branch too.
       const prisma = app.get(PrismaService);
       const bob = await prisma.user.findFirstOrThrow({
         where: { email: 'bob@example.com' },
@@ -405,78 +87,43 @@ describe('Auth (e2e)', () => {
         where: { id: bob.id },
         data: { username: 'bobby' },
       });
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ identifier: 'bobby', password: VALID_PASSWORD })
-        .expect(200);
+      await login('bobby', VALID_PASSWORD).expect(200);
     });
 
-    it('rejects wrong password with generic 401 (no verification hint)', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ identifier: 'bob@example.com', password: 'wrong-password-1' })
-        .expect(401);
-      // Unknown-email and wrong-password must be indistinguishable —
-      // no EMAIL_NOT_VERIFIED leak for attackers who don't have the password.
-      expect(res.body.errorCode).not.toBe('EMAIL_NOT_VERIFIED');
-      expect(res.body.errorCode).toBe('INVALID_CREDENTIALS');
-    });
-
-    it('rejects unknown email with 401', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ identifier: 'nope@example.com', password: VALID_PASSWORD })
-        .expect(401);
+    it('answers a wrong password and an unknown identifier the same way', async () => {
+      const wrong = await login('bob@example.com', 'wrong-password-1').expect(
+        401,
+      );
+      const unknown = await login('nope@example.com', VALID_PASSWORD).expect(
+        401,
+      );
+      expect(wrong.body.errorCode).toBe('INVALID_CREDENTIALS');
+      expect(unknown.body.errorCode).toBe('INVALID_CREDENTIALS');
+      expect(unknown.body.message).toBe(wrong.body.message);
     });
 
     // Every stored password is at most 72 bytes, so a longer one can never
     // match: refused as input, before the account lookup or bcrypt.
     it('refuses a password over 72 bytes before checking it', async () => {
-      await markVerified(app, 'bob@example.com');
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({
-          identifier: 'bob@example.com',
-          // 38 characters, 74 bytes.
-          password: `${'ñ'.repeat(36)}a1`,
-        })
-        .expect(400);
+      const res = await login(
+        'bob@example.com',
+        // 38 characters, 74 bytes.
+        `${'ñ'.repeat(36)}a1`,
+      ).expect(400);
       expect(res.body.errorCode).toBe('VALIDATION_FAILED');
     });
 
     it('checks a password of exactly 72 bytes', async () => {
-      await markVerified(app, 'bob@example.com');
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({
-          identifier: 'bob@example.com',
-          // 35 × 2 bytes + 2 = 72 bytes.
-          password: `${'ñ'.repeat(35)}a1`,
-        })
-        .expect(401);
+      const res = await login(
+        'bob@example.com',
+        // 35 × 2 bytes + 2 = 72 bytes.
+        `${'ñ'.repeat(35)}a1`,
+      ).expect(401);
       expect(res.body.errorCode).toBe('INVALID_CREDENTIALS');
     });
 
-    it('does not lock the account after repeated failures', async () => {
-      await markVerified(app, 'bob@example.com');
-      for (let attempt = 0; attempt < 6; attempt++) {
-        await request(app.getHttpServer())
-          .post('/api/auth/login')
-          .send({ identifier: 'bob@example.com', password: 'wrong-password-1' })
-          .expect(401);
-      }
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ identifier: 'bob@example.com', password: VALID_PASSWORD })
-        .expect(200);
-    });
-
     it('returns expiresIn (seconds) matching the access token lifetime', async () => {
-      await markVerified(app, 'bob@example.com');
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ identifier: 'bob@example.com', password: VALID_PASSWORD })
-        .expect(200);
+      const res = await login('bob@example.com', VALID_PASSWORD).expect(200);
       const claims = app
         .get(JwtService)
         .decode<{ iat: number; exp: number }>(res.body.accessToken as string);
@@ -485,49 +132,319 @@ describe('Auth (e2e)', () => {
     });
   });
 
-  describe('disposable-email sign-up', () => {
-    it('rejects a disposable address with 400 EMAIL_DOMAIN_DISALLOWED and creates no user', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/register')
+  // The route throttles key on the client address; this limit does not, so
+  // one account guessed at from many addresses is still slowed down.
+  describe('failed sign-ins per account', () => {
+    beforeEach(async () => {
+      await createUser(app, { email: 'bob@example.com', firstName: 'Bob' });
+      const prisma = app.get(PrismaService);
+      const bob = await prisma.user.findFirstOrThrow({
+        where: { email: 'bob@example.com' },
+      });
+      await prisma.user.update({
+        where: { id: bob.id },
+        data: { username: 'bobby' },
+      });
+      // Lets each request name its client address in X-Forwarded-For
+      // (supertest connects from loopback).
+      (app as unknown as NestExpressApplication).set('trust proxy', 'loopback');
+    });
+
+    afterEach(() => {
+      (app as unknown as NestExpressApplication).set('trust proxy', false);
+    });
+
+    it('refuses even the right password once an account has used its failures, from every address', async () => {
+      for (let attempt = 0; attempt < MAX_FAILED_SIGN_INS; attempt += 1) {
+        // A new address every time, alternating email and username: both
+        // name one account, so they spend one budget.
+        await login(
+          attempt % 2 === 0 ? 'bob@example.com' : 'bobby',
+          'wrong-password-1',
+          `198.51.100.${attempt + 1}`,
+        ).expect(401);
+      }
+
+      const refused = await login(
+        'bob@example.com',
+        VALID_PASSWORD,
+        '203.0.113.99',
+      ).expect(429);
+      expect(refused.body.errorCode).toBe('RATE_LIMITED');
+    });
+
+    it('compares at most the limit when guesses arrive all at once', async () => {
+      const results = await Promise.all(
+        Array.from({ length: MAX_FAILED_SIGN_INS * 3 }, (_, attempt) =>
+          login(
+            'bob@example.com',
+            'wrong-password-1',
+            `198.51.100.${attempt + 1}`,
+          ),
+        ),
+      );
+      const statuses = results.map((response) => response.status);
+      expect(statuses.filter((status) => status === 401)).toHaveLength(
+        MAX_FAILED_SIGN_INS,
+      );
+      expect(statuses.filter((status) => status === 429)).toHaveLength(
+        MAX_FAILED_SIGN_INS * 2,
+      );
+    });
+
+    it('lets the account in at once after an administrator resets its password', async () => {
+      for (let attempt = 0; attempt < MAX_FAILED_SIGN_INS; attempt += 1) {
+        await login('bob@example.com', 'wrong-password-1').expect(401);
+      }
+      await login('bob@example.com', VALID_PASSWORD).expect(429);
+
+      const { token: adminToken } = await createPlatformAdmin(app);
+      const bob = await app
+        .get(PrismaService)
+        .user.findFirstOrThrow({ where: { email: 'bob@example.com' } });
+      await request(app.getHttpServer())
+        .patch(`/api/users/${bob.id}/password`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ newPassword: 'reset-by-admin-3' })
+        .expect(200);
+      await login('bob@example.com', 'reset-by-admin-3').expect(200);
+    });
+
+    // OWASP's device cookies: a stranger's guesses must not keep out a device
+    // the person has signed in from before.
+    it('lets a device that signed in before through while strangers are limited', async () => {
+      const first = await login('bob@example.com', VALID_PASSWORD).expect(200);
+      const deviceToken = first.body.deviceToken as string;
+      expect(deviceToken).toEqual(expect.any(String));
+
+      for (let attempt = 0; attempt < MAX_FAILED_SIGN_INS; attempt += 1) {
+        await login('bob@example.com', 'wrong-password-1').expect(401);
+      }
+      await login('bob@example.com', VALID_PASSWORD).expect(429);
+
+      const again = await login('bob@example.com', VALID_PASSWORD, undefined, [
+        deviceToken,
+      ]).expect(200);
+      expect(again.body.deviceToken).not.toBe(deviceToken);
+    });
+
+    it('still limits guesses from a known device, on its own count', async () => {
+      const first = await login('bob@example.com', VALID_PASSWORD).expect(200);
+      const deviceTokens = [first.body.deviceToken as string];
+      for (let attempt = 0; attempt < MAX_FAILED_SIGN_INS; attempt += 1) {
+        await login(
+          'bob@example.com',
+          'wrong-password-1',
+          undefined,
+          deviceTokens,
+        ).expect(401);
+      }
+      await login(
+        'bob@example.com',
+        VALID_PASSWORD,
+        undefined,
+        deviceTokens,
+      ).expect(429);
+      // The device's failures are its own: the account is not limited.
+      await login('bob@example.com', VALID_PASSWORD).expect(200);
+    });
+
+    it('treats a device token for another account as no token', async () => {
+      await createUser(app, { email: 'carol@example.com' });
+      const carols = await login('carol@example.com', VALID_PASSWORD).expect(
+        200,
+      );
+      for (let attempt = 0; attempt < MAX_FAILED_SIGN_INS; attempt += 1) {
+        await login('bob@example.com', 'wrong-password-1').expect(401);
+      }
+      await login('bob@example.com', VALID_PASSWORD, undefined, [
+        carols.body.deviceToken as string,
+      ]).expect(429);
+    });
+
+    it('limits an identifier that names no account the same way', async () => {
+      for (let attempt = 0; attempt < MAX_FAILED_SIGN_INS; attempt += 1) {
+        await login('nobody@example.com', 'wrong-password-1').expect(401);
+      }
+      const refused = await login('nobody@example.com', VALID_PASSWORD).expect(
+        429,
+      );
+      expect(refused.body.errorCode).toBe('RATE_LIMITED');
+      // Somebody else's account is untouched.
+      await login('bob@example.com', VALID_PASSWORD).expect(200);
+    });
+
+    it('starts the count again after a correct password', async () => {
+      for (let attempt = 0; attempt < MAX_FAILED_SIGN_INS - 1; attempt += 1) {
+        await login('bob@example.com', 'wrong-password-1').expect(401);
+      }
+      await login('bob@example.com', VALID_PASSWORD).expect(200);
+      for (let attempt = 0; attempt < MAX_FAILED_SIGN_INS - 1; attempt += 1) {
+        await login('bob@example.com', 'wrong-password-1').expect(401);
+      }
+      await login('bob@example.com', VALID_PASSWORD).expect(200);
+    });
+  });
+
+  // An administrator creates every account and chooses its first password;
+  // until the person replaces it, their session reaches almost nothing.
+  describe('password chosen by an administrator', () => {
+    let adminToken: string;
+
+    beforeEach(async () => {
+      ({ token: adminToken } = await createPlatformAdmin(app));
+      await request(app.getHttpServer())
+        .post('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          email: 'throwaway@mailinator.com',
+          email: 'new@example.com',
           password: VALID_PASSWORD,
-          firstName: 'Throw',
-          lastName: 'Away',
+          firstName: 'New',
+          lastName: 'Person',
         })
+        .expect(201)
+        .expect((response) => {
+          expect(response.body.isPasswordChangeRequired).toBe(true);
+        });
+    });
+
+    it('signs in, but every other route answers PASSWORD_CHANGE_REQUIRED', async () => {
+      const signedIn = await login('new@example.com', VALID_PASSWORD).expect(
+        200,
+      );
+      expect(signedIn.body.user.isPasswordChangeRequired).toBe(true);
+      const token = signedIn.body.accessToken as string;
+
+      for (const path of ['/api/workspaces', '/api/users/me/permissions']) {
+        const refused = await request(app.getHttpServer())
+          .get(path)
+          .set('Authorization', `Bearer ${token}`)
+          .expect(403);
+        expect(refused.body.errorCode).toBe('PASSWORD_CHANGE_REQUIRED');
+      }
+      await request(app.getHttpServer())
+        .patch('/api/users/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ firstName: 'Changed' })
+        .expect(403);
+    });
+
+    it('still lets the session read the account and sign out', async () => {
+      const signedIn = await login('new@example.com', VALID_PASSWORD).expect(
+        200,
+      );
+      const token = signedIn.body.accessToken as string;
+      await request(app.getHttpServer())
+        .get('/api/users/me')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      await request(app.getHttpServer())
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ refreshToken: signedIn.body.refreshToken })
+        .expect(204);
+    });
+
+    it('refuses "changing" the password to the one the administrator chose', async () => {
+      const signedIn = await login('new@example.com', VALID_PASSWORD).expect(
+        200,
+      );
+      const token = signedIn.body.accessToken as string;
+      await request(app.getHttpServer())
+        .patch('/api/users/me/password')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ currentPassword: VALID_PASSWORD, newPassword: VALID_PASSWORD })
         .expect(400);
-      expect(res.body.errorCode).toBe('EMAIL_DOMAIN_DISALLOWED');
-      expect(res.body.details).toEqual({ domain: 'mailinator.com' });
-      expect(
-        await app
-          .get(PrismaService)
-          .user.count({ where: { email: 'throwaway@mailinator.com' } }),
-      ).toBe(0);
+      const refused = await request(app.getHttpServer())
+        .get('/api/workspaces')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+      expect(refused.body.errorCode).toBe('PASSWORD_CHANGE_REQUIRED');
+    });
+
+    it('lifts the restriction once the person chooses their own password', async () => {
+      const signedIn = await login('new@example.com', VALID_PASSWORD).expect(
+        200,
+      );
+      const changed = await request(app.getHttpServer())
+        .patch('/api/users/me/password')
+        .set('Authorization', `Bearer ${signedIn.body.accessToken as string}`)
+        .send({
+          currentPassword: VALID_PASSWORD,
+          newPassword: NEW_PASSWORD,
+        })
+        .expect(200);
+      expect(changed.body.user.isPasswordChangeRequired).toBe(false);
+
+      await request(app.getHttpServer())
+        .get('/api/users/me/permissions')
+        .set('Authorization', `Bearer ${changed.body.accessToken as string}`)
+        .expect(200);
+      // The administrator's password no longer works.
+      await login('new@example.com', VALID_PASSWORD).expect(401);
+      await login('new@example.com', NEW_PASSWORD).expect(200);
+    });
+
+    it('requires a new password again after an administrator resets it, and ends the old sessions', async () => {
+      const signedIn = await login('new@example.com', VALID_PASSWORD).expect(
+        200,
+      );
+      const own = await request(app.getHttpServer())
+        .patch('/api/users/me/password')
+        .set('Authorization', `Bearer ${signedIn.body.accessToken as string}`)
+        .send({
+          currentPassword: VALID_PASSWORD,
+          newPassword: NEW_PASSWORD,
+        })
+        .expect(200);
+      const ownToken = own.body.accessToken as string;
+      const userId = own.body.user.id as string;
+
+      // A whole second, so the reset's session cutoff lands after this
+      // session was issued (`iat` is whole seconds).
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const reset = await request(app.getHttpServer())
+        .patch(`/api/users/${userId}/password`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          newPassword: 'reset-by-admin-3',
+        })
+        .expect(200);
+      expect(reset.body.isPasswordChangeRequired).toBe(true);
+
+      await request(app.getHttpServer())
+        .get('/api/users/me')
+        .set('Authorization', `Bearer ${ownToken}`)
+        .expect(401);
+      const again = await login('new@example.com', 'reset-by-admin-3').expect(
+        200,
+      );
+      expect(again.body.user.isPasswordChangeRequired).toBe(true);
+      await request(app.getHttpServer())
+        .get('/api/workspaces')
+        .set('Authorization', `Bearer ${again.body.accessToken as string}`)
+        .expect(403);
     });
   });
 
   // Every audit_logs entry written inside an HTTP request gets a server-vouched
   // `metadata.request` envelope, populated by the ClsModule middleware
-  // (app.module.ts) and merged in AuditService. A self-signup records an audit
-  // log within request context, so it exercises the envelope without needing
-  // an authenticated session.
+  // (app.module.ts) and merged in AuditService.
   describe('audit request-context envelope (ClsModule)', () => {
     it('auto-attaches metadata.request (requestId/method/path/userAgent/ip) to audit rows', async () => {
+      await createUser(app, { email: 'envelope@example.com' });
+      const signedIn = await login('envelope@example.com', VALID_PASSWORD);
       await request(app.getHttpServer())
-        .post('/api/auth/register')
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${signedIn.body.accessToken as string}`)
         .set('User-Agent', 'AuditEnvelopeProbe/1.0')
         .set('X-Request-Id', 'test-req-id-123')
-        .send({
-          email: 'envelope@example.com',
-          password: VALID_PASSWORD,
-          firstName: 'A',
-          lastName: 'B',
-        })
-        .expect(201);
+        .send({})
+        .expect(204);
 
       const prisma = app.get(PrismaService);
       const audit = await prisma.auditLog.findFirstOrThrow({
-        where: { action: 'user.registered' },
+        where: { action: 'auth.logout' },
       });
       const meta = audit.metadata as {
         request?: Record<string, unknown>;
@@ -537,7 +454,7 @@ describe('Auth (e2e)', () => {
       expect(meta.request).toMatchObject({
         requestId: 'test-req-id-123',
         method: 'POST',
-        path: '/api/auth/register',
+        path: '/api/auth/logout',
         userAgent: 'AuditEnvelopeProbe/1.0',
       });
       // ip is resolved server-side (req.ip / CF header) — present, a string.
@@ -545,280 +462,9 @@ describe('Auth (e2e)', () => {
     });
   });
 
-  describe('POST /api/auth/verify-email', () => {
-    async function registerAndSignEmailVerifyToken(
-      email: string,
-      purpose: string = 'email_verify',
-    ): Promise<string> {
-      await request(app.getHttpServer()).post('/api/auth/register').send({
-        email,
-        password: VALID_PASSWORD,
-        firstName: 'Verify',
-        lastName: 'Flow',
-      });
-      const userId = await getUserIdByEmail(app, email);
-      return app
-        .get(JwtService)
-        .sign({ sub: userId, purpose, email }, { expiresIn: '10m' });
-    }
-
-    // A link proves control of the address it was mailed to and nothing
-    // else. Redeemed after the account's email changed, it must not mark the
-    // NEW address — which nobody has proven they control — as verified.
-    it('refuses a link redeemed after the account email changed (400 INVALID_LINK)', async () => {
-      const token = await registerAndSignEmailVerifyToken(
-        'link-owner@example.com',
-      );
-      await request(app.getHttpServer())
-        .post('/api/auth/verify-email')
-        .send({ token })
-        .expect(200);
-      const login = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({
-          identifier: 'link-owner@example.com',
-          password: VALID_PASSWORD,
-        })
-        .expect(200);
-      await request(app.getHttpServer())
-        .patch('/api/users/me/email')
-        .set('Authorization', `Bearer ${login.body.accessToken as string}`)
-        .send({
-          newEmail: 'someone-else@example.com',
-          currentPassword: VALID_PASSWORD,
-        })
-        .expect(200);
-
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/verify-email')
-        .send({ token })
-        .expect(400);
-
-      expect(res.body.errorCode).toBe('INVALID_LINK');
-      const user = await app.get(PrismaService).user.findFirstOrThrow({
-        where: { email: 'someone-else@example.com' },
-      });
-      expect(user.emailVerifiedAt).toBeNull();
-    });
-
-    // A link verifies only under the keys this service signs with: HS256, and
-    // this service as issuer and audience. Another service sharing the secret,
-    // or another algorithm, verifies nothing.
-    it.each([
-      ['another audience', 'audience', { audience: 'another-service' }],
-      ['another issuer', 'issuer', { issuer: 'another-service' }],
-      [
-        'another algorithm (HS512)',
-        'algorithm',
-        { algorithm: 'HS512' as const },
-      ],
-    ])(
-      'refuses a link signed with %s (400 INVALID_LINK)',
-      async (_label, key, signOptions) => {
-        const email = `foreign-${key}@example.com`;
-        await request(app.getHttpServer()).post('/api/auth/register').send({
-          email,
-          password: VALID_PASSWORD,
-          firstName: 'Foreign',
-          lastName: 'Link',
-        });
-        const userId = await getUserIdByEmail(app, email);
-        const token = app
-          .get(JwtService)
-          .sign(
-            { sub: userId, purpose: 'email_verify', email },
-            { expiresIn: '10m', ...signOptions },
-          );
-
-        const res = await request(app.getHttpServer())
-          .post('/api/auth/verify-email')
-          .send({ token })
-          .expect(400);
-
-        expect(res.body.errorCode).toBe('INVALID_LINK');
-        const row = await app
-          .get(PrismaService)
-          .user.findUniqueOrThrow({ where: { id: userId } });
-        expect(row.emailVerifiedAt).toBeNull();
-      },
-    );
-
-    // A link minted without the address (e.g. before links were bound to one)
-    // proves nothing about the current address.
-    it('refuses a link that carries no address (400 INVALID_LINK)', async () => {
-      await request(app.getHttpServer()).post('/api/auth/register').send({
-        email: 'no-claim@example.com',
-        password: VALID_PASSWORD,
-        firstName: 'No',
-        lastName: 'Claim',
-      });
-      const userId = await getUserIdByEmail(app, 'no-claim@example.com');
-      const token = app
-        .get(JwtService)
-        .sign({ sub: userId, purpose: 'email_verify' }, { expiresIn: '10m' });
-
-      const res = await request(app.getHttpServer())
-        .post('/api/auth/verify-email')
-        .send({ token })
-        .expect(400);
-
-      expect(res.body.errorCode).toBe('INVALID_LINK');
-    });
-
-    // The address check reads the row unlocked; an email change landing
-    // between that read and the write must not get the NEW address verified.
-    it('does not verify an address that replaced the linked one mid-request', async () => {
-      const token = await registerAndSignEmailVerifyToken('raced@example.com');
-      const userId = await getUserIdByEmail(app, 'raced@example.com');
-      const prisma = app.get(PrismaService);
-      const staleRow = await prisma.user.findUniqueOrThrow({
-        where: { id: userId },
-      });
-      await prisma.user.update({
-        where: { id: userId },
-        data: { email: 'swapped-in@example.com' },
-      });
-      const usersService = app.get(UsersService);
-      const spy = jest
-        .spyOn(usersService, 'findByIdOrNull')
-        .mockResolvedValueOnce(staleRow);
-      try {
-        await request(app.getHttpServer())
-          .post('/api/auth/verify-email')
-          .send({ token })
-          .expect(400)
-          .expect((response) =>
-            expect(response.body.errorCode).toBe('INVALID_LINK'),
-          );
-      } finally {
-        spy.mockRestore();
-      }
-
-      const row = await prisma.user.findUniqueOrThrow({
-        where: { id: userId },
-      });
-      expect(row.emailVerifiedAt).toBeNull();
-    });
-
-    it('verifies a user via a valid token and unblocks login', async () => {
-      const token = await registerAndSignEmailVerifyToken(
-        'verify-flow@example.com',
-      );
-      await request(app.getHttpServer())
-        .post('/api/auth/verify-email')
-        .send({ token })
-        .expect(200);
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({
-          identifier: 'verify-flow@example.com',
-          password: VALID_PASSWORD,
-        })
-        .expect(200);
-    });
-
-    it('also accepts GET /api/auth/verify-email?token=... for direct email clicks', async () => {
-      const token = await registerAndSignEmailVerifyToken(
-        'verify-get@example.com',
-      );
-      // GET form is for direct email-link clicks — 302-redirects to the
-      // public web app's verify landing page with `?status=success`.
-      // (POST form returns JSON for SPAs that handle the token in-app.)
-      const res = await request(app.getHttpServer())
-        .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
-        .expect(302);
-      expect(res.headers.location).toContain('status=success');
-    });
-
-    it('redirects an invalid GET link with reason=invalid', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/api/auth/verify-email?token=eyJ0.definitely.not-a-real-jwt')
-        .expect(302);
-      expect(res.headers.location).toContain('status=error&reason=invalid');
-    });
-
-    it('rejects a token with the wrong purpose claim (400)', async () => {
-      const token = await registerAndSignEmailVerifyToken(
-        'purpose@example.com',
-        'password_reset',
-      );
-      await request(app.getHttpServer())
-        .post('/api/auth/verify-email')
-        .send({ token })
-        .expect(400);
-    });
-
-    it('rejects a garbage token with 400', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/verify-email')
-        .send({ token: 'eyJ0.definitely.not-a-real-jwt' })
-        .expect(400);
-    });
-
-    it('is idempotent — re-verifying an already-verified user returns 200', async () => {
-      const token = await registerAndSignEmailVerifyToken('idem@example.com');
-      await request(app.getHttpServer())
-        .post('/api/auth/verify-email')
-        .send({ token })
-        .expect(200);
-      await request(app.getHttpServer())
-        .post('/api/auth/verify-email')
-        .send({ token })
-        .expect(200);
-    });
-
-    it('email-verify tokens cannot be used as access tokens', async () => {
-      const token = await registerAndSignEmailVerifyToken(
-        'no-auth@example.com',
-      );
-      // JwtStrategy rejects tokens with a `purpose` claim.
-      await request(app.getHttpServer())
-        .get('/api/users/me')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(401);
-    });
-  });
-
-  describe('POST /api/auth/resend-verification', () => {
-    it('always returns 200 — even for unregistered emails (no enumeration)', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/resend-verification')
-        .send({ email: 'ghost@example.com' })
-        .expect(200);
-
-      await request(app.getHttpServer()).post('/api/auth/register').send({
-        email: 'real@example.com',
-        password: VALID_PASSWORD,
-        firstName: 'R',
-        lastName: 'E',
-      });
-      await deliverQueuedEmails(app);
-
-      const emails = captureEmails(app);
-      try {
-        await request(app.getHttpServer())
-          .post('/api/auth/resend-verification')
-          .send({ email: 'real@example.com' })
-          .expect(200);
-        await deliverQueuedEmails(app);
-        expect(emails.sent.map((email) => email.to)).toEqual([
-          'real@example.com',
-        ]);
-      } finally {
-        emails.restore();
-      }
-    });
-  });
-
   describe('POST /api/auth/logout', () => {
     it('revokes the exact token it was called with; other tokens stay valid', async () => {
-      await request(app.getHttpServer()).post('/api/auth/register').send({
-        email: 'logout@example.com',
-        password: VALID_PASSWORD,
-        firstName: 'Log',
-        lastName: 'Out',
-      });
-      await markVerified(app, 'logout@example.com');
+      await createUser(app, { email: 'logout@example.com' });
 
       const first = await request(app.getHttpServer())
         .post('/api/auth/login')
@@ -861,13 +507,7 @@ describe('Auth (e2e)', () => {
 
   describe('POST /api/auth/logout-all', () => {
     it('revokes every active token for the user', async () => {
-      await request(app.getHttpServer()).post('/api/auth/register').send({
-        email: 'logout-all@example.com',
-        password: VALID_PASSWORD,
-        firstName: 'Log',
-        lastName: 'Out',
-      });
-      await markVerified(app, 'logout-all@example.com');
+      await createUser(app, { email: 'logout-all@example.com' });
 
       const loginA = await request(app.getHttpServer())
         .post('/api/auth/login')
@@ -917,22 +557,15 @@ describe('Auth (e2e)', () => {
   });
 
   describe('access token verification', () => {
-    async function verifiedUserId(email: string): Promise<string> {
-      await request(app.getHttpServer()).post('/api/auth/register').send({
-        email,
-        password: VALID_PASSWORD,
-        firstName: 'Token',
-        lastName: 'Check',
-      });
-      await markVerified(app, email);
-      return getUserIdByEmail(app, email);
+    async function userIdFor(email: string): Promise<string> {
+      return (await createUser(app, { email })).id;
     }
 
     const signAccessToken = (userId: string, options: object = {}): string =>
       app.get(JwtService).sign({ sub: userId }, options);
 
     it('accepts an access token signed as this service signs them', async () => {
-      const id = await verifiedUserId('hs256@example.com');
+      const id = await userIdFor('hs256@example.com');
       await request(app.getHttpServer())
         .get('/api/users/me')
         .set('Authorization', `Bearer ${signAccessToken(id)}`)
@@ -944,9 +577,7 @@ describe('Auth (e2e)', () => {
     it.each(['HS384', 'HS512'] as const)(
       'refuses an access token signed %s (401)',
       async (algorithm) => {
-        const id = await verifiedUserId(
-          `${algorithm.toLowerCase()}@example.com`,
-        );
+        const id = await userIdFor(`${algorithm.toLowerCase()}@example.com`);
         await request(app.getHttpServer())
           .get('/api/users/me')
           .set('Authorization', `Bearer ${signAccessToken(id, { algorithm })}`)
@@ -959,13 +590,11 @@ describe('Auth (e2e)', () => {
     let token: string;
 
     beforeEach(async () => {
-      await request(app.getHttpServer()).post('/api/auth/register').send({
+      await createUser(app, {
         email: 'carol@example.com',
-        password: VALID_PASSWORD,
         firstName: 'Carol',
         lastName: 'Lee',
       });
-      await markVerified(app, 'carol@example.com');
       const login = await request(app.getHttpServer())
         .post('/api/auth/login')
         .send({ identifier: 'carol@example.com', password: VALID_PASSWORD });

@@ -7,7 +7,6 @@ CREATE TABLE "workspace_invitations" (
     "created_by" UUID,
     "updated_by" UUID,
     "workspace_id" UUID NOT NULL,
-    "email" TEXT NOT NULL,
     "invited_user_id" UUID,
     "role_id" UUID NOT NULL,
     "token_hash" TEXT NOT NULL,
@@ -47,16 +46,17 @@ ALTER TABLE "workspace_invitations" ADD CONSTRAINT "workspace_invitations_role_i
 ALTER TABLE "workspace_invitations" ADD CONSTRAINT "workspace_invitations_invited_user_id_fkey" FOREIGN KEY ("invited_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- ── Constraints Prisma cannot express ───────────────────────────────────────
--- One OUTSTANDING invitation per (workspace, email).
+-- One OUTSTANDING invitation per (workspace, account).
 --
 -- Partial rather than total, for the same reason as the soft-delete indexes in
 -- the users migration: an accepted or revoked invitation is history and must not
--- stop the workspace from inviting that address again. Restricting the index to
--- `pending` also makes the race safe — two concurrent invites to one address
+-- stop the workspace from inviting that person again. Restricting the index to
+-- `pending` also makes the race safe — two concurrent invitations to one account
 -- collide here rather than both succeeding.
 --
 -- Prisma cannot see this, so `WorkspaceInvitation` carries no `@@unique` on
--- (workspace_id, email): look a pending invitation up with `findFirst`.
-CREATE UNIQUE INDEX workspace_invitations_workspace_id_email_pending_key
-  ON workspace_invitations (workspace_id, email)
+-- (workspace_id, invited_user_id): look a pending invitation up with
+-- `findFirst`.
+CREATE UNIQUE INDEX workspace_invitations_workspace_id_invited_user_id_pending_key
+  ON workspace_invitations (workspace_id, invited_user_id)
   WHERE status = 'pending';

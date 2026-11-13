@@ -12,7 +12,7 @@ export enum ErrorCode {
   /** No Authorization header on a protected route. */
   TOKEN_MISSING = 'TOKEN_MISSING',
   /** Token malformed, signature mismatch, `iss`/`aud` mismatch, or carries
-   *  a `purpose` claim (verification links can't be used as access tokens). */
+   *  a `purpose` claim (a purpose-bound token is never an access token). */
   TOKEN_INVALID = 'TOKEN_INVALID',
   /** Token `exp` claim is in the past. */
   TOKEN_EXPIRED = 'TOKEN_EXPIRED',
@@ -29,9 +29,6 @@ export enum ErrorCode {
   /** /auth/login: wrong identifier or password, or an inactive account. An
    *  unknown identifier still runs a dummy bcrypt compare. */
   INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
-  /** Login blocked: emailVerifiedAt is null. Leaked only after password
-   *  verification (see auth.service.login). */
-  EMAIL_NOT_VERIFIED = 'EMAIL_NOT_VERIFIED',
   /** Re-authentication in a `/me/*` flow failed (wrong currentPassword).
    *  CRITICAL: token is still valid — clients MUST NOT auto-logout on this. */
   CURRENT_PASSWORD_INCORRECT = 'CURRENT_PASSWORD_INCORRECT',
@@ -52,6 +49,12 @@ export enum ErrorCode {
   /** Admin attempting an operation against their own user row that the
    *  policy refuses (e.g. PATCH /users/:id/password where :id === self). */
   ADMIN_SELF_TARGET_FORBIDDEN = 'ADMIN_SELF_TARGET_FORBIDDEN',
+  /** The account's password was chosen by an administrator (a new account,
+   *  or a reset), and the person has not replaced it yet. Until they do, the
+   *  session may only change it (`PATCH /users/me/password`), read the
+   *  account (`GET /users/me`) and sign out. Not a sign-out: the client keeps
+   *  its tokens and shows the change-password step. */
+  PASSWORD_CHANGE_REQUIRED = 'PASSWORD_CHANGE_REQUIRED',
   /** PermissionsGuard or a service-layer `assertCan` refused: the caller is
    *  authenticated but no CASL rule grants this action on this subject.
    *  `details` is `{ action: string; subject?: string }`.
@@ -73,21 +76,6 @@ export enum ErrorCode {
   /** class-validator failure on a DTO. `details` is
    *  `Array<{ field: string; constraints: string[] }>`. */
   VALIDATION_FAILED = 'VALIDATION_FAILED',
-  /** Bad or expired phone-verification code. */
-  INVALID_OTP = 'INVALID_OTP',
-  /** Bad, expired or already-used link token (verify-email,
-   *  password reset). */
-  INVALID_LINK = 'INVALID_LINK',
-  /** A route behind the Turnstile bot check was called without an
-   *  `X-Turnstile-Token` header. Nothing was sent, created or checked. */
-  TURNSTILE_TOKEN_MISSING = 'TURNSTILE_TOKEN_MISSING',
-  /** Cloudflare refused the `X-Turnstile-Token` — bad, expired, already used,
-   *  or minted by the other widget. One code for all of them: the remedy is
-   *  always a fresh token. */
-  TURNSTILE_TOKEN_INVALID = 'TURNSTILE_TOKEN_INVALID',
-  /** 400 — sign-up with a disposable / temporary email provider. `details`
-   *  is `{ domain: string }`. */
-  EMAIL_DOMAIN_DISALLOWED = 'EMAIL_DOMAIN_DISALLOWED',
   /** Prisma P2003 — foreign-key references a record that doesn't exist.
    *  `details` is `{ field: string }`. */
   FK_REFERENCE_INVALID = 'FK_REFERENCE_INVALID',
@@ -162,8 +150,8 @@ export enum ErrorCode {
    *  the remedy is identical. Only the throttler sets `Retry-After`, so a
    *  client must own its backoff rather than rely on the header. */
   RATE_LIMITED = 'RATE_LIMITED',
-  /** Third-party integration is unavailable or returned an error
-   *  (SMS / email / storage providers, the Turnstile check, etc.). */
+  /** A dependency outside the API is unavailable or returned an error
+   *  (the object-storage provider). */
   EXTERNAL_SERVICE_UNAVAILABLE = 'EXTERNAL_SERVICE_UNAVAILABLE',
   /** Catch-all 500 for unexpected runtime errors. The real exception is
    *  logged server-side; the response never leaks internals. */

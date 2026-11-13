@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -23,6 +29,7 @@ const account = {
   userId: 'user-1',
   email: 'operator@example.org',
   displayName: 'Operator',
+  isPasswordChangeRequired: false,
 };
 
 describe('CredentialStore', () => {
@@ -33,6 +40,49 @@ describe('CredentialStore', () => {
   });
   afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('reads an account saved before the password-change flag existed', () => {
+    writeFileSync(
+      join(directory, 'account.json'),
+      JSON.stringify({
+        origin: account.origin,
+        userId: account.userId,
+        email: account.email,
+        displayName: account.displayName,
+      }),
+    );
+    expect(new CredentialStore(directory, keychain()).loadAccount()).toEqual({
+      ...account,
+      isPasswordChangeRequired: false,
+    });
+  });
+
+  it('keeps device tokens per server and account, across sign-out', () => {
+    const store = new CredentialStore(directory, keychain());
+    store.saveDeviceToken('https://a.example', 'user-1', 'token-1');
+    store.saveDeviceToken('https://a.example', 'user-2', 'token-2');
+    store.saveDeviceToken('https://a.example', 'user-1', 'token-1b');
+    store.saveDeviceToken('https://b.example', 'user-1', 'token-b');
+    store.clear();
+
+    const reopened = new CredentialStore(directory, keychain());
+    expect(reopened.loadDeviceTokens('https://a.example')).toEqual([
+      'token-2',
+      'token-1b',
+    ]);
+    expect(reopened.loadDeviceTokens('https://b.example')).toEqual(['token-b']);
+    expect(reopened.loadDeviceTokens('https://c.example')).toEqual([]);
+  });
+
+  it('keeps at most ten device tokens per server, dropping the oldest', () => {
+    const store = new CredentialStore(directory, keychain());
+    for (let index = 0; index < 12; index += 1) {
+      store.saveDeviceToken('https://a.example', `user-${index}`, `t-${index}`);
+    }
+    const tokens = store.loadDeviceTokens('https://a.example');
+    expect(tokens).toHaveLength(10);
+    expect(tokens[0]).toBe('t-2');
   });
 
   it('keeps the refresh token encrypted and reads it back', async () => {

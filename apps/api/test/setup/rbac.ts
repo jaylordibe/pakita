@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import request from 'supertest';
 import { App } from 'supertest/types';
 import {
   assignPlatformRole,
@@ -62,11 +61,11 @@ export interface SeededUser {
 }
 
 /**
- * Creates a verified account holding the given platform roles — none, by
- * default.
+ * Creates an account holding the given platform roles — none, by default —
+ * on a password its owner chose (`isPasswordChangeRequired` false).
  *
- * Rows are inserted directly rather than through `POST /auth/register` so the
- * spec controls `emailVerifiedAt` and the role set.
+ * Rows are inserted directly rather than through `POST /users` so the spec
+ * controls the role set and needs no administrator.
  */
 export async function createUser(
   app: INestApplication<App>,
@@ -86,9 +85,6 @@ export async function createUser(
       password: await bcrypt.hash(TEST_PASSWORD, 10),
       firstName: options.firstName ?? 'Test',
       lastName: options.lastName ?? 'User',
-      // Seeded straight into the DB, bypassing the register flow, so the
-      // email-verification login gate has to be satisfied explicitly.
-      emailVerifiedAt: new Date(),
     },
   });
 
@@ -123,37 +119,6 @@ export function createRegularUser(
   email = 'user@example.com',
 ): Promise<SeededUser> {
   return createUser(app, { email, firstName: 'Regular' });
-}
-
-/**
- * Registers through the real `POST /auth/register`, then marks the email
- * verified and issues a token. Use where the spec is exercising the register
- * flow itself; `createRegularUser` is cheaper otherwise.
- */
-export async function registerVerifiedUser(
-  app: INestApplication<App>,
-  email = 'user@example.com',
-): Promise<SeededUser> {
-  await request(app.getHttpServer()).post('/api/auth/register').send({
-    email,
-    password: TEST_PASSWORD,
-    firstName: 'Regular',
-    lastName: 'User',
-  });
-
-  const prisma = app.get(PrismaService);
-  // `findFirst`, not `findUniqueOrThrow`: `email` is unique only among live
-  // rows (a partial index), so Prisma does not expose it as a unique selector.
-  const user = await prisma.user.findFirst({ where: { email } });
-  if (!user)
-    throw new Error(`registerVerifiedUser(${email}): user was not created`);
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { emailVerifiedAt: new Date() },
-  });
-
-  return { id: user.id, email, token: await issueAccessToken(app, user.id) };
 }
 
 /** The id of a seeded role, by name. */

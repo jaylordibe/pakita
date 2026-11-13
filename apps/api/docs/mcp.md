@@ -51,9 +51,7 @@ keys and the cookie keys come from settings every deployment already has
 ## 3. Environment variables
 
 All optional; the runtime contract (`docs/deployment/README.md` §8) is the
-authoritative list. One matters wherever the Turnstile bot check is on
-(staging, production): without `TURNSTILE_WEB_SITE_KEY` the sign-in page
-refuses with 503, though everything else keeps working.
+authoritative list.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -61,7 +59,6 @@ refuses with 503, though everything else keeps working.
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_MINUTES` | `60` | Lifetime of an access token (5–1440). |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_DAYS` | `30` | How long a client may renew without the user signing in again (1–90). Absolute from sign-in: renewing never extends it. |
 | `MCP_OAUTH_REDIRECT_DOMAINS` | empty | Comma-separated https origins a client may register as its redirect (`https://claude.ai,https://n8n.example.com`). Empty allows any https origin. Loopback (`http://localhost`, `127.0.0.1`, `[::1]`, any port) is always allowed. |
-| `TURNSTILE_WEB_SITE_KEY` | unset | The website Turnstile widget's public site key, rendered on the sign-in page. Needed for sign-in wherever `TURNSTILE_WEB_SECRET` and `TURNSTILE_MOBILE_SECRET` are set. |
 
 `API_BASE_URL` decides the issuer (its origin) and the protected resource
 (`<API_BASE_URL>/mcp`); it must be the public URL clients use.
@@ -79,8 +76,10 @@ refuses with 503, though everything else keeps working.
    proves possession with PKCE.
 4. It opens the user's browser at `/oauth/authorize`. The API's sign-in page
    asks for email or username and password, using the REST login's own check
-   (`AuthService.verifyCredentials`): inactive and unverified accounts are
-   refused, and a wrong password and an unknown account answer the same.
+   (`AuthService.verifyCredentials`): inactive accounts are refused, a wrong
+   password and an unknown account answer the same, and the per-account
+   failed sign-in limit applies. An account still on a password an
+   administrator chose is sent to the Pakita app to choose its own first.
 5. The consent page shows the client's name (marked as chosen by the client)
    and the exact redirect URL it registered. **Allow** sends a code to the
    client; **Deny** (or **Cancel** on the sign-in page) sends `access_denied`
@@ -94,14 +93,13 @@ session outlives one sign-in, so a stolen browser cannot mint a token later.
 
 ### Who may connect, and when access ends
 
-Any account that can sign in to the REST API: active, not deleted, email
-verified. On every MCP request, every refresh and every code exchange, the
+Any account that can sign in to the REST API: active, not deleted, and on a
+password its owner chose (not one an administrator set). On every MCP request, every refresh and every code exchange, the
 account is re-checked against the same rule REST access follows
 (`JwtStrategy`), so access ends **at the next request** after:
 
 - sign-out everywhere (`POST /api/auth/logout-all`);
-- a password change, an administrator password reset, a password reset by
-  email, or an email change;
+- a password change, an administrator password reset, or an email change;
 - deactivation, deletion or GDPR erase;
 - the access token expiring (the client then refreshes) or the refresh
   lifetime running out.
@@ -132,9 +130,9 @@ again.
 
 | Surface | Control |
 |---|---|
-| Sign-in and consent pages | `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'`; nothing else may load except Turnstile; client-supplied text is escaped. |
+| Sign-in and consent pages | `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'`; no script, and nothing else may load; client-supplied text is escaped. |
 | Forged form posts | Each form carries an HMAC token bound to its sign-in attempt, and the attempt is bound to the browser by a `SameSite=Lax` cookie a cross-site post does not send. |
-| Password guessing | The sign-in post has the REST login's limit (5 per minute per identifier and IP) and Turnstile when it is configured. |
+| Password guessing | The sign-in post shares the REST login's limits: 5 per minute per identifier and IP, 30 per minute per IP, and the per-account failed sign-in limit (the `auth-security` skill). |
 | Registration and protocol endpoints | Per-IP limits (`MCP_OAUTH_THROTTLE` in `mcp-oauth.config.ts`); registration 10 per minute. |
 | `/api/mcp` | 60 requests per minute per IP (`MCP_THROTTLE`), counted before authentication. |
 | Redirects | Loopback or https only, matched exactly (the port of a loopback redirect may change); `MCP_OAUTH_REDIRECT_DOMAINS` narrows https hosts. |
@@ -242,8 +240,6 @@ callback is `https://claude.ai/api/mcp/auth_callback`.
   HTTPS, and `API_BASE_URL` must be the public https URL.
 - **Edge rules:** route `/api/mcp`, `/oauth/*`, `/.well-known/oauth-authorization-server`
   and `/.well-known/oauth-protected-resource*` to the API; do not cache them.
-- **Turnstile:** when the bot check is on, add the API host to the website
-  widget's hostname list in Cloudflare and set `TURNSTILE_WEB_SITE_KEY`.
 - **Retention:** a nightly job (`mcp-oauth:payload-retention:v1`) deletes
   expired codes, tokens, grants, sessions and interactions. Registered clients
   are kept.
@@ -264,8 +260,7 @@ callback is `https://claude.ai/api/mcp/auth_callback`.
   `/oauth/interaction/:uid`; tokens are bound to `/api/mcp` by RFC 8707
   audience (Laravel: by issuing client and the `mcp:use` scope); the refresh lifetime is absolute
   from sign-in (Laravel: renewed with each refresh); deactivation ends access
-  (Laravel has no deactivation, only deletion); Turnstile protects the sign-in
-  page; a loopback redirect may change port for `localhost` too; and the 401
+  (Laravel has no deactivation, only deletion); a loopback redirect may change port for `localhost` too; and the 401
   challenge adds `scope` and, for a bad token, `error="invalid_token"`.
 - **Not configured here:** per-client disconnect (sign-out everywhere ends all
   of a user's connections), Client ID Metadata Documents, per-user MCP rate

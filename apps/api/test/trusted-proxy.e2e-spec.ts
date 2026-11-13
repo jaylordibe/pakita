@@ -5,6 +5,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { truncateAll } from './setup/db';
 import {
   createRegularUser,
+  createUser,
   seedRbacCatalog,
   TEST_PASSWORD,
 } from './setup/rbac';
@@ -73,26 +74,22 @@ describe('Trusted proxy (e2e)', () => {
       where: { userId, userAgent: USER_AGENT },
     });
 
-  const registerAndReadAuditEnvelope = async (
+  const signOutAndReadAuditEnvelope = async (
     app: INestApplication<App>,
     headers: Record<string, string>,
   ): Promise<{ ip?: unknown; country?: unknown }> => {
-    let pending = request(app.getHttpServer()).post('/api/auth/register');
+    const { token } = await createUser(app, { email: 'audit-ip@example.com' });
+    let pending = request(app.getHttpServer())
+      .post('/api/auth/logout')
+      .set('Authorization', `Bearer ${token}`);
     for (const [name, value] of Object.entries(headers)) {
       pending = pending.set(name, value);
     }
-    await pending
-      .send({
-        email: 'audit-ip@example.com',
-        password: TEST_PASSWORD,
-        firstName: 'Audit',
-        lastName: 'Probe',
-      })
-      .expect(201);
+    await pending.send({}).expect(204);
 
     const audit = await app
       .get(PrismaService)
-      .auditLog.findFirstOrThrow({ where: { action: 'user.registered' } });
+      .auditLog.findFirstOrThrow({ where: { action: 'auth.logout' } });
     return (
       (audit.metadata as { request?: { ip?: unknown; country?: unknown } })
         .request ?? {}
@@ -144,7 +141,7 @@ describe('Trusted proxy (e2e)', () => {
     });
 
     it('records the forwarded address in the audit trail, never CF-Connecting-IP', async () => {
-      const envelope = await registerAndReadAuditEnvelope(app, {
+      const envelope = await signOutAndReadAuditEnvelope(app, {
         'X-Forwarded-For': CLIENT_ADDRESS,
         'CF-Connecting-IP': SPOOFED_ADDRESS,
         'CF-IPCountry': 'XX',
@@ -199,7 +196,7 @@ describe('Trusted proxy (e2e)', () => {
     });
 
     it('records the peer address in the audit trail whatever headers it sends', async () => {
-      const envelope = await registerAndReadAuditEnvelope(app, {
+      const envelope = await signOutAndReadAuditEnvelope(app, {
         'X-Forwarded-For': SPOOFED_ADDRESS,
         'CF-Connecting-IP': SPOOFED_ADDRESS,
       });

@@ -104,12 +104,11 @@ runs.
 
 ### What ships out of the box
 
-Two queues:
+One queue:
 
-| Queue           | Jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `maintenance`   | `maintenance.queue-heartbeat.v1` (every 5 minutes) writes the Redis key behind `GET /api/health/workers`. `auth.refresh-token-retention.v1` (`0 0 * * *` UTC) deletes refresh tokens past their expiry.                                                                                                                                                                                                                                                       |
-| `notifications` | `user.email-verification.v1`, `user.password-reset.v1`, `user.password-changed-notice.v1` (enqueued by `UsersService`; payload is the user id — plus `occurredAt` for the password-changed notice — and the worker reloads the user) and `workspace.invitation-email.v1` (enqueued by `WorkspaceInvitationsService`; payload carries the invitation id and the token, since only its hash is stored). Queued so the request never waits on the mail provider. |
+| Queue         | Jobs |
+| ------------- | ---- |
+| `maintenance` | `maintenance.queue-heartbeat.v1` (every 5 minutes) writes the Redis key behind `GET /api/health/workers`. `auth.refresh-token-retention.v1` and `mcp-oauth.payload-retention.v1` (nightly, UTC) delete expired refresh tokens and MCP OAuth payloads. `files.cleanup.v1` deletes stored files nothing uses. `recurring-schedule-registry.ts` holds the schedules. |
 
 Only queues with a real producer are registered: `QueueJobHandlerRegistry`
 fails the boot for a queue with no processor, so an aspirational lane cannot sit
@@ -538,9 +537,7 @@ Redis database (`test/setup/worker-isolation.ts`) and `truncateAll` flushes it.
 
 `.env.test` sets `QUEUE_WORKER_ENABLED=false` so no other spec runs a live
 worker against the database its assertions read. The queue spec flips the flag
-for itself before compiling its module. Specs that assert on account emails run
-the queued jobs through the real processor with `deliverQueuedEmails`
-(`test/setup/emails.ts`).
+for itself before compiling its module.
 
 Queue work is asynchronous by definition, so assertions **poll** (`waitUntil`)
 rather than sleeping a fixed amount; a fixed sleep is either flaky or slow, and

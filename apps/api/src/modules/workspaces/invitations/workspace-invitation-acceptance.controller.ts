@@ -28,10 +28,9 @@ export class WorkspaceInvitationAcceptanceController {
   /**
    * `@AuthenticatedOnly()`, not `@Public()`.
    *
-   * An invitee without an account registers through the ordinary
-   * `POST /auth/register` first — which is what keeps ONE registration policy
-   * (disposable-email rejection, verification) instead of forking a
-   * second, less-guarded account-creation path behind a bearer token.
+   * The code is bound to the invited account, so the caller must be signed in
+   * as that account; accepting never creates one (only an administrator does,
+   * `POST /users`).
    *
    * No permission is required because there is none that could apply: authority
    * inside the workspace is precisely what this call grants.
@@ -52,10 +51,10 @@ export class WorkspaceInvitationAcceptanceController {
     @Body() dto: AcceptWorkspaceInvitationDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<AcceptedInvitationResponseDto> {
-    const { workspaceId, membershipId } = await this.service.accept(dto.token, {
-      id: user.id,
-      email: user.email,
-    });
+    const { workspaceId, membershipId } = await this.service.accept(
+      dto.token,
+      user.id,
+    );
     return new AcceptedInvitationResponseDto(workspaceId, membershipId);
   }
 }

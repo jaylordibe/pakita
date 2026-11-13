@@ -21,6 +21,7 @@ const workspaces = ref<WorkspaceSummary[] | null>(null);
 const errorMessage = ref<string | null>(null);
 const isBusy = ref(false);
 const newName = ref('');
+const invitationCode = ref('');
 /** The church being opened without asking, while it opens. */
 const openingName = ref<string | null>(null);
 
@@ -32,6 +33,23 @@ async function create(): Promise<void> {
     const workspace = await window.pakita.workspaces.create(newName.value);
     isBusy.value = false;
     await select(workspace.id);
+  } catch (error) {
+    errorMessage.value = messageOf(error);
+    isBusy.value = false;
+  }
+}
+
+/** Joins the church an administrator gave this person a code for. */
+async function join(): Promise<void> {
+  const code = invitationCode.value.trim();
+  if (!code) return;
+  errorMessage.value = null;
+  isBusy.value = true;
+  try {
+    const workspaceId = await window.pakita.invitations.accept(code);
+    invitationCode.value = '';
+    isBusy.value = false;
+    await select(workspaceId);
   } catch (error) {
     errorMessage.value = messageOf(error);
     isBusy.value = false;
@@ -80,8 +98,8 @@ async function select(workspaceId: string): Promise<void> {
           Loading…
         </p>
         <p v-else-if="workspaces?.length === 0" class="muted">
-          Your account does not belong to a church yet. Create one below, or ask
-          your church's administrator to add you.
+          Your account does not belong to a church yet. If your church's
+          administrator gave you a code, enter it below; or create a church.
         </p>
       </div>
       <ul v-if="workspaces?.length && !openingName" class="churches">
@@ -98,6 +116,24 @@ async function select(workspaceId: string): Promise<void> {
           </button>
         </li>
       </ul>
+      <form v-if="!openingName" class="create" @submit.prevent="join">
+        <input
+          v-model="invitationCode"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="Invitation code"
+          aria-label="Invitation code"
+          data-testid="invitation-code"
+        />
+        <button
+          type="submit"
+          :disabled="isBusy || !invitationCode.trim()"
+          data-testid="invitation-join"
+        >
+          <AppIcon name="arrow-right" />
+          Join church
+        </button>
+      </form>
       <form v-if="!openingName" class="create" @submit.prevent="create">
         <input
           v-model="newName"

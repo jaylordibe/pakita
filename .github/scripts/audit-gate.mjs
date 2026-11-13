@@ -43,7 +43,7 @@ const KNOWN_SEVERITIES = new Set([
 //   2. An `overrides` entry in pnpm-workspace.yaml — only when a parent
 //      genuinely pins a vulnerable range. Note next to it when it can be
 //      removed. The notes live here, beside the gate they serve:
-//        - `qs ^6.17.1` — in range for every parent (express, twilio); only
+//        - `qs ^6.17.1` — in range for every parent (express); only
 //          refreshes a stale lockfile. Remove once the lockfile resolves >=6.17.1
 //          without it.
 //        - `gaxios@7.1.3 → 7.1.4` — gcp-metadata 8.1.4 (under

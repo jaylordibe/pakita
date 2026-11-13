@@ -33,6 +33,8 @@ export interface TestWorkspace {
 
 export interface TestApi {
   readonly origin: string;
+  /** The platform administrator (creates accounts, sets passwords). */
+  readonly administrator: TestAccount;
   readonly owner: TestAccount;
   readonly workspace: TestWorkspace;
   /** An authenticated JSON request as the workspace owner. */
@@ -51,6 +53,12 @@ export interface TestApi {
 
 function loadTestEnvironment(databaseName: string, port: number) {
   const parsed = parse(readFileSync(resolve(API_DIRECTORY, '.env.test')));
+  // A value already in the environment wins, as in the API's own test setup
+  // (dotenv never overrides), so the test stack can run on other ports.
+  for (const key of Object.keys(parsed)) {
+    const override = process.env[key];
+    if (override !== undefined) parsed[key] = override;
+  }
   const { parsed: expanded } = expand({ parsed, processEnv: {} });
   const environment = { ...(expanded as Record<string, string>) };
   environment.DB_NAME = databaseName;
@@ -108,30 +116,18 @@ function runInApi(command: string, args: string[], environment: object): void {
   }
 }
 
-// Cloudflare's published test keys: the site key's widget always passes and
-// works on any hostname; the secret accepts only its dummy token.
-// https://developers.cloudflare.com/turnstile/troubleshooting/testing/
-const TURNSTILE_TEST_KEYS = {
-  TURNSTILE_WEB_SECRET: '1x0000000000000000000000000000000AA',
-  TURNSTILE_MOBILE_SECRET: '1x0000000000000000000000000000000AA',
-  TURNSTILE_MOBILE_SITE_KEY: '1x00000000000000000000AA',
-};
-
 export async function startTestApi(
   options: {
-    isBotCheckOn?: boolean;
     /** The owner is also a platform administrator (may import Bibles). */
     isOwnerPlatformAdmin?: boolean;
   } = {},
 ): Promise<TestApi> {
   const port = await freePort();
-  const databaseName = `pakita_desktop_e2e_${process.pid}_${options.isBotCheckOn ? 'turnstile' : 'plain'}`;
-  const environment: Record<string, string> = {
-    ...loadTestEnvironment(databaseName, port),
-    // The bot check is on only where asked; registering the owner below
-    // then needs a token too, which the test keys' dummy token provides.
-    ...(options.isBotCheckOn ? TURNSTILE_TEST_KEYS : {}),
-  };
+  const databaseName = `pakita_desktop_e2e_${process.pid}`;
+  const environment: Record<string, string> = loadTestEnvironment(
+    databaseName,
+    port,
+  );
   const origin = `http://127.0.0.1:${port}`;
 
   await withAdminClient(environment.DATABASE_URL!, async (client) => {
@@ -140,6 +136,23 @@ export async function startTestApi(
   });
   runInApi('pnpm', ['exec', 'prisma', 'migrate', 'deploy'], environment);
   runInApi('pnpm', ['rbac:sync'], environment);
+
+  // Accounts the way a church server gets them: its administrator from the
+  // seeder (deploy/create-admin.sh runs the same), everyone else created by
+  // an administrator. The owner is seeded too, on a password of their own.
+  const stamp = `${process.pid}-${Date.now()}`;
+  const administratorEmail = `admin-${stamp}@example.org`;
+  const ownerEmail = options.isOwnerPlatformAdmin
+    ? administratorEmail
+    : `owner-${stamp}@example.org`;
+  runInApi('pnpm', ['prisma:seed'], {
+    ...environment,
+    SEED_ADMIN_EMAIL: administratorEmail,
+    SEED_ADMIN_PASSWORD: TEST_PASSWORD,
+    ...(options.isOwnerPlatformAdmin
+      ? {}
+      : { SEED_USER_EMAIL: ownerEmail, SEED_USER_PASSWORD: TEST_PASSWORD }),
+  });
 
   let server: ChildProcess | null = null;
   const start = async () => {
@@ -171,8 +184,7 @@ export async function startTestApi(
 
   await start();
 
-  // A verified account that owns one workspace.
-  const email = `owner-${process.pid}-${Date.now()}@example.org`;
+  // The owner's one workspace.
   const send = async <Result>(
     method: string,
     path: string,
@@ -184,9 +196,6 @@ export async function startTestApi(
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options.isBotCheckOn
-          ? { 'X-Turnstile-Token': 'XXXX.DUMMY.TOKEN.XXXX' }
-          : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -196,33 +205,8 @@ export async function startTestApi(
     }
     return (text ? JSON.parse(text) : undefined) as Result;
   };
-  await send('POST', '/api/auth/register', {
-    email,
-    password: TEST_PASSWORD,
-    firstName: 'Grace',
-    lastName: 'Owner',
-  });
-  const database = new Client({ connectionString: environment.DATABASE_URL });
-  await database.connect();
-  try {
-    await database.query(
-      'UPDATE users SET email_verified_at = now() WHERE email = $1',
-      [email],
-    );
-    // Before the first sign-in, so no permission cache holds the old grants.
-    if (options.isOwnerPlatformAdmin) {
-      await database.query(
-        `INSERT INTO user_roles (id, user_id, role_id)
-         SELECT gen_random_uuid(), users.id, roles.id FROM users, roles
-         WHERE users.email = $1 AND roles.name = 'platform_admin'`,
-        [email],
-      );
-    }
-  } finally {
-    await database.end();
-  }
   const login = await send<{ accessToken: string }>('POST', '/api/auth/login', {
-    identifier: email,
+    identifier: ownerEmail,
     password: TEST_PASSWORD,
   });
   const workspace = await send<TestWorkspace>(
@@ -234,7 +218,8 @@ export async function startTestApi(
 
   return {
     origin,
-    owner: { identifier: email, password: TEST_PASSWORD },
+    administrator: { identifier: administratorEmail, password: TEST_PASSWORD },
+    owner: { identifier: ownerEmail, password: TEST_PASSWORD },
     workspace,
     request: (method, path, body) =>
       send(method, path, body, login.accessToken),

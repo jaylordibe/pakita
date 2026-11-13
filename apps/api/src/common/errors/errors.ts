@@ -62,12 +62,6 @@ export const Errors = {
       errorCode: ErrorCode.INVALID_CREDENTIALS,
       message: 'Invalid credentials',
     }),
-  emailNotVerified: (): UnauthorizedException =>
-    new UnauthorizedException({
-      errorCode: ErrorCode.EMAIL_NOT_VERIFIED,
-      message:
-        'Please verify your email before logging in. Check your inbox or request a new verification link.',
-    }),
   currentPasswordIncorrect: (): UnauthorizedException =>
     new UnauthorizedException({
       errorCode: ErrorCode.CURRENT_PASSWORD_INCORRECT,
@@ -92,6 +86,11 @@ export const Errors = {
     new ForbiddenException({
       errorCode: ErrorCode.ADMIN_SELF_TARGET_FORBIDDEN,
       message,
+    }),
+  passwordChangeRequired: (): ForbiddenException =>
+    new ForbiddenException({
+      errorCode: ErrorCode.PASSWORD_CHANGE_REQUIRED,
+      message: 'Choose a new password before continuing.',
     }),
   // The CASL authorization refusal. The message is deliberately identical for
   // every action/subject pair — `details` carries the specifics for debugging
@@ -162,35 +161,6 @@ export const Errors = {
       errorCode: ErrorCode.VALIDATION_FAILED,
       message: 'Validation failed',
       details,
-    }),
-  invalidOtp: (): BadRequestException =>
-    new BadRequestException({
-      errorCode: ErrorCode.INVALID_OTP,
-      message: 'Invalid or expired verification code',
-    }),
-  invalidLink: (): BadRequestException =>
-    new BadRequestException({
-      errorCode: ErrorCode.INVALID_LINK,
-      message: 'This link is invalid or has expired',
-    }),
-  turnstileTokenMissing: (): BadRequestException =>
-    new BadRequestException({
-      errorCode: ErrorCode.TURNSTILE_TOKEN_MISSING,
-      message: 'A bot-check token is required.',
-    }),
-  // No `details`: Cloudflare's own error codes stay in the server log. Every
-  // one a client could cause has the same remedy — get a new token.
-  turnstileTokenInvalid: (): BadRequestException =>
-    new BadRequestException({
-      errorCode: ErrorCode.TURNSTILE_TOKEN_INVALID,
-      message: 'The bot check failed or expired. Please try again.',
-    }),
-  // Sign-up with a disposable / temporary email provider.
-  emailDomainDisallowed: (domain: string): BadRequestException =>
-    new BadRequestException({
-      errorCode: ErrorCode.EMAIL_DOMAIN_DISALLOWED,
-      message: 'This email provider is not allowed',
-      details: { domain },
     }),
   // Generic bad-request escape hatch for input that's malformed in a way
   // class-validator can't express (e.g. a multipart request with no file

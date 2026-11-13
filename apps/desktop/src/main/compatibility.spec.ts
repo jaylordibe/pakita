@@ -11,7 +11,6 @@ const serverInfo = {
   serverVersion: '1.2.0',
   apiLevel: REQUIRED_API_LEVEL,
   minimumDesktopVersion: '1.0.0',
-  isBotCheckRequired: false,
 };
 
 describe('compareVersions', () => {
@@ -30,7 +29,7 @@ describe('checkCompatibility', () => {
   it('accepts a server at the required level and an allowed desktop', () => {
     expect(checkCompatibility(serverInfo, '1.0.0').status).toBe('compatible');
     expect(
-      checkCompatibility({ ...serverInfo, apiLevel: 5 }, '1.4.0').status,
+      checkCompatibility({ ...serverInfo, apiLevel: 6 }, '1.4.0').status,
     ).toBe('compatible');
   });
 

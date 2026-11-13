@@ -95,7 +95,7 @@ count, surviving the replacement of every process that touched it.
 One process does everything, because there is no autoscaler to duplicate work:
 
 ```bash
-docker compose up -d      # PostgreSQL + Redis + S3-compatible storage + Mailpit
+docker compose up -d      # PostgreSQL + Redis + S3-compatible storage
 pnpm prisma:deploy        # or pnpm prisma:migrate
 pnpm rbac:sync            # the API refuses to boot until the catalog is projected
 pnpm start:dev            # QUEUE_WORKER_ENABLED=true, API + worker in one process
@@ -485,10 +485,8 @@ Kubernetes Secret, a task-definition secret reference, a mounted file exported
 into the environment, or a plain `.env` file in development.
 
 Never logged. Redaction covers authorization and cookie headers, credential
-fields in request bodies, `set-cookie`, and — because this API deliberately
-carries a token in a query string on the email-verification link —
-secret-bearing **query parameters** are rewritten out of logged URLs before they
-reach stdout.
+fields in request bodies, `set-cookie`, and secret-bearing **query
+parameters**, which are rewritten out of logged URLs before they reach stdout.
 
 ---
 
@@ -528,21 +526,18 @@ minutes.
 | `REDIS_URL` | secret |
 | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | secret (password) |
 | `JWT_SECRET` | secret — 48+ random bytes, unique per environment |
-| `API_BASE_URL`, `WEB_BASE_URL` | public `https://` hostnames — **required in production**; the localhost defaults, `http:`, localhost, an IP address and a URL with credentials are refused there |
+| `API_BASE_URL` | public `https://` hostname — **required in production**; the localhost defaults, `http:`, localhost, an IP address and a URL with credentials are refused there |
 | `CORS_ORIGIN` | explicit list; `*` is refused in production |
 | `TRUST_PROXY` | the addresses of the trusted proxy hops — see [Client topologies](#client-topologies); `false` refused in production |
-| `EMAIL_PROVIDER`, `SMS_PROVIDER`, `STORAGE_PROVIDER` | **required in production** — they default to `stub`, and `stub` (and `EMAIL_PROVIDER=smtp`) is refused there. Their own settings are in the adapter tables below and in §5 |
-| `TURNSTILE_WEB_SECRET`, `TURNSTILE_MOBILE_SECRET` | secret — **required in staging and production**: the bot check's two widgets (website, app). Both or neither in any environment; Cloudflare's test secrets refused in staging and production. The worker validates the same configuration, so it needs both too |
-| `TURNSTILE_WEB_SITE_KEY` | public — the website widget's site key, rendered by the MCP sign-in page. Needed wherever the two secrets are set (staging, production) for MCP clients to sign in: without it the API and worker still boot, and only the sign-in page refuses (503). Add the API host to that widget's hostname list in Cloudflare |
-| `TURNSTILE_MOBILE_SITE_KEY` | public — the app widget's site key, rendered by the desktop sign-in check page (`GET /api/public/desktop-turnstile`) that Pakita's desktop app opens before signing in. Needed wherever the two secrets are set (staging, production) for the desktop app to sign in: without it the API still boots, and only that page refuses (503). Add the API host to the **app** widget's hostname list in Cloudflare (see `docs/decisions/0001-desktop-turnstile.md` at the workspace root) |
+| `STORAGE_PROVIDER` | **required in production** — it defaults to `stub`, and `stub` is refused there. Its own settings are in the adapter table below and in §5 |
 
-`EMAIL_PROVIDER`, `SMS_PROVIDER` and `STORAGE_PROVIDER` are listed here rather
-than only under the adapter tables because in production they are not optional: the default is
-`stub`, `stub` is refused, and there is no third value that needs no
-configuration. A production environment assembled from this table alone would
-otherwise crash-loop on the first boot with `"EMAIL_PROVIDER" is required`.
-`STORAGE_PROVIDER` is the same since file uploads exist: the `stub` default
-stores nothing, so production refuses it and needs `s3`, `gcs` or `azure`.
+`STORAGE_PROVIDER` is listed here rather than only under the adapter table
+because in production it is not optional: the `stub` default stores nothing,
+so production refuses it and needs `s3`, `gcs` or `azure`.
+
+The API uses no email, SMS or bot-check provider, so it needs no outside
+account. Accounts are created by an administrator; see the
+`auth-security` skill.
 
 ### Runtime-distinguishing
 
@@ -561,7 +556,7 @@ stores nothing, so production refuses it and needs `s3`, `gcs` or `azure`.
 `OTEL_EXPORTER_OTLP_ENDPOINT`, `JWT_EXPIRES_IN` (15m),
 `REFRESH_TOKEN_EXPIRES_IN_DAYS` (30), `WORKSPACE_INVITATION_EXPIRES_IN_DAYS` (7),
 `TRUST_CLOUDFLARE_HEADERS` (false — set true only when the origin is reachable
-solely through Cloudflare), `EMAIL_VERIFIED_REDIRECT_URL`, `PASSWORD_RESET_URL`,
+solely through Cloudflare),
 `STORAGE_SIGNED_URL_TTL_SECONDS` (300), `STORAGE_REQUEST_TIMEOUT_MS` (15000),
 `FILE_UPLOAD_MAX_BYTES` (26214400), `FILE_UPLOAD_TTL_SECONDS` (86400),
 `FILE_IMAGE_MAX_PIXELS` (40000000).
@@ -589,21 +584,6 @@ from `JWT_SECRET`; the issuer is the origin of `API_BASE_URL`.
 | `STORAGE_PROVIDER=s3` | `STORAGE_S3_BUCKET` | `STORAGE_S3_REGION`, `STORAGE_S3_ENDPOINT`, `STORAGE_S3_FORCE_PATH_STYLE` |
 | `STORAGE_PROVIDER=gcs` | `STORAGE_GCS_BUCKET` | `STORAGE_GCS_PROJECT_ID` |
 | `STORAGE_PROVIDER=azure` | `STORAGE_AZURE_ACCOUNT_NAME`, `STORAGE_AZURE_CONTAINER` | — |
-| `EMAIL_PROVIDER=resend` | `RESEND_API_KEY` (secret), `EMAIL_FROM` | — |
-| `EMAIL_PROVIDER=mailgun` | `MAILGUN_API_KEY` (secret; a domain sending key), `MAILGUN_DOMAIN`, `EMAIL_FROM` on that domain | `MAILGUN_REGION` (`us` default, `eu`). Mailgun takes no idempotency key, so a retry after a timed-out delivery can send twice |
-| `SMS_PROVIDER=twilio` | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (secret), `TWILIO_FROM` | — |
-
-`EMAIL_PROVIDER` and `SMS_PROVIDER` **cannot be `stub` in production** — boot
-fails. The stub adapters log the rendered message body, which carries one-time
-codes and the verify-email link, so shipping them would put credentials on
-stdout through a default nobody chose. `EMAIL_PROVIDER=smtp` (with `SMTP_HOST`
-and `SMTP_PORT`) is refused there and in staging: it is the unauthenticated
-plaintext relay to the local Mailpit inbox, not a delivery path.
-
-`PHONE_CODE_FIXED` (six digits, unset by default) makes every texted code that
-value, for local and staging testing before an SMS sender is approved. It is
-accepted only with `SMS_PROVIDER=stub`, so production can never have it, and
-boot fails if it is left set after switching to a real provider.
 
 Selecting one provider never requires another's configuration to exist.
 
@@ -658,14 +638,11 @@ browser → (CDN) → edge proxy → API                   (in-browser calls)
 
 The web server renders pages and calls the API itself. Those server-side calls
 go to the API's internal address (for example `http://api:3000/api` on a
-private container network) and carry three headers from the browser's request:
+private container network) and carry two headers from the browser's request:
 
 - `X-Forwarded-For` — the browser's address, as the edge proxy handed it to the
   web server;
-- `User-Agent` — the browser's user agent;
-- `Origin` — the browser's origin. It selects the website's Turnstile widget
-  to verify a token against; without it the API verifies against the app's
-  widget, and the website's tokens are refused.
+- `User-Agent` — the browser's user agent.
 
 Calls the page makes from the browser after it loads go to the public API URL,
 exactly as in browser-direct, and need `CORS_ORIGIN` the same way.

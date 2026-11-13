@@ -103,7 +103,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       // Redacted for the same reason as the log line, and it matters here too:
       // clients feed error envelopes straight into their own error trackers, so
       // an unredacted `path` puts the credential in a third-party system the
-      // moment an email-verification link expires. The field still answers what
+      // moment a link carrying one fails. The field still answers what
       // it exists to answer — which endpoint failed.
       //
       // `originalUrl`, not `url`: Express rewrites `url` relative to the router
@@ -317,9 +317,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
   // The URL is redacted here as well as in the pino request serializer, because
   // this line is built by hand and would otherwise sail straight past it. A
-  // failed `GET /auth/verify-email?token=…` is exactly the request that reaches
-  // this method, so the unredacted form would put a bearer credential in the
-  // logs on every expired-link click.
+  // failed request carrying a credential in its query string (a signed URL, an
+  // OAuth code) is exactly the request that reaches this method, so the
+  // unredacted form would put that credential in the logs.
   private log(status: number, request: Request, exception: unknown): void {
     const safeUrl = redactUrlSecrets(request.originalUrl);
     if (status >= 500) {

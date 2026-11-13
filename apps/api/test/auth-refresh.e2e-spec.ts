@@ -3,7 +3,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { truncateAll } from './setup/db';
-import { seedRbacCatalog } from './setup/rbac';
+import { createUser, seedRbacCatalog } from './setup/rbac';
 import { createTestApp } from './setup/test-app';
 import { firstElement } from './setup/elements';
 
@@ -29,25 +29,12 @@ interface ErrorBody {
 describe('Auth refresh tokens (e2e)', () => {
   let app: INestApplication<App>;
 
-  const registerVerifiedUser = async (email: string): Promise<void> => {
-    await request(app.getHttpServer())
-      .post('/api/auth/register')
-      .send({
-        email,
-        password: PASSWORD,
-        firstName: 'Refresh',
-        lastName: 'Tester',
-      })
-      .expect(201);
-    const prisma = app.get(PrismaService);
-    // `email` is unique only among live rows (partial index), so look the row
-    // up before updating it by id.
-    const user = await prisma.user.findFirstOrThrow({
-      where: { email: email.toLowerCase() },
-    });
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerifiedAt: new Date() },
+  // An account with no session yet: these tests count refresh rows, so the
+  // fixture's own session (createUser signs one in) is ended first.
+  const createRegularUser = async (email: string): Promise<void> => {
+    const { id } = await createUser(app, { email, firstName: 'Refresh' });
+    await app.get(PrismaService).refreshToken.deleteMany({
+      where: { userId: id },
     });
   };
 
@@ -67,7 +54,7 @@ describe('Auth refresh tokens (e2e)', () => {
   const signedInUser = async (
     email = 'refresh@example.com',
   ): Promise<TokenPair> => {
-    await registerVerifiedUser(email);
+    await createRegularUser(email);
     return login(email);
   };
 
@@ -319,7 +306,7 @@ describe('Auth refresh tokens (e2e)', () => {
   // revoke them explicitly or "sign me out everywhere" would leave every
   // device able to mint new access tokens.
   it('logout-all revokes refresh tokens on every device', async () => {
-    await registerVerifiedUser('multi@example.com');
+    await createRegularUser('multi@example.com');
     const firstDevice = await login('multi@example.com');
     const secondDevice = await login('multi@example.com');
 
@@ -336,7 +323,7 @@ describe('Auth refresh tokens (e2e)', () => {
   // user out of the other, or a single compromised device would take down every
   // session the user has.
   it('keeps separate logins in separate families', async () => {
-    await registerVerifiedUser('multi@example.com');
+    await createRegularUser('multi@example.com');
     const firstDevice = await login('multi@example.com');
     const secondDevice = await login('multi@example.com');
 

@@ -4,24 +4,21 @@ import type { User } from '@prisma/client';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { AuditService } from '../../common/audit/audit.service';
 import { Errors } from '../../common/errors/errors';
-import {
-  extractEmailDomain,
-  isDisposableEmail,
-} from '../../common/util/disposable-email.util';
 import { RedisService } from '../../common/redis/redis.service';
 import { hashPassword } from '../../common/util/password-hashing.util';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { LoginResponseDto } from './dto/login-response.dto';
-import { RegisterDto } from './dto/register.dto';
-import { RegisterResponseDto } from './dto/register-response.dto';
+import { PasswordSignInResponseDto } from './dto/password-sign-in-response.dto';
 import type { RefreshTokenContext } from './refresh-token.service';
 import { RefreshTokenService } from './refresh-token.service';
+import { SignInDeviceTokenService } from './sign-in-device-token.service';
+import {
+  deviceSignInSubject,
+  SignInFailureLimitService,
+  signInSubject,
+} from './sign-in-failure-limit.service';
 import { LOGOUT_KEY_PREFIX } from './strategies/jwt.strategy';
-
-// The one answer to every registration, new address or not.
-const REGISTERED_MESSAGE =
-  'Check your email to verify your account before logging in.';
 
 @Injectable()
 export class AuthService {
@@ -35,53 +32,19 @@ export class AuthService {
     private readonly redis: RedisService,
     private readonly auditService: AuditService,
     private readonly refreshTokenService: RefreshTokenService,
+    private readonly signInFailureLimit: SignInFailureLimitService,
+    private readonly signInDeviceTokens: SignInDeviceTokenService,
   ) {}
-
-  /**
-   * Answers the same for every address, so registration never says whether an
-   * email has an account. A registered one creates nothing: its password is
-   * hashed anyway, so it costs what a new address does, and its owner is
-   * emailed: an unverified account gets its verification link again (the
-   * likely case is its owner retrying), a verified one the notice that
-   * someone tried (`queueSignUpAccountExistsNotice`). Either way the attempt
-   * is audited with its request envelope, so abuse of the notice is traceable.
-   */
-  async register(dto: RegisterDto): Promise<RegisterResponseDto> {
-    if (isDisposableEmail(dto.email)) {
-      throw Errors.emailDomainDisallowed(extractEmailDomain(dto.email) ?? '');
-    }
-    const existing = await this.usersService.findByEmail(dto.email);
-    if (existing) {
-      await hashPassword(dto.password);
-      if (existing.emailVerifiedAt) {
-        await this.usersService.queueSignUpAccountExistsNotice(existing.id);
-      } else {
-        await this.usersService.resendEmailVerification(existing.email);
-      }
-      await this.auditService.record({
-        action: 'user.registration_attempted_existing',
-        actorId: null,
-        targetUserId: existing.id,
-      });
-      return { message: REGISTERED_MESSAGE };
-    }
-    // `create` queues the verification email.
-    const user = await this.usersService.create(dto, null);
-    // The only place a self-signup's request envelope (ip, user agent,
-    // request id) is persisted; AuditService attaches it automatically.
-    await this.auditService.record({
-      action: 'user.registered',
-      actorId: null,
-      targetUserId: user.id,
-    });
-    return { message: REGISTERED_MESSAGE };
-  }
 
   async login(
     dto: LoginDto,
     context: RefreshTokenContext = {},
-  ): Promise<LoginResponseDto> {
-    const user = await this.verifyCredentials(dto.identifier, dto.password);
+  ): Promise<PasswordSignInResponseDto> {
+    const user = await this.verifyCredentials(
+      dto.identifier,
+      dto.password,
+      dto.deviceTokens,
+    );
     // The cutoff read with the password check authorises the session; a
     // revocation committing before issue is refused inside `startSession`.
     const tokens = await this.refreshTokenService.startSession(
@@ -89,7 +52,11 @@ export class AuthService {
       user.passwordChangedAt,
       context,
     );
-    return { ...tokens, user: await this.usersService.toResponse(user) };
+    return {
+      ...tokens,
+      user: await this.usersService.toResponse(user),
+      deviceToken: this.signInDeviceTokens.issue(user.id),
+    };
   }
 
   /**
@@ -111,16 +78,35 @@ export class AuthService {
   /**
    * The one password check every sign-in path goes through: the REST login and
    * the MCP OAuth sign-in page. Returns the user only when the password matches
-   * an active, verified account; it creates no session or token, so each
-   * caller decides what a successful check grants.
+   * an active account; it creates no session or token, so each caller decides
+   * what a successful check grants (an account whose password an administrator
+   * chose gets a session that can only change it: `JwtAuthGuard`).
    *
    * An unknown identifier, an inactive account and a wrong password all answer
    * `INVALID_CREDENTIALS` after the same bcrypt work, so neither the response
-   * nor its timing says whether the account exists.
+   * nor its timing says whether the account exists. Each counts as a failed
+   * sign-in for the account (`SignInFailureLimitService`), and too many refuse
+   * every check for it, right or wrong, until the window ends — except from a
+   * device that presents a device token for the account (`deviceTokens`),
+   * whose attempts are counted for that device alone.
    */
-  async verifyCredentials(identifier: string, password: string): Promise<User> {
+  async verifyCredentials(
+    identifier: string,
+    password: string,
+    deviceTokens: readonly string[] = [],
+  ): Promise<User> {
     // Soft-deleted accounts resolve to null, the same as an unknown identifier.
     const user = await this.usersService.findByEmailOrUsername(identifier);
+    const deviceId = user
+      ? this.signInDeviceTokens.deviceIdFor(user.id, deviceTokens)
+      : null;
+    const subject =
+      user && deviceId
+        ? deviceSignInSubject(user.id, deviceId)
+        : signInSubject(user?.id ?? null, identifier);
+    // Reserved before the comparison, so concurrent guesses cannot all slip
+    // under the limit while their comparisons run.
+    await this.signInFailureLimit.reserveAttempt(subject);
     const passwordMatches = await bcrypt.compare(
       password,
       user?.password ?? (await this.getDummyHash()),
@@ -128,11 +114,7 @@ export class AuthService {
     if (!user || !user.isActive || !passwordMatches) {
       throw Errors.invalidCredentials();
     }
-    // After the password check, so only the password holder learns the
-    // account exists but is unverified.
-    if (!user.emailVerifiedAt) {
-      throw Errors.emailNotVerified();
-    }
+    await this.signInFailureLimit.clear(subject);
     return user;
   }
 

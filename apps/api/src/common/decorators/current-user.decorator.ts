@@ -15,6 +15,10 @@ export interface AuthenticatedUser {
   // (derived from `exp`). Optional so callers that don't care can ignore them.
   jti?: string;
   exp?: number;
+  // The account's password was chosen by an administrator and not replaced
+  // yet. `JwtAuthGuard` limits such a session to the routes marked
+  // `@AllowedWhilePasswordChangeRequired()`.
+  isPasswordChangeRequired: boolean;
 }
 
 export const CurrentUser = createParamDecorator(

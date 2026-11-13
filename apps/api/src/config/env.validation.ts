@@ -1,6 +1,5 @@
 import { isIP } from 'node:net';
 import * as Joi from 'joi';
-import { PHONE_OTP_LENGTH } from '../common/constants/phone-otp.constants';
 import {
   parseMcpAllowedOrigins,
   parseMcpRedirectOrigins,
@@ -8,32 +7,8 @@ import {
 import { isTrustedProxyList } from '../common/util/trusted-proxy.util';
 import { FILE_UPLOAD_DEFAULTS } from './file-upload.defaults';
 
-// Cloudflare's published Turnstile test secrets (`1x…AA`, `2x…AA`, `3x…AA`).
-// The first answers success for ANY token, so one left in a deployed
-// environment switches the bot check off while every boot check still sees a
-// secret present. Matched as a pattern, so case and stray spaces don't slip by.
-const TURNSTILE_TEST_SECRET_KEY_PATTERN = /^\s*\dx0{31}AA\s*$/i;
-
-// Required in staging as well as production: staging is reachable from the
-// internet, and its emails reach real inboxes.
-const turnstileSecretKey = Joi.string()
-  .trim()
-  .empty('')
-  .when('NODE_ENV', {
-    is: Joi.valid('staging', 'production'),
-    then: Joi.string()
-      .pattern(TURNSTILE_TEST_SECRET_KEY_PATTERN, { invert: true })
-      .required()
-      .messages({
-        'any.required':
-          '{{#label}} is required in staging and production — the Turnstile bot check guards emails, sign-ups and password sign-in there.',
-        'string.pattern.invert.base':
-          '{{#label}} is a Cloudflare test secret, which passes any token. Use the secret of a real widget for this environment.',
-      }),
-  });
-
-// The test suite never reaches a real provider: a text is billed, and an
-// email reaches a real person. Tests never read `.env` (`isEnvFileIgnored`),
+// The test suite never reaches a real provider: object storage is billed and
+// holds real files. Tests never read `.env` (`isEnvFileIgnored`),
 // so the stub defaults hold; this refuses the boot if `.env.test` or the
 // shell names a real one anyway.
 function refusedInTest(...realProviders: string[]): Joi.WhenOptions {
@@ -48,9 +23,9 @@ function refusedInTest(...realProviders: string[]): Joi.WhenOptions {
   };
 }
 
-// A link a person clicks, so production must name the real public host: the
-// localhost defaults below would boot fine and put an unclickable link in every
-// verification, reset and booking email. Judged on the URL as a browser parses
+// A public address clients reach, so production must name the real public
+// host: the localhost default below would boot fine and hand out an address
+// nobody else can reach. Judged on the URL as a browser parses
 // it, so every spelling of a loopback or bare address is caught (`127.1`,
 // `2130706433`, `[::ffff:127.0.0.1]`, `localhost.`, `*.localhost`), and so are
 // credentials in the URL. A deployment links to a hostname, never to an IP.
@@ -87,7 +62,7 @@ function publicUrlInProduction(defaultUrl: string): Joi.StringSchema {
         .required()
         .messages({
           'any.required':
-            '{{#label}} is required in production — it builds the links in emails and texts, and the default points at localhost.',
+            '{{#label}} is required in production — it names the server in the MCP sign-in and its metadata, and the default points at localhost.',
           'string.uriCustomScheme':
             '{{#label}} must be an https:// URL in production.',
           'publicUrl.host':
@@ -109,20 +84,9 @@ export const envValidationSchema = Joi.object({
       'lowercase identifier; also used as the Postgres database name',
     ),
 
-  // Base URL used to build clickable links embedded in outbound emails
-  // (e.g. the email-verification link). Point this at your frontend if
-  // you have one (e.g. `https://app.yourapp.com`); otherwise point it at
-  // the API base (e.g. `https://api.yourapp.com/api`) and the backend's
-  // `GET /auth/verify-email?token=…` endpoint will handle the click.
-  // Must be a full URL with scheme — no trailing slash.
+  // The API's public base URL, with scheme and no trailing slash. The MCP
+  // OAuth issuer and resource are derived from it.
   API_BASE_URL: publicUrlInProduction('http://localhost:3000/api'),
-
-  // Customer-facing web frontend base URL — distinct from API_BASE_URL
-  // (which is the API). Used by emails that link customers to pages
-  // they actually browse (booking confirmation CTAs, marketing pages,
-  // etc.). Default targets the Vite dev port; production must set this
-  // to the real web hostname (e.g. `https://yourapp.com`).
-  WEB_BASE_URL: publicUrlInProduction('http://localhost:5173'),
 
   DB_USER: Joi.string().required(),
   DB_PASSWORD: Joi.string().allow('').required(),
@@ -300,171 +264,15 @@ export const envValidationSchema = Joi.object({
     .allow('')
     .default('false'),
 
-  // Cloudflare Turnstile secret keys, one per widget. Both or neither (the
-  // `.and` below): with one set, a caller could pick the unconfigured widget
-  // and skip the check.
-  TURNSTILE_WEB_SECRET: turnstileSecretKey,
-  TURNSTILE_MOBILE_SECRET: turnstileSecretKey,
-  // The website widget's public site key, rendered by the MCP OAuth sign-in
-  // page. Deliberately NOT required with the secrets: a deployment without it
-  // still boots, and only that page refuses (OAuthPagesService), so adding the
-  // MCP sign-in never takes REST or the worker down.
-  TURNSTILE_WEB_SITE_KEY: Joi.string().trim().empty(''),
-  // The app widget's public site key, rendered by the desktop sign-in check
-  // page (PublicController). Not required for the same reason: without it
-  // only that page refuses, and desktops cannot sign in while the check is on.
-  TURNSTILE_MOBILE_SITE_KEY: Joi.string().trim().empty(''),
-
-  // How long a workspace invitation stays redeemable. The token is a bearer
-  // credential living in somebody's inbox, so this is bounded on purpose: a
-  // long-lived invitation turns any later mailbox compromise into a way into
-  // the workspace. Capped at 30 days — anything longer should be re-issued.
+  // How long a workspace invitation code stays redeemable. Only the invited
+  // account can redeem it, but a copy left in a chat history should not stay
+  // worth something for ever. Capped at 30 days — anything longer should be
+  // re-issued.
   WORKSPACE_INVITATION_EXPIRES_IN_DAYS: Joi.number()
     .integer()
     .min(1)
     .max(30)
     .default(7),
-
-  // Email provider selection. `stub` (default) logs to stdout — OTPs are
-  // visible in the app log so local flows can be completed manually.
-  // `resend` routes through resend.com and requires RESEND_API_KEY and
-  // EMAIL_FROM (the latter must be a verified sender on that domain).
-  // `smtp` sends to a plain SMTP relay — the local Mailpit inbox in
-  // docker-compose.yml — and requires SMTP_HOST, SMTP_PORT and EMAIL_FROM.
-  //
-  // Refused in production: `StubEmailAdapter` LOGS THE RENDERED MESSAGE at info
-  // level, and that body carries the one-time codes and the
-  // `verify-email?token=…` link. Shipping it in production would reintroduce
-  // the credential-to-stdout class this template works hard to close, through
-  // a default nobody chose. Same floor as CORS_ORIGIN and TRUST_PROXY.
-  // `smtp` is refused there and in staging: it is unauthenticated plaintext,
-  // built for a local inbox, never a delivery path.
-  EMAIL_PROVIDER: Joi.string()
-    .valid('stub', 'resend', 'mailgun', 'smtp')
-    .default('stub')
-    .when('NODE_ENV', {
-      is: 'production',
-      then: Joi.string().invalid('stub', 'smtp').required().messages({
-        'any.invalid':
-          'EMAIL_PROVIDER cannot be "{{#value}}" in production — the stub adapter writes the full message body, including one-time codes and verification links, to stdout, and smtp is an unauthenticated plaintext relay for the local Mailpit inbox. Configure a real provider.',
-      }),
-    })
-    .when('NODE_ENV', {
-      is: 'staging',
-      then: Joi.string().invalid('smtp').messages({
-        'any.invalid':
-          'EMAIL_PROVIDER cannot be "smtp" in staging or production — it is the unauthenticated plaintext relay for the local Mailpit inbox, not a delivery path. Configure a real provider.',
-      }),
-    })
-    .when('NODE_ENV', refusedInTest('resend', 'mailgun', 'smtp')),
-  // EMAIL_FROM and each provider's keys tolerate empty strings when their
-  // provider is not selected, so a committed `.env` template can ship with
-  // `RESEND_API_KEY=""` placeholders without breaking boot on the stub
-  // provider. The required check only kicks in when that provider is actually
-  // selected. (Mirrors the SMS/Twilio fields below.)
-  EMAIL_FROM: Joi.string().when('EMAIL_PROVIDER', {
-    is: Joi.valid('resend', 'mailgun', 'smtp'),
-    then: Joi.required(),
-    otherwise: Joi.string().allow('').optional(),
-  }),
-  RESEND_API_KEY: Joi.string().when('EMAIL_PROVIDER', {
-    is: 'resend',
-    then: Joi.required(),
-    otherwise: Joi.string().allow('').optional(),
-  }),
-  // A Mailgun domain sending key, and the domain verified in Mailgun that
-  // EMAIL_FROM is on. MAILGUN_REGION is where the Mailgun account lives.
-  MAILGUN_API_KEY: Joi.string().when('EMAIL_PROVIDER', {
-    is: 'mailgun',
-    then: Joi.required(),
-    otherwise: Joi.string().allow('').optional(),
-  }),
-  MAILGUN_DOMAIN: Joi.string()
-    .hostname()
-    .when('EMAIL_PROVIDER', {
-      is: 'mailgun',
-      then: Joi.required(),
-      otherwise: Joi.string().allow('').optional(),
-    }),
-  MAILGUN_REGION: Joi.string().valid('us', 'eu').default('us'),
-  // The relay for EMAIL_PROVIDER=smtp: Mailpit's SMTP port on this machine.
-  SMTP_HOST: Joi.string()
-    .hostname()
-    .when('EMAIL_PROVIDER', {
-      is: 'smtp',
-      then: Joi.required(),
-      otherwise: Joi.allow('').optional(),
-    }),
-  SMTP_PORT: Joi.number()
-    .port()
-    .when('EMAIL_PROVIDER', {
-      is: 'smtp',
-      then: Joi.required(),
-      otherwise: Joi.allow('').optional(),
-    }),
-
-  // SMS provider selection. `stub` (default) logs to stdout — OTPs are
-  // visible in the app log so local flows can be completed manually.
-  // `twilio` routes through twilio.com and requires TWILIO_ACCOUNT_SID,
-  // TWILIO_AUTH_TOKEN, and TWILIO_FROM (an E.164 phone number you've
-  // provisioned in the Twilio console, or a Messaging Service SID
-  // starting with "MG…").
-  //
-  // Refused in production for the same reason as EMAIL_PROVIDER: the stub
-  // adapter logs the message body, which is the OTP.
-  SMS_PROVIDER: Joi.string()
-    .valid('stub', 'twilio')
-    .default('stub')
-    .when('NODE_ENV', {
-      is: 'production',
-      then: Joi.string().invalid('stub').required().messages({
-        'any.invalid':
-          'SMS_PROVIDER cannot be "stub" in production — the stub adapter writes the message body, which is the one-time code, to stdout. Configure a real provider.',
-      }),
-    })
-    .when('NODE_ENV', refusedInTest('twilio')),
-  // Every texted code is this value instead of a random one, so a tester can
-  // finish phone verification without the text — for local and staging while
-  // no SMS sender is approved. Unset (the default) or empty means random
-  // codes. Accepted only with SMS_PROVIDER=stub, which production already
-  // refuses: a known code is never texted to a real phone, and switching to a
-  // real provider fails boot until this is removed.
-  PHONE_CODE_FIXED: Joi.string()
-    .pattern(new RegExp(`^\\d{${PHONE_OTP_LENGTH}}$`))
-    .allow('')
-    .optional()
-    .when('SMS_PROVIDER', {
-      not: 'stub',
-      then: Joi.valid('').messages({
-        'any.only':
-          'PHONE_CODE_FIXED is accepted only with SMS_PROVIDER=stub — a real provider would text a code anyone can guess. Remove it.',
-      }),
-    }),
-  // The Twilio fields tolerate empty strings when SMS_PROVIDER=stub so a
-  // committed `.env` template can ship with `TWILIO_FROM=""` placeholders
-  // without breaking dev/test boot. The format/required checks only kick
-  // in when twilio is actually selected.
-  TWILIO_ACCOUNT_SID: Joi.string().when('SMS_PROVIDER', {
-    is: 'twilio',
-    then: Joi.string()
-      .pattern(/^AC[0-9a-fA-F]{32}$/)
-      .required()
-      .messages({
-        'string.pattern.base':
-          'TWILIO_ACCOUNT_SID must start with "AC" followed by 32 hex chars.',
-      }),
-    otherwise: Joi.string().allow('').optional(),
-  }),
-  TWILIO_AUTH_TOKEN: Joi.string().when('SMS_PROVIDER', {
-    is: 'twilio',
-    then: Joi.required(),
-    otherwise: Joi.string().allow('').optional(),
-  }),
-  TWILIO_FROM: Joi.string().when('SMS_PROVIDER', {
-    is: 'twilio',
-    then: Joi.required(),
-    otherwise: Joi.string().allow('').optional(),
-  }),
 
   // ── Object storage ─────────────────────────────────────────────────────────
   // `stub` (default) persists nothing and returns `stub://…` URLs, so a fresh
@@ -606,23 +414,6 @@ export const envValidationSchema = Joi.object({
       }),
     }),
 
-  // Public web URL the API redirects to after a GET /auth/verify-email
-  // click. The web app reads `?status=success|error&reason=…` and
-  // renders the matching state. Optional in dev (defaults to
-  // `${WEB_BASE_URL}/auth/verify-email`); production should set this
-  // explicitly to the real landing page hostname.
-  EMAIL_VERIFIED_REDIRECT_URL: Joi.string()
-    .uri({ scheme: ['http', 'https'] })
-    .pattern(/[^/]$/, { name: 'no-trailing-slash' })
-    .optional(),
-
-  // Web page linked from the password-reset email. Defaults to
-  // `${WEB_BASE_URL}/auth/reset-password`.
-  PASSWORD_RESET_URL: Joi.string()
-    .uri({ scheme: ['http', 'https'] })
-    .pattern(/[^/]$/, { name: 'no-trailing-slash' })
-    .optional(),
-
   THROTTLE_TTL_MS: Joi.number().integer().min(1000).default(60_000),
   THROTTLE_LIMIT: Joi.number().integer().min(1).default(100),
 
@@ -692,9 +483,4 @@ export const envValidationSchema = Joi.object({
       'mcpRedirectDomains.format':
         'MCP_OAUTH_REDIRECT_DOMAINS must be comma-separated https origins such as "https://claude.ai" (scheme, host and optional port; no path).',
     }),
-})
-  .and('TURNSTILE_WEB_SECRET', 'TURNSTILE_MOBILE_SECRET')
-  .messages({
-    'object.and':
-      'Set both TURNSTILE_WEB_SECRET and TURNSTILE_MOBILE_SECRET, or neither — with only one, the bot check can be skipped by choosing the other widget.',
-  });
+});

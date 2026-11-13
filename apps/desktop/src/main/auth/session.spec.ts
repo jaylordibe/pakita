@@ -32,8 +32,12 @@ const tokens = (generation: number) => ({
     email: 'operator@example.org',
     firstName: 'Ann',
     lastName: 'Operator',
+    isPasswordChangeRequired: generation === 1 && isFirstPasswordChosen,
   },
 });
+
+// Whether the account's first session is on a password an administrator chose.
+let isFirstPasswordChosen = false;
 
 /** A tiny fake server: login, rotating refresh, and one protected route. */
 function fakeServer() {
@@ -42,7 +46,10 @@ function fakeServer() {
     refreshCalls: 0,
     expiredAccessTokens: new Set<string>(),
     isSessionRevoked: false,
-    lastTurnstileToken: null as string | null,
+    passwordChanges: [] as Array<Record<string, unknown>>,
+    /** The device tokens each sign-in presented. */
+    presentedDeviceTokens: [] as unknown[],
+    signIns: 0,
     /** When set, a refresh waits for it before answering. */
     refreshGate: null as Promise<void> | null,
     loggedOutTokens: [] as string[],
@@ -52,9 +59,19 @@ function fakeServer() {
     const headers = (init?.headers ?? {}) as Record<string, string>;
     const body = (init?.body ? JSON.parse(String(init.body)) : {}) as {
       refreshToken?: string;
-    };
+    } & Record<string, unknown>;
     if (path === '/api/auth/login') {
-      state.lastTurnstileToken = headers['X-Turnstile-Token'] ?? null;
+      state.presentedDeviceTokens.push(body.deviceTokens);
+      state.signIns += 1;
+      return json(200, {
+        ...tokens(state.generation),
+        deviceToken: `device-${state.signIns}`,
+      });
+    }
+    if (path === '/api/users/me/password') {
+      state.passwordChanges.push(body);
+      // The server ends every session and returns a fresh one.
+      state.generation += 1;
       return json(200, tokens(state.generation));
     }
     if (path === '/api/auth/logout') {
@@ -111,15 +128,15 @@ describe('Session', () => {
     rmSync(directory, { recursive: true, force: true });
   });
 
-  it('signs in with the Turnstile token and remembers the account', async () => {
-    const account = await session.signIn('operator', 'secret', 'ts-token');
+  it('signs in and remembers the account', async () => {
+    const account = await session.signIn('operator', 'secret');
 
-    expect(server.state.lastTurnstileToken).toBe('ts-token');
     expect(account).toEqual({
       origin: 'https://pakita.example.org',
       userId: 'user-1',
       email: 'operator@example.org',
       displayName: 'Ann Operator',
+      isPasswordChangeRequired: false,
     });
     await expect(store.loadRefreshToken()).resolves.toBe('refresh-1');
     expect(session.isSignedIn).toBe(true);
@@ -128,8 +145,16 @@ describe('Session', () => {
     });
   });
 
+  it('sends the device token an earlier sign-in was given, even after sign-out', async () => {
+    await session.signIn('operator', 'secret');
+    await session.signOut();
+    await session.signIn('operator', 'secret');
+
+    expect(server.state.presentedDeviceTokens).toEqual([[], ['device-1']]);
+  });
+
   it('refreshes once for concurrent requests after a restart', async () => {
-    await session.signIn('operator', 'secret', null);
+    await session.signIn('operator', 'secret');
     const restarted = await Session.restore(
       new ApiClient('https://pakita.example.org', server.fetchFunction),
       store,
@@ -151,7 +176,7 @@ describe('Session', () => {
   });
 
   it('refreshes and retries once when the server says the token expired', async () => {
-    await session.signIn('operator', 'secret', null);
+    await session.signIn('operator', 'secret');
     server.state.expiredAccessTokens.add('access-1');
 
     await expect(session.request(protectedRequest)).resolves.toEqual({
@@ -160,7 +185,7 @@ describe('Session', () => {
   });
 
   it('asks for a new sign-in when the session was revoked, keeping the account', async () => {
-    await session.signIn('operator', 'secret', null);
+    await session.signIn('operator', 'secret');
     server.state.expiredAccessTokens.add('access-1');
     server.state.isSessionRevoked = true;
 
@@ -173,7 +198,7 @@ describe('Session', () => {
   });
 
   it('forgets everything on sign-out', async () => {
-    await session.signIn('operator', 'secret', null);
+    await session.signIn('operator', 'secret');
     await session.signOut();
     expect(store.loadAccount()).toBeNull();
     await expect(store.loadRefreshToken()).resolves.toBeNull();
@@ -182,9 +207,39 @@ describe('Session', () => {
     );
   });
 
+  describe('on a password an administrator chose', () => {
+    beforeEach(() => {
+      isFirstPasswordChosen = true;
+    });
+    afterEach(() => {
+      isFirstPasswordChosen = false;
+    });
+
+    it('remembers that the password must be replaced', async () => {
+      const account = await session.signIn('operator', 'temporary-1');
+      expect(account.isPasswordChangeRequired).toBe(true);
+      expect(store.loadAccount()?.isPasswordChangeRequired).toBe(true);
+    });
+
+    it('continues on the fresh session the change returns, and lifts the flag', async () => {
+      await session.signIn('operator', 'temporary-1');
+      const account = await session.changePassword('temporary-1', 'mine-2');
+
+      expect(server.state.passwordChanges).toEqual([
+        { currentPassword: 'temporary-1', newPassword: 'mine-2' },
+      ]);
+      expect(account.isPasswordChangeRequired).toBe(false);
+      expect(store.loadAccount()?.isPasswordChangeRequired).toBe(false);
+      await expect(store.loadRefreshToken()).resolves.toBe('refresh-2');
+      await expect(session.request(protectedRequest)).resolves.toEqual({
+        token: 'access-2',
+      });
+    });
+  });
+
   describe('a refresh still in flight', () => {
     async function pendingRefresh() {
-      await session.signIn('operator', 'secret', null);
+      await session.signIn('operator', 'secret');
       let release!: () => void;
       server.state.refreshGate = new Promise((resolve) => {
         release = resolve;
@@ -214,7 +269,7 @@ describe('Session', () => {
       const { request, release } = await pendingRefresh();
       server.state.generation = 7; // the next sign-in hands out tokens 7
 
-      await session.signIn('second-operator', 'secret', null);
+      await session.signIn('second-operator', 'secret');
       release();
 
       await expect(request).rejects.toBeInstanceOf(SignInRequiredError);

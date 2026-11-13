@@ -393,14 +393,16 @@ describe('MCP OAuth sign-in (e2e)', () => {
       );
     });
 
-    it('an unverified account cannot sign in', async () => {
+    // MCP has no change-password step, so an account still on a password an
+    // administrator chose is sent to the app to choose its own first.
+    it('an account that must replace its password cannot sign in', async () => {
       await app.get(PrismaService).user.update({
         where: { id: user.id },
-        data: { emailVerifiedAt: null },
+        data: { isPasswordChangeRequired: true },
       });
       const response = await attemptSignIn(user.email, TEST_PASSWORD);
-      expect(response.status).toBe(400);
-      expect(await response.text()).toContain('Verify your email address');
+      expect(response.status).toBe(403);
+      expect(await response.text()).toContain('choose your own password');
     });
   });
 
@@ -947,164 +949,5 @@ describe('MCP OAuth sign-in (e2e)', () => {
       const again = await openLoginPage(browser);
       expect(again.html).toMatch(/name=["']password["']/);
     });
-  });
-});
-
-// The sign-in form with the Turnstile bot check on (both secrets and the web
-// site key set — the staging and production shape). Siteverify is stubbed at
-// `fetch`, as in turnstile.e2e-spec.ts.
-describe('MCP OAuth sign-in with the bot check on (e2e)', () => {
-  const SITEVERIFY_URL =
-    'https://challenges.cloudflare.com/turnstile/v0/siteverify';
-  const PASS = 'genuine-widget-token';
-  const SITE_KEY = 'e2e-web-widget-site-key';
-  const realFetch = globalThis.fetch;
-  let harness: OAuthTestApp;
-  let fetchSpy: jest.SpyInstance;
-  let user: SeededUser;
-  let clientId: string;
-
-  beforeAll(async () => {
-    harness = await createOAuthTestApp({
-      TURNSTILE_WEB_SECRET: 'e2e-web-widget-secret',
-      TURNSTILE_MOBILE_SECRET: 'e2e-mobile-widget-secret',
-      TURNSTILE_WEB_SITE_KEY: SITE_KEY,
-    });
-    fetchSpy = jest
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation((input, init) => {
-        const url = input instanceof Request ? input.url : input.toString();
-        if (url !== SITEVERIFY_URL) return realFetch(input, init);
-        const form = init?.body as URLSearchParams;
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ success: form.get('response') === PASS }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          ),
-        );
-      });
-  });
-
-  afterAll(async () => {
-    fetchSpy.mockRestore();
-    await harness.app.close();
-    harness.restore();
-  });
-
-  beforeEach(async () => {
-    await truncateAll(harness.app);
-    await seedRbacCatalog(harness.app);
-    user = await createRegularUser(harness.app, 'bot-check@example.com');
-    const registered = await request(harness.app.getHttpServer())
-      .post('/oauth/register')
-      .send({
-        client_name: 'Bot check client',
-        redirect_uris: [LOOPBACK_REDIRECT],
-      })
-      .expect(201);
-    clientId = registered.body.client_id as string;
-  });
-
-  async function openLogin() {
-    const browser = new OAuthBrowser();
-    const query = new URLSearchParams({
-      response_type: 'code',
-      client_id: clientId,
-      redirect_uri: LOOPBACK_REDIRECT,
-      code_challenge: pkcePair().challenge,
-      code_challenge_method: 'S256',
-      scope: 'mcp:use',
-    });
-    const page = await browser.follow(
-      `${harness.baseUrl}/oauth/authorize?${query.toString()}`,
-    );
-    return {
-      browser,
-      response: page.response!,
-      html: await page.response!.text(),
-    };
-  }
-
-  it('renders the widget, allowing only its script', async () => {
-    const { response, html } = await openLogin();
-    expect(html).toMatch(new RegExp(`data-sitekey=["']${SITE_KEY}["']`));
-    expect(response.headers.get('content-security-policy')).toContain(
-      'https://challenges.cloudflare.com',
-    );
-  });
-
-  it('refuses a sign-in without a widget token, before checking the password', async () => {
-    const { browser, html } = await openLogin();
-    const login = readForm(html, '/login');
-    const response = await browser.request(
-      `${harness.baseUrl}${login.action}`,
-      {
-        form: {
-          identifier: user.email,
-          password: TEST_PASSWORD,
-          formToken: login.formToken,
-        },
-      },
-    );
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      errorCode: 'TURNSTILE_TOKEN_MISSING',
-    });
-  });
-
-  it('signs in with the token the widget put in the form', async () => {
-    const { browser, html } = await openLogin();
-    const login = readForm(html, '/login');
-    const consent = await browser.follow(`${harness.baseUrl}${login.action}`, {
-      form: {
-        identifier: user.email,
-        password: TEST_PASSWORD,
-        formToken: login.formToken,
-        'cf-turnstile-response': PASS,
-      },
-    });
-    expect(await consent.response!.text()).toContain('Allow access?');
-  });
-});
-
-// The bot check on but no web site key: an upgrade that has not added it yet.
-// The app boots; only the sign-in page refuses, rather than offering a form
-// whose post could never pass the check.
-describe('MCP OAuth sign-in with the bot check on and no site key (e2e)', () => {
-  let harness: OAuthTestApp;
-
-  beforeAll(async () => {
-    harness = await createOAuthTestApp({
-      TURNSTILE_WEB_SECRET: 'e2e-web-widget-secret',
-      TURNSTILE_MOBILE_SECRET: 'e2e-mobile-widget-secret',
-      TURNSTILE_WEB_SITE_KEY: '',
-    });
-  });
-
-  afterAll(async () => {
-    await harness.app.close();
-    harness.restore();
-  });
-
-  it('boots, and the sign-in page answers 503 instead of a form', async () => {
-    const registered = await request(harness.app.getHttpServer())
-      .post('/oauth/register')
-      .send({ client_name: 'No site key', redirect_uris: [LOOPBACK_REDIRECT] })
-      .expect(201);
-    const query = new URLSearchParams({
-      response_type: 'code',
-      client_id: registered.body.client_id as string,
-      redirect_uri: LOOPBACK_REDIRECT,
-      code_challenge: pkcePair().challenge,
-      code_challenge_method: 'S256',
-      scope: 'mcp:use',
-    });
-    const page = await new OAuthBrowser().follow(
-      `${harness.baseUrl}/oauth/authorize?${query.toString()}`,
-    );
-    expect(page.response!.status).toBe(503);
-    const html = await page.response!.text();
-    expect(html).toContain('Sign-in unavailable');
-    expect(html).not.toMatch(/name=["']password["']/);
   });
 });

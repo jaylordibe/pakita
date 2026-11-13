@@ -687,7 +687,7 @@ describe('Workspace memberships (e2e)', () => {
         .post(`/api/workspaces/${workspace.id}/invitations`)
         .set('Authorization', `Bearer ${owner.token}`)
         .send({
-          email: formerMember.email,
+          identifier: formerMember.email,
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_ADMIN),
         })
         .expect(201);

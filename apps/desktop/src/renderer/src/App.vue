@@ -10,12 +10,19 @@ import { DEFAULT_THEME_LOOK } from '../../shared/theme-look';
 import pakitaMark from './assets/pakita-mark.png';
 import AppIcon from './components/AppIcon.vue';
 import LivePanel from './components/LivePanel.vue';
+import ChangePasswordView from './views/ChangePasswordView.vue';
 import ConnectView from './views/ConnectView.vue';
 import MainView from './views/MainView.vue';
 import SignInView from './views/SignInView.vue';
 import WorkspaceView from './views/WorkspaceView.vue';
 
-type Screen = 'loading' | 'connect' | 'sign-in' | 'workspace' | 'main';
+type Screen =
+  | 'loading'
+  | 'connect'
+  | 'sign-in'
+  | 'change-password'
+  | 'workspace'
+  | 'main';
 
 const state = ref<AppState | null>(null);
 const screen = ref<Screen>('loading');
@@ -39,6 +46,10 @@ const liveState = ref<LiveState>({
 function screenFor(appState: AppState): Screen {
   if (!appState.serverOrigin || isChangingServer.value) return 'connect';
   if (!appState.account) return 'sign-in';
+  // A password an administrator chose: the server answers nothing else
+  // until the person picks their own.
+  if (appState.account.isSignedIn && appState.account.isPasswordChangeRequired)
+    return 'change-password';
   if (!appState.workspaceId) {
     // Choosing a workspace needs the server, and so a live session.
     return appState.account.isSignedIn ? 'workspace' : 'sign-in';
@@ -144,6 +155,12 @@ onUnmounted(() => {
         @signed-in="refresh"
         @change-server="changeServer"
         @back="screen = 'main'"
+      />
+      <ChangePasswordView
+        v-else-if="screen === 'change-password' && state?.account"
+        :account="state.account"
+        @changed="refresh"
+        @signed-out="refresh"
       />
       <WorkspaceView
         v-else-if="screen === 'workspace'"

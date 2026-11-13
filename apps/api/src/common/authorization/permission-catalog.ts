@@ -60,8 +60,6 @@ export const AUTHORIZATION_ACTIONS = [
   'readPayload',
   // Signing an account out everywhere.
   'revokeSession',
-  // Re-sending an email-verification link on a user's behalf.
-  'resendVerification',
 ] as const;
 export type AuthorizationAction = (typeof AUTHORIZATION_ACTIONS)[number];
 
@@ -219,12 +217,6 @@ const REVOKE_ANY_USER_SESSION = platform(
   'User',
   ANY,
   'Sign any account out of every device',
-);
-const RESEND_ANY_USER_VERIFICATION = platform(
-  'resendVerification',
-  'User',
-  ANY,
-  "Re-send an account's email-verification link",
 );
 
 // ── Platform scope: technical diagnostics ────────────────────────────────
@@ -453,7 +445,6 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   READ_ANY_WORKSPACE,
   MANAGE_ANY_APP_VERSION,
   REVOKE_ANY_USER_SESSION,
-  RESEND_ANY_USER_VERIFICATION,
   READ_ANY_QUEUE_JOB,
   READ_ANY_QUEUE_JOB_PAYLOAD,
   RETRY_ANY_QUEUE_JOB,
@@ -625,7 +616,7 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
     // general UPDATE_ANY_USER: resending a link or ending sessions helps the
     // owner, whereas editing their email takes the account from them.
     description:
-      'Customer-facing support: account visibility, verification resends, session revocation',
+      'Customer-facing support: account visibility and session revocation',
     // Also without READ_ANY_AUDIT_LOG — see the note on
     // PLATFORM_TECHNICAL_SUPPORT above. This role is the widest-staffed one on
     // the platform and is the least appropriate place for a firehose of other
@@ -635,7 +626,6 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       READ_ANY_WORKSPACE,
       READ_ANY_WORKSPACE_MEMBERSHIP,
       REVOKE_ANY_USER_SESSION,
-      RESEND_ANY_USER_VERIFICATION,
     ],
   },
 

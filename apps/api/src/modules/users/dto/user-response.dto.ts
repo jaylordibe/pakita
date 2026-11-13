@@ -24,9 +24,12 @@ export class UserResponseDto {
   lastName!: string;
   username!: string | null;
   email!: string;
-  @ApiHideProperty() @Exclude() emailVerifiedAt!: Date | null;
-  phoneNumber!: string | null;
-  phoneNumberVerifiedAt!: Date | null;
+  /**
+   * The password was chosen by an administrator (a new account, or a reset)
+   * and must be replaced before anything else: every other route answers
+   * PASSWORD_CHANGE_REQUIRED until `PATCH /users/me/password` succeeds.
+   */
+  isPasswordChangeRequired!: boolean;
   gender!: Gender | null;
   birthday!: Date | null;
   timezone!: string | null;
@@ -40,9 +43,6 @@ export class UserResponseDto {
   // so both decorators are needed to keep the docs honest.
   @ApiHideProperty() @Exclude() password!: string;
   @ApiHideProperty() @Exclude() passwordChangedAt!: Date | null;
-  @ApiHideProperty() @Exclude() otpHash!: string | null;
-  @ApiHideProperty() @Exclude() otpPurpose!: string | null;
-  @ApiHideProperty() @Exclude() otpExpiresAt!: Date | null;
   @ApiHideProperty() @Exclude() profileImageFileAssetId!: string | null;
 
   // `profileImage` is required, not defaulted: a call site that forgot it

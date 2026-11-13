@@ -218,119 +218,6 @@ describe('env.validation cross-field rules', () => {
     });
   });
 
-  describe('turnstile', () => {
-    const BOTH_SECRETS = {
-      TURNSTILE_WEB_SECRET: 'web-widget-secret',
-      TURNSTILE_MOBILE_SECRET: 'mobile-widget-secret',
-    };
-
-    function turnstileMessages(overrides: Record<string, unknown>): string[] {
-      return (validate(overrides).error?.details ?? [])
-        .map((detail) => detail.message)
-        .filter((message) => message.includes('TURNSTILE_'));
-    }
-
-    // Off locally and in tests: no keys, or keys left empty in a copied
-    // .env.example, both boot.
-    it.each(['development', 'test'])('needs no secret in %s', (nodeEnv) => {
-      expect(turnstileMessages({ NODE_ENV: nodeEnv })).toEqual([]);
-      expect(
-        turnstileMessages({
-          NODE_ENV: nodeEnv,
-          TURNSTILE_WEB_SECRET: '',
-          TURNSTILE_MOBILE_SECRET: '',
-        }),
-      ).toEqual([]);
-    });
-
-    it.each(['staging', 'production'])(
-      'requires both secrets in %s, naming each missing one',
-      (nodeEnv) => {
-        const missing = turnstileMessages({ NODE_ENV: nodeEnv });
-        expect(missing).toContainEqual(
-          expect.stringContaining('TURNSTILE_WEB_SECRET'),
-        );
-        expect(missing).toContainEqual(
-          expect.stringContaining('TURNSTILE_MOBILE_SECRET'),
-        );
-        expect(
-          turnstileMessages({ NODE_ENV: nodeEnv, ...BOTH_SECRETS }),
-        ).toEqual([]);
-      },
-    );
-
-    it.each(['staging', 'production'])(
-      'treats an empty or blank secret as missing in %s',
-      (nodeEnv) => {
-        expect(
-          turnstileMessages({
-            NODE_ENV: nodeEnv,
-            ...BOTH_SECRETS,
-            TURNSTILE_WEB_SECRET: '   ',
-          }),
-        ).toContainEqual(expect.stringContaining('TURNSTILE_WEB_SECRET'));
-        expect(
-          turnstileMessages({
-            NODE_ENV: nodeEnv,
-            ...BOTH_SECRETS,
-            TURNSTILE_MOBILE_SECRET: '',
-          }),
-        ).toContainEqual(expect.stringContaining('TURNSTILE_MOBILE_SECRET'));
-      },
-    );
-
-    it.each([
-      ['staging', '1x0000000000000000000000000000000AA'],
-      ['production', '1x0000000000000000000000000000000AA'],
-      ['production', '2x0000000000000000000000000000000AA'],
-      ['production', '3x0000000000000000000000000000000AA'],
-      ['production', '1x0000000000000000000000000000000aa'],
-      ['staging', ' 1x0000000000000000000000000000000AA '],
-    ])("refuses Cloudflare's test secret in %s (%s)", (nodeEnv, testSecret) => {
-      expect(
-        turnstileMessages({
-          NODE_ENV: nodeEnv,
-          ...BOTH_SECRETS,
-          TURNSTILE_WEB_SECRET: testSecret,
-        }),
-      ).toContainEqual(expect.stringContaining('test secret'));
-    });
-
-    // The site key only feeds the MCP sign-in page, which refuses on its own
-    // when it is missing; an existing deployment upgrading without it boots.
-    it.each(['staging', 'production'])(
-      'boots with both secrets and no web site key in %s',
-      (nodeEnv) => {
-        expect(
-          turnstileMessages({
-            NODE_ENV: nodeEnv,
-            ...BOTH_SECRETS,
-            TURNSTILE_WEB_SITE_KEY: '',
-          }),
-        ).toEqual([]);
-      },
-    );
-
-    it.each(VALIDATED_ENVIRONMENTS)(
-      'refuses exactly one secret in %s',
-      (nodeEnv) => {
-        expect(
-          turnstileMessages({
-            NODE_ENV: nodeEnv,
-            TURNSTILE_WEB_SECRET: 'web-widget-secret',
-          }),
-        ).not.toEqual([]);
-        expect(
-          turnstileMessages({
-            NODE_ENV: nodeEnv,
-            TURNSTILE_WEB_SECRET: '',
-            TURNSTILE_MOBILE_SECRET: 'mobile-widget-secret',
-          }),
-        ).not.toEqual([]);
-      },
-    );
-  });
-
   // No provider is privileged, and selecting one must never force another's
   // configuration to exist. That is what keeps the same image deployable to a
   // different cloud with only environment changes.
@@ -348,17 +235,13 @@ describe('env.validation cross-field rules', () => {
       };
       expect(error).toBeUndefined();
       expect(value.API_BASE_URL).toBe('http://localhost:3000/api');
-      expect(value.WEB_BASE_URL).toBe('http://localhost:5173');
     });
 
-    it.each(['API_BASE_URL', 'WEB_BASE_URL'])(
-      'requires %s in production instead of defaulting to localhost',
-      (key) => {
-        expect(messagesFor(key, { NODE_ENV: 'production' })).toContainEqual(
-          expect.stringContaining('is required in production'),
-        );
-      },
-    );
+    it('requires API_BASE_URL in production instead of defaulting to localhost', () => {
+      expect(
+        messagesFor('API_BASE_URL', { NODE_ENV: 'production' }),
+      ).toContainEqual(expect.stringContaining('is required in production'));
+    });
 
     it.each(['http://api.example.com/api', 'http://localhost:3000/api'])(
       'refuses API_BASE_URL %s in production: not https',
@@ -403,32 +286,19 @@ describe('env.validation cross-field rules', () => {
       );
     });
 
-    it('refuses a WEB_BASE_URL with no public hostname too', () => {
-      expect(
-        messagesFor('WEB_BASE_URL', {
-          NODE_ENV: 'production',
-          WEB_BASE_URL: 'https://[::1]:5173',
-        }),
-      ).toContainEqual(
-        expect.stringContaining('must name the public hostname'),
-      );
-    });
-
     it('accepts public https URLs in production', () => {
       const overrides = {
         NODE_ENV: 'production',
-        API_BASE_URL: 'https://api.example.com/api',
-        WEB_BASE_URL: 'https://www.localhost-shop.example.com',
+        API_BASE_URL: 'https://api.localhost-shop.example.com/api',
       };
       expect(messagesFor('API_BASE_URL', overrides)).toEqual([]);
-      expect(messagesFor('WEB_BASE_URL', overrides)).toEqual([]);
     });
 
     it('lets staging keep http and its own hosts', () => {
       expect(
-        messagesFor('WEB_BASE_URL', {
+        messagesFor('API_BASE_URL', {
           NODE_ENV: 'staging',
-          WEB_BASE_URL: 'http://localhost:5173',
+          API_BASE_URL: 'http://localhost:3000/api',
         }),
       ).toEqual([]);
     });
@@ -535,10 +405,6 @@ describe('env.validation cross-field rules', () => {
     // The suite never calls a real provider, even if `.env.test` or the shell
     // names one.
     it.each([
-      ['EMAIL_PROVIDER', 'resend', { RESEND_API_KEY: 'a-key' }],
-      ['EMAIL_PROVIDER', 'mailgun', {}],
-      ['EMAIL_PROVIDER', 'smtp', {}],
-      ['SMS_PROVIDER', 'twilio', {}],
       ['STORAGE_PROVIDER', 's3', {}],
       ['STORAGE_PROVIDER', 'gcs', {}],
       ['STORAGE_PROVIDER', 'azure', {}],
@@ -558,8 +424,6 @@ describe('env.validation cross-field rules', () => {
       expect(
         validate({
           NODE_ENV: 'test',
-          EMAIL_PROVIDER: 'stub',
-          SMS_PROVIDER: 'stub',
           STORAGE_PROVIDER: 'stub',
         }).error,
       ).toBeUndefined();
@@ -595,179 +459,6 @@ describe('env.validation cross-field rules', () => {
       expect(
         storageMessages({ NODE_ENV: 'staging', STORAGE_PROVIDER: 'stub' }),
       ).not.toContainEqual(expect.stringContaining('STORAGE_'));
-    });
-  });
-
-  describe('email', () => {
-    function messages(overrides: Record<string, unknown>): string[] {
-      return (validate(overrides).error?.details ?? []).map(
-        (detail) => detail.message,
-      );
-    }
-
-    it('requires the key, the domain and a sender with the mailgun provider', () => {
-      const missing = messages({ EMAIL_PROVIDER: 'mailgun' });
-      for (const key of ['MAILGUN_API_KEY', 'MAILGUN_DOMAIN', 'EMAIL_FROM']) {
-        expect(missing).toContainEqual(expect.stringContaining(key));
-      }
-      const { value, error } = validate({
-        EMAIL_PROVIDER: 'mailgun',
-        MAILGUN_API_KEY: 'a-sending-key',
-        MAILGUN_DOMAIN: 'mg.lysta.test',
-        EMAIL_FROM: 'Lysta <noreply@mg.lysta.test>',
-      }) as { value: Record<string, unknown>; error?: unknown };
-      expect(error).toBeUndefined();
-      expect(value.MAILGUN_REGION).toBe('us');
-    });
-
-    it('takes only a US or EU region and a bare domain', () => {
-      const base = {
-        EMAIL_PROVIDER: 'mailgun',
-        MAILGUN_API_KEY: 'a-sending-key',
-        EMAIL_FROM: 'Lysta <noreply@mg.lysta.test>',
-      };
-      expect(
-        messages({
-          ...base,
-          MAILGUN_DOMAIN: 'mg.lysta.test',
-          MAILGUN_REGION: 'ap',
-        }),
-      ).toContainEqual(expect.stringContaining('MAILGUN_REGION'));
-      expect(
-        messages({ ...base, MAILGUN_DOMAIN: 'https://mg.lysta.test/' }),
-      ).toContainEqual(expect.stringContaining('MAILGUN_DOMAIN'));
-    });
-
-    it('lets the stub ship with empty Mailgun placeholders', () => {
-      expect(
-        validate({ MAILGUN_API_KEY: '', MAILGUN_DOMAIN: '' }).error,
-      ).toBeUndefined();
-    });
-
-    const SMTP = {
-      EMAIL_PROVIDER: 'smtp',
-      SMTP_HOST: 'localhost',
-      SMTP_PORT: '1025',
-      EMAIL_FROM: 'App <noreply@app.test>',
-    };
-
-    it('accepts smtp with a host, a port and a sender', () => {
-      const { value, error } = validate(SMTP) as {
-        value: Record<string, unknown>;
-        error?: unknown;
-      };
-      expect(error).toBeUndefined();
-      expect(value.SMTP_PORT).toBe(1025);
-    });
-
-    it.each(['SMTP_HOST', 'SMTP_PORT', 'EMAIL_FROM'])(
-      'refuses smtp without %s',
-      (key) => {
-        expect(messages({ ...SMTP, [key]: undefined })).toContainEqual(
-          `"${key}" is required`,
-        );
-      },
-    );
-
-    it('refuses a malformed SMTP host or port', () => {
-      const refused = messages({
-        ...SMTP,
-        SMTP_HOST: 'not a host',
-        SMTP_PORT: '70000',
-      });
-      expect(refused).toContainEqual('"SMTP_HOST" must be a valid hostname');
-      expect(refused).toContainEqual('"SMTP_PORT" must be a valid port');
-    });
-
-    it('lets the other providers ship with empty SMTP placeholders', () => {
-      expect(validate({ SMTP_HOST: '', SMTP_PORT: '' }).error).toBeUndefined();
-    });
-
-    // A local, unauthenticated relay is never a production delivery path.
-    it('refuses smtp in production', () => {
-      expect(messages({ ...SMTP, NODE_ENV: 'production' })).toContainEqual(
-        expect.stringContaining(
-          'EMAIL_PROVIDER cannot be "smtp" in production',
-        ),
-      );
-    });
-
-    it('refuses stub in production', () => {
-      expect(
-        messages({ NODE_ENV: 'production', EMAIL_PROVIDER: 'stub' }),
-      ).toContainEqual(
-        expect.stringContaining(
-          'EMAIL_PROVIDER cannot be "stub" in production',
-        ),
-      );
-    });
-
-    it('refuses smtp in staging, where the stub is still allowed', () => {
-      expect(messages({ ...SMTP, NODE_ENV: 'staging' })).toContainEqual(
-        expect.stringContaining(
-          'EMAIL_PROVIDER cannot be "smtp" in staging or production',
-        ),
-      );
-      expect(
-        messages({ NODE_ENV: 'staging', EMAIL_PROVIDER: 'stub' }),
-      ).not.toContainEqual(expect.stringContaining('EMAIL_PROVIDER'));
-    });
-
-    it('lets resend ship with empty SMTP placeholders', () => {
-      expect(
-        messages({
-          EMAIL_PROVIDER: 'resend',
-          RESEND_API_KEY: 'a-key',
-          EMAIL_FROM: 'App <noreply@app.test>',
-          SMTP_HOST: '',
-          SMTP_PORT: '',
-        }),
-      ).not.toContainEqual(expect.stringContaining('SMTP_'));
-    });
-
-    it.each(['.env.example'])('documents the SMTP keys in %s', (file) => {
-      const content = readFileSync(join(__dirname, '..', '..', file), 'utf8');
-      expect(content).toMatch(/^#?\s*SMTP_HOST=/m);
-      expect(content).toMatch(/^#?\s*SMTP_PORT=/m);
-    });
-
-    it('rejects a provider this release has no adapter for', () => {
-      expect(messages({ EMAIL_PROVIDER: 'sendgrid' })).toContainEqual(
-        expect.stringContaining('EMAIL_PROVIDER'),
-      );
-    });
-  });
-
-  describe('fixed phone code', () => {
-    function messages(overrides: Record<string, unknown>): string[] {
-      return (validate(overrides).error?.details ?? []).map(
-        (detail) => detail.message,
-      );
-    }
-
-    it('takes six digits with the stub SMS provider', () => {
-      expect(validate({ PHONE_CODE_FIXED: '123456' }).error).toBeUndefined();
-      expect(validate({ PHONE_CODE_FIXED: '' }).error).toBeUndefined();
-      for (const code of ['12345', '1234567', 'abcdef']) {
-        expect(messages({ PHONE_CODE_FIXED: code })).toContainEqual(
-          expect.stringContaining('PHONE_CODE_FIXED'),
-        );
-      }
-    });
-
-    it('is refused with a real SMS provider, so it never reaches a phone', () => {
-      const twilio = {
-        SMS_PROVIDER: 'twilio',
-        TWILIO_ACCOUNT_SID: `AC${'0'.repeat(32)}`,
-        TWILIO_AUTH_TOKEN: 'a-token',
-        TWILIO_FROM: '+15551234567',
-      };
-      expect(
-        messages({ ...twilio, PHONE_CODE_FIXED: '123456' }),
-      ).toContainEqual(expect.stringContaining('SMS_PROVIDER=stub'));
-      expect(
-        validate({ ...twilio, PHONE_CODE_FIXED: '' }).error,
-      ).toBeUndefined();
     });
   });
 

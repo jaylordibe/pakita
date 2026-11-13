@@ -13,6 +13,7 @@ import { basename, join } from 'node:path';
 import type { z } from 'zod';
 
 import {
+  type AccountCapabilities,
   type AccountSummary,
   type AppState,
   type BibleBook,
@@ -23,7 +24,13 @@ import {
   type BibleVerse,
   type DatabaseHealth,
   type DisplayInfo,
+  type InvitableRole,
+  type InvitationSummary,
   IpcEvent,
+  type IssuedInvitation,
+  type IssuedPassword,
+  type ManagedAccount,
+  type NewAccountInput,
   type LiveState,
   type PassageRequest,
   type PlaylistInput,
@@ -51,23 +58,31 @@ import {
 } from '../shared/theme-look';
 import { ApiClient, ApiError } from './api/api-client';
 import {
+  acceptedInvitationSchema,
   bibleContentSchema,
   bibleTranslationListSchema,
   bibleTranslationSchema,
+  invitationPageSchema,
+  type invitationSchema,
+  issuedInvitationSchema,
   playlistSchema,
+  rolePageSchema,
   serverInfoSchema,
   songSchema,
   syncChangesSchema,
   themeSchema,
+  userPageSchema,
   userPermissionsSchema,
+  type userSchema,
+  userSchema as managedUserSchema,
   workspaceSchema,
   workspacePageSchema,
 } from './api/api-schemas';
 import { parseServerAddress } from './api/server-address';
 import { CredentialStore, type StoredAccount } from './auth/credential-store';
 import { Session, SignInRequiredError } from './auth/session';
-import { canImportBibles } from './auth/permissions';
-import { obtainTurnstileToken } from './auth/turnstile-window';
+import { capabilitiesOf, NO_CAPABILITIES } from './auth/permissions';
+import { generateTemporaryPassword } from './auth/temporary-password';
 import {
   readUsfmFolder,
   type TranslationUploader,
@@ -110,6 +125,9 @@ const RATE_LIMIT_RETRIES = 5;
 const RATE_LIMIT_DELAY_MILLISECONDS = 15_000;
 /** Verses in a chapter are at most this many (Psalm 119 has 176). */
 const MAX_CHAPTER_VERSE = 200;
+// A bound on paging an administrative list: 100 pages of 100 rows, far beyond
+// any church server, so a server that miscounts cannot keep the loop going.
+const MAX_LIST_PAGES = 100;
 
 export interface AppControllerOptions {
   readonly userDataDirectory: string;
@@ -283,11 +301,8 @@ export class AppController {
     if (compatibility.status !== 'compatible') {
       throw new Error(compatibility.message ?? 'Incompatible server.');
     }
-    const turnstileToken = info.isBotCheckRequired
-      ? await obtainTurnstileToken(api.origin, this.options.getOperatorWindow())
-      : null;
     const previous = session.getAccount();
-    const account = await session.signIn(identifier, password, turnstileToken);
+    const account = await session.signIn(identifier, password);
     if (previous && previous.userId !== account.userId) {
       // Someone else signed in on this laptop: the previous account's content
       // and church choice go, exactly as on sign-out.
@@ -303,8 +318,180 @@ export class AppController {
     if (!this.database) {
       this.openDatabase(account);
     }
-    this.startSync();
+    // On a password an administrator chose, the server answers nothing else
+    // until it is replaced (`changePassword` starts synchronising then).
+    if (account.isPasswordChangeRequired) {
+      // Signed in again after an administrator's reset: whatever was
+      // synchronising before stops until the new password is chosen.
+      this.stopBackgroundSync();
+      this.syncEngine = null;
+    } else {
+      this.startSync();
+    }
     return this.summarise(account);
+  }
+
+  /**
+   * Replaces the signed-in person's password. The server ends every other
+   * session and this laptop continues on the fresh one it returns.
+   */
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<AccountSummary> {
+    await this.sessionReady;
+    const wasRequired =
+      this.requireSession().getAccount()?.isPasswordChangeRequired;
+    const account = await this.requireSession().changePassword(
+      currentPassword,
+      newPassword,
+    );
+    if (wasRequired) {
+      this.startSync();
+    }
+    return this.summarise(account);
+  }
+
+  /** What the signed-in person may administer; nothing offline. */
+  async getCapabilities(): Promise<AccountCapabilities> {
+    await this.sessionReady;
+    if (!this.session?.isSignedIn) return NO_CAPABILITIES;
+    try {
+      const { rules } = await this.session.request({
+        method: 'GET',
+        path: '/api/users/me/permissions',
+        schema: userPermissionsSchema,
+      });
+      return capabilitiesOf(rules, this.settings.get().workspaceId);
+    } catch {
+      return NO_CAPABILITIES;
+    }
+  }
+
+  // ── Accounts (the platform administrator) ─────────────────────────────
+
+  async listAccounts(): Promise<ManagedAccount[]> {
+    await this.sessionReady;
+    const users = await this.fetchAllPages(
+      '/api/users?isDeleted=false&sortBy=firstName&sortOrder=asc',
+      userPageSchema,
+    );
+    return users.map(toManagedAccount);
+  }
+
+  /**
+   * Creates an account with a generated one-time password, returned once so
+   * the administrator can pass it on; the person replaces it at sign-in.
+   */
+  async createAccount(input: NewAccountInput): Promise<IssuedPassword> {
+    await this.sessionReady;
+    const temporaryPassword = generateTemporaryPassword();
+    const user = await this.requireSession().request({
+      method: 'POST',
+      path: '/api/users',
+      schema: managedUserSchema,
+      body: {
+        email: input.email,
+        ...(input.username ? { username: input.username } : {}),
+        firstName: input.firstName,
+        lastName: input.lastName,
+        password: temporaryPassword,
+      },
+    });
+    return { account: toManagedAccount(user), temporaryPassword };
+  }
+
+  /** A new one-time password for someone who lost theirs. */
+  async resetAccountPassword(accountId: string): Promise<IssuedPassword> {
+    await this.sessionReady;
+    const temporaryPassword = generateTemporaryPassword();
+    const user = await this.requireSession().request({
+      method: 'PATCH',
+      path: `/api/users/${accountId}/password`,
+      schema: managedUserSchema,
+      body: { newPassword: temporaryPassword },
+    });
+    return { account: toManagedAccount(user), temporaryPassword };
+  }
+
+  // ── Invitations to the open church ────────────────────────────────────
+
+  /** The roles the signed-in person may give in the open church. */
+  async listInvitableRoles(): Promise<InvitableRole[]> {
+    await this.sessionReady;
+    const workspaceId = this.requireWorkspace();
+    const page = await this.requireSession().request({
+      method: 'GET',
+      path: `/api/roles?scope=workspace&assignableIn=${workspaceId}&perPage=100`,
+      schema: rolePageSchema,
+    });
+    return [...page.data]
+      .sort((first, second) => first.rank - second.rank)
+      .map(({ id, name, description }) => ({ id, name, description }));
+  }
+
+  async listInvitations(): Promise<InvitationSummary[]> {
+    await this.sessionReady;
+    const workspaceId = this.requireWorkspace();
+    const invitations = await this.fetchAllPages(
+      `/api/workspaces/${workspaceId}/invitations?sortBy=createdAt&sortOrder=desc`,
+      invitationPageSchema,
+    );
+    const now = Date.now();
+    return invitations
+      .filter(
+        (invitation) =>
+          invitation.status === 'pending' &&
+          Date.parse(invitation.expiresAt) > now,
+      )
+      .map(toInvitationSummary);
+  }
+
+  async createInvitation(
+    identifier: string,
+    roleId: string,
+  ): Promise<IssuedInvitation> {
+    await this.sessionReady;
+    const workspaceId = this.requireWorkspace();
+    const issued = await this.requireSession().request({
+      method: 'POST',
+      path: `/api/workspaces/${workspaceId}/invitations`,
+      schema: issuedInvitationSchema,
+      body: { identifier, roleId },
+    });
+    return { invitation: toInvitationSummary(issued), code: issued.token };
+  }
+
+  async reissueInvitation(invitationId: string): Promise<IssuedInvitation> {
+    await this.sessionReady;
+    const workspaceId = this.requireWorkspace();
+    const issued = await this.requireSession().request({
+      method: 'POST',
+      path: `/api/workspaces/${workspaceId}/invitations/${invitationId}/resend`,
+      schema: issuedInvitationSchema,
+    });
+    return { invitation: toInvitationSummary(issued), code: issued.token };
+  }
+
+  async revokeInvitation(invitationId: string): Promise<void> {
+    await this.sessionReady;
+    const workspaceId = this.requireWorkspace();
+    await this.requireSession().request<void>({
+      method: 'DELETE',
+      path: `/api/workspaces/${workspaceId}/invitations/${invitationId}`,
+    });
+  }
+
+  /** Joins the church an invitation code was issued for. */
+  async acceptInvitation(code: string): Promise<string> {
+    await this.sessionReady;
+    const accepted = await this.requireSession().request({
+      method: 'POST',
+      path: '/api/invitations/accept',
+      schema: acceptedInvitationSchema,
+      body: { token: code },
+    });
+    return accepted.workspaceId;
   }
 
   /** Signs out and removes this account's content from the laptop. */
@@ -476,26 +663,6 @@ export class AppController {
   ): Promise<BibleSearchHit[]> {
     if (!this.database) return [];
     return this.database.searchBible(translationId, search);
-  }
-
-  /**
-   * Whether the signed-in person may import a Bible translation, from their
-   * permission rules on the server. Offline or signed out the answer is no:
-   * an import needs the server anyway.
-   */
-  async canImportBibles(): Promise<boolean> {
-    await this.sessionReady;
-    if (!this.session?.isSignedIn) return false;
-    try {
-      const { rules } = await this.session.request({
-        method: 'GET',
-        path: '/api/users/me/permissions',
-        schema: userPermissionsSchema,
-      });
-      return canImportBibles(rules);
-    } catch {
-      return false;
-    }
   }
 
   /**
@@ -839,7 +1006,11 @@ export class AppController {
   /** Wires synchronisation to the open database and current session. */
   private startSync(): void {
     const { database, session } = this;
-    if (!database || !session?.getAccount()) return;
+    const account = session?.getAccount();
+    // Until a password an administrator chose is replaced, the server answers
+    // nothing a synchronisation needs.
+    if (!database || !session || !account || account.isPasswordChangeRequired)
+      return;
     this.syncEngine = new SyncEngine(
       {
         fetchChanges: (workspaceId, cursor, limit) =>
@@ -1074,7 +1245,27 @@ export class AppController {
       email: account.email,
       displayName: account.displayName,
       isSignedIn: this.session?.isSignedIn ?? false,
+      isPasswordChangeRequired: account.isPasswordChangeRequired,
     };
+  }
+
+  /** Every row of a list endpoint, page by page (the API caps a page at 100). */
+  private async fetchAllPages<Row>(
+    path: string,
+    schema: z.ZodType<{ data: Row[]; meta: { totalPages: number } }>,
+  ): Promise<Row[]> {
+    const session = this.requireSession();
+    const rows: Row[] = [];
+    for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
+      const result = await session.request({
+        method: 'GET',
+        path: `${path}&perPage=100&page=${page}`,
+        schema,
+      });
+      rows.push(...result.data);
+      if (page >= result.meta.totalPages) break;
+    }
+    return rows;
   }
 
   private requireServer(): { api: ApiClient; session: Session } {
@@ -1115,4 +1306,29 @@ async function retryWhenRateLimited<Result>(
       );
     }
   }
+}
+
+function toManagedAccount(user: z.infer<typeof userSchema>): ManagedAccount {
+  return {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    displayName: `${user.firstName} ${user.lastName}`.trim(),
+    isActive: user.isActive,
+    isPasswordChangeRequired: user.isPasswordChangeRequired,
+  };
+}
+
+function toInvitationSummary(
+  invitation: z.infer<typeof invitationSchema>,
+): InvitationSummary {
+  const invitee = invitation.invitedUser;
+  return {
+    id: invitation.id,
+    invitee: invitee
+      ? `${invitee.firstName} ${invitee.lastName}`.trim()
+      : 'A removed account',
+    roleName: invitation.role.name,
+    expiresAt: invitation.expiresAt,
+  };
 }

@@ -17,7 +17,6 @@ root).
 | Lint / format check | `pnpm lint` | Evidence is `lint`, never `lint:fix`; Prettier runs inside it |
 | Unit tests | `pnpm test` | Pure code only (vitest) |
 | App tests | `pnpm test:e2e` | Builds, then drives the real app with Playwright against a real API (see below) |
-| Turnstile sign-in test | `PAKITA_E2E_TURNSTILE=1 pnpm exec playwright test turnstile` | Opt-in: needs the internet (Cloudflare's test keys) |
 | API types | `pnpm generate:api` | Regenerates `src/shared/api/openapi.ts`, `enums.ts` and `constraints.ts` from `apps/api/openapi.json`; CI fails when stale |
 | Package (unpacked) | `pnpm package:dir` | Proves packaging; publishes nothing, never signs |
 | Packaged smoke test | `pnpm smoke:package` | Launches the package from `package:dir` and waits for its database |
@@ -69,10 +68,21 @@ test/fixtures/ shared test data (a tiny USFM translation)
 - **Credentials stay in the main process.** Tokens are never sent to a
   renderer. The refresh token is stored only through the system keychain
   (`safeStorage`); where none exists (Linux `basic_text`) it is not stored.
-- **Only the Turnstile check window loads remote content**
-  (`src/main/auth/turnstile-window.ts`): no preload, its own session, and a
-  navigation policy limited to the church server and Cloudflare's challenge
-  origin (`setNavigationPolicy`).
+  Each account's sign-in device token (`sign-in-devices.json`, kept across
+  sign-out) is not secret on its own: it only stops strangers' failed guesses
+  locking this laptop out (the API's `SignInDeviceTokenService`).
+- **No window loads remote content.** Every window navigates only within the
+  app's own origins (`installWebContentsGuards`); the church server is reached
+  from the main process alone.
+- **The clipboard is written by the main process only** (`app:copy-text`,
+  write-only and length-capped): the renderer has no browser permissions, and
+  a one-time password or invitation code is copied through it.
+- **A password an administrator chose is replaced before anything else.**
+  Accounts are created (and lost passwords reset) by an administrator in the
+  app, with a one-time password Pakita generates
+  (`generateTemporaryPassword`) and shows once. While
+  `isPasswordChangeRequired`, the app shows only the change-password screen
+  and does not synchronise.
 - **The server address must be HTTPS**, except for a server on this computer
   (`parseServerAddress`).
 - **Electron Fuses** are set at packaging (`electron-builder.yml`); do not

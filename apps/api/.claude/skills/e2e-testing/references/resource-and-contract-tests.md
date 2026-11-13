@@ -25,4 +25,4 @@ behavior and its risk — do not blindly add every case to every resource.
 - seed the RBAC catalog after truncation;
 - create platform admin/support/regular users through helpers;
 - create workspace memberships through established helpers;
-- use register/login helpers only when the auth flow itself is under test.
+- call the login endpoint only when the auth flow itself is under test.

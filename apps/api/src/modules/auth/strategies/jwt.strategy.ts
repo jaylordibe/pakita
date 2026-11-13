@@ -43,8 +43,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
-    // Reject tokens that were signed for a non-auth purpose (e.g.
-    // email-verification JWTs).
+    // Reject tokens that were signed for a non-auth purpose (any token that
+    // carries a `purpose` claim).
     if (!isAccessTokenPayload(payload)) {
       throw Errors.tokenInvalid();
     }
@@ -113,6 +113,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       jti: payload.jti,
       exp: payload.exp,
+      isPasswordChangeRequired: user.isPasswordChangeRequired,
     };
   }
 }

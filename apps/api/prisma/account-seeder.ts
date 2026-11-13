@@ -7,7 +7,7 @@ import {
 } from '../src/common/util/account-password.util';
 import { assignPlatformRole } from './rbac-seeder';
 
-// Creates the accounts the seeders need: verified, with a hashed password
+// Creates the accounts the seeders need, with a hashed password
 // that passes the account password rule. Shared by `prisma/seed.ts` (the
 // SEED_* admin and user) and `prisma/sample-church.ts` (the sample church's
 // people), so both make an account the same way.
@@ -42,17 +42,11 @@ export async function upsertSeedUser(
   // `findFirst`: email is unique only among live rows (partial index).
   const existing = await prisma.user.findFirst({ where: { email } });
 
-  // Platform roles go only to an account whose owner proved the address. An
-  // unverified (or deleted) account with this email may have been registered
-  // by someone else, waiting for the administrator's email to be promoted.
-  const isTrustworthy =
-    existing !== null &&
-    existing.emailVerifiedAt !== null &&
-    existing.deletedAt === null;
-  if (existing && user.platformRoles.length > 0 && !isTrustworthy) {
+  // Platform roles never go to a deleted account: restoring one by seeding
+  // would hand the administrator role to whatever the row was before.
+  if (existing?.deletedAt && user.platformRoles.length > 0) {
     throw new Error(
-      `${email} belongs to an account that is unverified or deleted; refusing to give it ${user.platformRoles.join(', ')}. ` +
-        'Use another email, or verify that account first.',
+      `${email} belongs to a deleted account; refusing to give it ${user.platformRoles.join(', ')}. Use another email.`,
     );
   }
 
@@ -73,7 +67,6 @@ export async function upsertSeedUser(
         passwordChangedAt: new Date(),
         firstName: user.firstName,
         lastName: user.lastName,
-        emailVerifiedAt: new Date(),
       },
     });
     console.log(

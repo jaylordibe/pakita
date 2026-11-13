@@ -149,7 +149,7 @@ describe('Ownership promotion races (e2e)', () => {
       .createForUser(actorId, await loader.loadGrants(actorId));
     const { token } = await app
       .get(WorkspaceInvitationsService)
-      .create(workspaceId, { email, roleId }, ability, actorId);
+      .create(workspaceId, { identifier: email, roleId }, ability, actorId);
     return token;
   };
 

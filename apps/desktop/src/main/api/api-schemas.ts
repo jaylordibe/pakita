@@ -28,16 +28,19 @@ export const serverInfoSchema: z.ZodType<Schemas['ServerInfoResponseDto']> =
     serverVersion: z.string(),
     apiLevel: z.number().int().nonnegative(),
     minimumDesktopVersion: z.string(),
-    isBotCheckRequired: z.boolean(),
   });
 
 const signedInUserSchema: z.ZodType<
-  Pick<Schemas['UserResponseDto'], 'id' | 'email' | 'firstName' | 'lastName'>
+  Pick<
+    Schemas['UserResponseDto'],
+    'id' | 'email' | 'firstName' | 'lastName' | 'isPasswordChangeRequired'
+  >
 > = z.object({
   id: z.string(),
   email: z.string(),
   firstName: z.string(),
   lastName: z.string(),
+  isPasswordChangeRequired: z.boolean(),
 });
 
 export const loginResponseSchema: z.ZodType<
@@ -54,6 +57,99 @@ export const loginResponseSchema: z.ZodType<
   user: signedInUserSchema,
 });
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
+
+/** `POST /auth/login`'s answer: a session plus this device's token. */
+export const passwordSignInResponseSchema: z.ZodType<
+  z.infer<typeof loginResponseSchema> &
+    Pick<Schemas['PasswordSignInResponseDto'], 'deviceToken'>
+> = z.object({
+  accessToken: z.string().min(1),
+  refreshToken: z.string().min(1),
+  expiresIn: z.number().positive(),
+  user: signedInUserSchema,
+  deviceToken: z.string().min(1).max(200),
+});
+
+// ── Accounts and invitations (administrators) ──────────────────────────
+
+export const userSchema: z.ZodType<
+  Pick<
+    Schemas['UserResponseDto'],
+    | 'id'
+    | 'email'
+    | 'username'
+    | 'firstName'
+    | 'lastName'
+    | 'isActive'
+    | 'isPasswordChangeRequired'
+  >
+> = z.object({
+  id: z.string(),
+  email: z.string(),
+  username: z.string().nullable(),
+  firstName: z.string(),
+  lastName: z.string(),
+  isActive: z.boolean(),
+  isPasswordChangeRequired: z.boolean(),
+});
+/** A page of a list endpoint: its rows and how many pages there are. */
+export function pageSchemaOf<Row>(rowSchema: z.ZodType<Row>) {
+  return z.object({
+    data: z.array(rowSchema),
+    meta: z.object({ totalPages: z.number().int().nonnegative() }),
+  });
+}
+
+export const userPageSchema = pageSchemaOf(userSchema);
+
+export const roleSchema: z.ZodType<
+  Pick<Schemas['RoleResponseDto'], 'id' | 'name' | 'rank' | 'description'>
+> = z.object({
+  id: z.string(),
+  name: z.string(),
+  rank: z.number(),
+  description: z.string().nullable(),
+});
+export const rolePageSchema = z.object({ data: z.array(roleSchema) });
+
+const inviteeSchema: z.ZodType<Schemas['WorkspaceInvitationInviteeDto']> =
+  z.object({
+    id: z.string(),
+    firstName: z.string(),
+    lastName: z.string(),
+  });
+
+export const invitationSchema: z.ZodType<
+  Pick<
+    Schemas['WorkspaceInvitationResponseDto'],
+    'id' | 'status' | 'expiresAt' | 'invitedUser'
+  > & { role: Pick<Schemas['WorkspaceInvitationRoleDto'], 'name'> }
+> = z.object({
+  id: z.string(),
+  status: z.enum(['pending', 'accepted', 'revoked', 'expired']),
+  expiresAt: z.string(),
+  invitedUser: inviteeSchema.nullable(),
+  role: z.object({ name: z.string() }),
+});
+export const invitationPageSchema = pageSchemaOf(invitationSchema);
+
+export const issuedInvitationSchema: z.ZodType<
+  Pick<
+    Schemas['IssuedWorkspaceInvitationResponseDto'],
+    'id' | 'status' | 'expiresAt' | 'invitedUser' | 'token'
+  > & { role: Pick<Schemas['WorkspaceInvitationRoleDto'], 'name'> }
+> = z.object({
+  id: z.string(),
+  status: z.enum(['pending', 'accepted', 'revoked', 'expired']),
+  expiresAt: z.string(),
+  invitedUser: inviteeSchema.nullable(),
+  role: z.object({ name: z.string() }),
+  token: z.string().min(1),
+});
+
+export const acceptedInvitationSchema: z.ZodType<
+  Schemas['AcceptedInvitationResponseDto']
+> = z.object({ workspaceId: z.string(), membershipId: z.string() });
 
 export const workspaceSchema: z.ZodType<
   Pick<Schemas['WorkspaceResponseDto'], 'id' | 'name' | 'slug'>

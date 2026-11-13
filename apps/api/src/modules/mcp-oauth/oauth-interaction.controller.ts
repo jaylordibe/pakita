@@ -12,8 +12,8 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { InteractionResults } from 'oidc-provider';
 import { Public } from '../../common/decorators/public.decorator';
-import { RequireTurnstile } from '../../common/decorators/require-turnstile.decorator';
 import { ErrorCode } from '../../common/errors/error-code.enum';
+import { Errors } from '../../common/errors/errors';
 import { ThrottleSignIn } from '../../common/decorators/throttle-sign-in.decorator';
 import { AuthService } from '../auth/auth.service';
 import { MCP_OAUTH_PATHS, MCP_OAUTH_THROTTLE } from './mcp-oauth.config';
@@ -26,8 +26,10 @@ type InteractionDetails = Awaited<
 
 const INVALID_CREDENTIALS_MESSAGE =
   'That email or username and password do not match.';
-const EMAIL_NOT_VERIFIED_MESSAGE =
-  'Verify your email address before signing in. Check your inbox for the link.';
+const PASSWORD_CHANGE_REQUIRED_MESSAGE =
+  'Sign in to the Pakita app and choose your own password first, then connect again.';
+const TOO_MANY_FAILURES_MESSAGE =
+  'Too many failed sign-ins for this account. Try again in a few minutes.';
 
 /**
  * The sign-in and consent steps of the MCP OAuth flow — the pages the
@@ -38,8 +40,10 @@ const EMAIL_NOT_VERIFIED_MESSAGE =
  *
  * Sign-in uses the REST login's own check (`AuthService.verifyCredentials`):
  * the same timing-equalised password comparison, the same refusal of inactive
- * and unverified accounts, the same per-identifier throttle and Turnstile. It
- * creates no REST session — it only tells the provider who signed in.
+ * accounts, the same throttles and per-account failure limit. It creates no
+ * REST session — it only tells the provider who signed in. An account still on
+ * a password an administrator chose is refused here: it must choose its own in
+ * the app first, as its REST session would require.
  */
 @ApiExcludeController()
 @Controller('oauth/interaction')
@@ -61,19 +65,6 @@ export class OAuthInteractionController {
     const details = await this.loadInteraction(uid, request, response);
     if (!details) return;
     if (details.prompt.name === 'login') {
-      if (!this.pages.isSignInAvailable) {
-        this.pages.render(
-          response,
-          'message',
-          {
-            title: 'Sign-in unavailable',
-            message:
-              'Signing in is not available right now because the bot check is not fully configured. Contact the administrator of this service.',
-          },
-          { status: 503 },
-        );
-        return;
-      }
       await this.renderLogin(details, response);
       return;
     }
@@ -81,7 +72,6 @@ export class OAuthInteractionController {
   }
 
   @Post(':uid/login')
-  @RequireTurnstile()
   @ThrottleSignIn()
   async login(
     @Param('uid') uid: string,
@@ -99,6 +89,9 @@ export class OAuthInteractionController {
         identifier,
         password,
       );
+      if (user.isPasswordChangeRequired) {
+        throw Errors.passwordChangeRequired();
+      }
       // `ts` is the sign-in time every later account check compares with the
       // account's session cutoff.
       const result: InteractionResults = {
@@ -113,12 +106,12 @@ export class OAuthInteractionController {
         },
       );
     } catch (error) {
-      const message = signInFailureMessage(error);
-      if (message === null) throw error;
+      const failure = signInFailure(error);
+      if (failure === null) throw error;
       await this.renderLogin(details, response, {
-        error: message,
+        error: failure.message,
         identifier,
-        status: 400,
+        status: failure.status,
       });
     }
   }
@@ -331,14 +324,23 @@ export class OAuthInteractionController {
   }
 }
 
-/** The page message for an expected sign-in refusal; `null` for anything else. */
-function signInFailureMessage(error: unknown): string | null {
+/** The page message and status for an expected sign-in refusal; `null` for anything else. */
+function signInFailure(
+  error: unknown,
+): { message: string; status: number } | null {
   if (!(error instanceof HttpException)) return null;
   const body = error.getResponse() as { errorCode?: string } | string;
   const errorCode = typeof body === 'object' ? body.errorCode : undefined;
-  if (errorCode === ErrorCode.INVALID_CREDENTIALS)
-    return INVALID_CREDENTIALS_MESSAGE;
-  if (errorCode === ErrorCode.EMAIL_NOT_VERIFIED)
-    return EMAIL_NOT_VERIFIED_MESSAGE;
+  // A wrong or unknown account is the page's 400, as it always was; the other
+  // two keep their API status, which says what the person can do about it.
+  if (errorCode === ErrorCode.INVALID_CREDENTIALS) {
+    return { message: INVALID_CREDENTIALS_MESSAGE, status: 400 };
+  }
+  if (errorCode === ErrorCode.PASSWORD_CHANGE_REQUIRED) {
+    return { message: PASSWORD_CHANGE_REQUIRED_MESSAGE, status: 403 };
+  }
+  if (errorCode === ErrorCode.RATE_LIMITED) {
+    return { message: TOO_MANY_FAILURES_MESSAGE, status: 429 };
+  }
   return null;
 }

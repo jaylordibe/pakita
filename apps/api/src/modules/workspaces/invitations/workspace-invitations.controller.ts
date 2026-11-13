@@ -28,7 +28,10 @@ import { RequirePermission } from '../../../common/decorators/require-permission
 import { MetaQueryDto } from '../../../common/dto/meta-query.dto';
 import { PaginatedResponseDto } from '../../../common/dto/paginated-response.dto';
 import { WorkspaceInvitationsService } from './workspace-invitations.service';
-import { WorkspaceInvitationResponseDto } from './dto/workspace-invitation-response.dto';
+import {
+  IssuedWorkspaceInvitationResponseDto,
+  WorkspaceInvitationResponseDto,
+} from './dto/workspace-invitation-response.dto';
 import { CreateWorkspaceInvitationDto } from './dto/create-workspace-invitation.dto';
 
 @ApiTags('Workspace Invitations')
@@ -37,29 +40,27 @@ import { CreateWorkspaceInvitationDto } from './dto/create-workspace-invitation.
 export class WorkspaceInvitationsController {
   constructor(private readonly service: WorkspaceInvitationsService) {}
 
-  // Every call sends an email to an address the caller chose, which makes this
-  // a spam vector on top of the global budget. Tightened accordingly.
+  // Answers whether an identifier names an account, so it is held tighter
+  // than the global budget.
   @Post()
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @RequirePermission('create', 'WorkspaceInvitation')
-  @ApiCreatedResponse({ type: WorkspaceInvitationResponseDto })
+  @ApiCreatedResponse({ type: IssuedWorkspaceInvitationResponseDto })
   async create(
     @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
     @Body() dto: CreateWorkspaceInvitationDto,
     @CurrentAbility() ability: AppAbility,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<WorkspaceInvitationResponseDto> {
-    const { invitation } = await this.service.create(
+  ): Promise<IssuedWorkspaceInvitationResponseDto> {
+    const { invitation, token } = await this.service.create(
       workspaceId,
       dto,
       ability,
       user.id,
     );
-    // The plaintext token is deliberately NOT returned. It goes to the invited
-    // address and nowhere else — returning it here would let anyone who can
-    // invite an address also redeem the invitation themselves, which defeats
-    // the point of mailing it.
-    return new WorkspaceInvitationResponseDto(invitation);
+    // The one time the code is shown: the inviter passes it on. Holding it
+    // lets the inviter redeem nothing — only the invited account can.
+    return new IssuedWorkspaceInvitationResponseDto(invitation, token);
   }
 
   @Get()
@@ -84,12 +85,13 @@ export class WorkspaceInvitationsController {
   }
 
   /**
-   * Re-sends a pending invitation on a fresh token.
+   * Re-issues a pending invitation on a fresh code, which it returns; the old
+   * code stops working.
    *
-   * Guarded by `create WorkspaceInvitation`, not `delete`: resending is the same
-   * authority as inviting — same address, same role, same workspace — and gating
-   * it behind `delete` would leave a manager able to raise an invitation they
-   * could not repair when the mail went astray.
+   * Guarded by `create WorkspaceInvitation`, not `delete`: re-issuing is the
+   * same authority as inviting — same person, same role, same workspace — and
+   * gating it behind `delete` would leave a manager able to raise an
+   * invitation they could not repair when the code was lost.
    *
    * 200, not 201: nothing new comes into existence. The invitation is the same
    * row, carrying a rotated secret.
@@ -98,22 +100,20 @@ export class WorkspaceInvitationsController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @RequirePermission('create', 'WorkspaceInvitation')
   @HttpCode(HttpStatus.OK)
-  @ApiOkResponse({ type: WorkspaceInvitationResponseDto })
+  @ApiOkResponse({ type: IssuedWorkspaceInvitationResponseDto })
   async resend(
     @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
     @Param('invitationId', ParseUUIDPipe) invitationId: string,
     @CurrentAbility() ability: AppAbility,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<WorkspaceInvitationResponseDto> {
-    const invitation = await this.service.resend(
+  ): Promise<IssuedWorkspaceInvitationResponseDto> {
+    const { invitation, token } = await this.service.resend(
       workspaceId,
       invitationId,
       ability,
       user.id,
     );
-    // As with `create`, the plaintext token goes to the invited address and
-    // nowhere else.
-    return new WorkspaceInvitationResponseDto(invitation);
+    return new IssuedWorkspaceInvitationResponseDto(invitation, token);
   }
 
   @Delete(':invitationId')

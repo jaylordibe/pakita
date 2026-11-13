@@ -1,6 +1,6 @@
 ---
 name: e2e-testing
-description: This repository's e2e harness — createTestApp/truncateAll, the template-database clone per Jest worker, the per-worker Redis logical database, shared RBAC fixtures, queued-email capture, and error-envelope assertions.
+description: This repository's e2e harness — createTestApp/truncateAll, the template-database clone per Jest worker, the per-worker Redis logical database, shared RBAC fixtures, and error-envelope assertions.
 when_to_use: Use when creating or changing test/*.e2e-spec.ts, debugging parallel or Redis-related flakes, testing API contracts, authorization, audit columns, BullMQ handlers, recurring job schedulers, migrations in the isolated test environment, or deciding which tests to run.
 user-invocable: false
 ---
@@ -48,9 +48,9 @@ Fixtures get their access token from `issueAccessToken` (the session service
 login uses), not from `POST /auth/login`. Only auth specs call the login
 endpoint.
 
-Account emails are queued and the test app runs no worker. To assert on one,
-`captureEmails(app)` then `deliverQueuedEmails(app)` (`test/setup/emails.ts`);
-`linkParameter` reads a token out of the emailed link.
+`createUser` writes an account whose owner chose its password
+(`isPasswordChangeRequired` false). To test the forced first password change,
+create the account through `POST /users` as an administrator.
 
 ## Assertions
 

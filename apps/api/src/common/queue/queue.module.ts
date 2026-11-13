@@ -5,7 +5,6 @@ import { DiscoveryModule } from '@nestjs/core';
 import { buildRedisConnectionOptions } from '../redis/redis-connection';
 import { QueueHeartbeatHandler } from './heartbeat/queue-heartbeat.handler';
 import { MaintenanceQueueProcessor } from './processors/maintenance-queue.processor';
-import { NotificationsQueueProcessor } from './processors/notifications-queue.processor';
 import { QueueAccessor } from './queue-accessor.service';
 import { QueueWorkerLivenessService } from './heartbeat/queue-worker-liveness.service';
 import { RecurringScheduleInstaller } from './recurring-schedule.installer';
@@ -119,7 +118,6 @@ import {
     // Providing the class is not the same as running a Worker. Whether a Worker
     // is ever constructed is decided by `QueueWorkerRegistrar`.
     MaintenanceQueueProcessor,
-    NotificationsQueueProcessor,
     QueueHeartbeatHandler,
     QueueWorkerLivenessService,
     RecurringScheduleInstaller,

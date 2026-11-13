@@ -5,6 +5,8 @@ import { PassportModule } from '@nestjs/passport';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { SignInDeviceTokenService } from './sign-in-device-token.service';
+import { SignInFailureLimitService } from './sign-in-failure-limit.service';
 import { JWT_ALGORITHM } from './jwt-algorithm';
 import { RefreshTokenRetentionHandler } from './refresh-token-retention.handler';
 import { RefreshTokenService } from './refresh-token.service';
@@ -32,10 +34,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
             algorithm: JWT_ALGORITHM,
           },
           // Merged under every `JwtService.verify` call's own options (a
-          // call's own value wins), so a verify that passes none — the
-          // email-verification link, today — still refuses a token signed by
-          // another service or under another algorithm. passport-jwt never
-          // reads these: JwtStrategy pins its own.
+          // call's own value wins), so a verify that passes none still refuses
+          // a token signed by another service or under another algorithm.
+          // passport-jwt never reads these: JwtStrategy pins its own.
           verifyOptions: {
             issuer: serviceName,
             audience: serviceName,
@@ -50,18 +51,24 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthService,
     JwtStrategy,
     RefreshTokenService,
+    SignInFailureLimitService,
+    SignInDeviceTokenService,
     // A BullMQ job handler, not a scheduled service. `QueueJobHandlerRegistry`
     // discovers it through this registration and fails the boot if the job it
     // claims has no entry in JOB_REGISTRATIONS (or vice versa).
     RefreshTokenRetentionHandler,
   ],
-  // Re-export JwtModule so UsersService can inject JwtService (used to
-  // sign email-verification links). Keeps the JWT sign config in one
-  // place rather than re-registering the module inside UsersModule.
+  // Re-export JwtModule so the app-wide `UserAwareThrottlerGuard` can read an
+  // access token with the one JWT config, rather than re-registering it.
   // `RefreshTokenService` is exported so `UsersService` can end every session
   // an account holds — used by the support session-revocation endpoint and by
   // account deactivation. Sessions are auth's concern, so the capability lives
   // here and is borrowed, rather than re-implemented against the table.
-  exports: [AuthService, RefreshTokenService, JwtModule],
+  exports: [
+    AuthService,
+    RefreshTokenService,
+    SignInFailureLimitService,
+    JwtModule,
+  ],
 })
 export class AuthModule {}

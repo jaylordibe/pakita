@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain } from 'electron';
 import { join } from 'node:path';
 import { z } from 'zod';
 
+import { apiConstraints } from '../shared/api/constraints';
 import {
   bibleBookCodeValues,
   themeBackgroundValues,
@@ -54,6 +55,31 @@ function pageUrl(page: 'index' | 'projector'): string {
 
 // ── IPC payload schemas: the shape and size of what a renderer may send ──
 const uuid = z.uuid();
+const newPasswordLimits = apiConstraints.UpdateAuthUserPasswordDto.newPassword;
+const newAccountLimits = apiConstraints.CreateUserDto;
+const newAccountInputSchema = z
+  .object({
+    email: z.email().max(254),
+    username: z
+      .string()
+      .min(newAccountLimits.username.minLength)
+      .max(newAccountLimits.username.maxLength)
+      .regex(new RegExp(newAccountLimits.username.pattern))
+      .nullable(),
+    firstName: z
+      .string()
+      .trim()
+      .min(newAccountLimits.firstName.minLength)
+      .max(newAccountLimits.firstName.maxLength),
+    lastName: z
+      .string()
+      .trim()
+      .min(newAccountLimits.lastName.minLength)
+      .max(newAccountLimits.lastName.maxLength),
+  })
+  .strict();
+const invitationLimits = apiConstraints.CreateWorkspaceInvitationDto;
+const invitationCodeLimits = apiConstraints.AcceptWorkspaceInvitationDto.token;
 const songInputSchema = z
   .object({
     title: z.string().min(1).max(200),
@@ -196,6 +222,10 @@ async function start(): Promise<void> {
   handle(IpcChannel.appGetState, noPayload, () => controller.getState());
   handle(IpcChannel.appGetUpdate, noPayload, () => controller.getUpdate());
   handle(IpcChannel.appOpenUpdate, noPayload, () => controller.openUpdate());
+  // Write-only, and short: the operator copies a one-time password or code.
+  handle(IpcChannel.appCopyText, z.string().min(1).max(500), (text) => {
+    clipboard.writeText(text);
+  });
   handle(IpcChannel.databaseGetHealth, noPayload, () =>
     controller.getDatabaseHealth(),
   );
@@ -213,6 +243,66 @@ async function start(): Promise<void> {
     ({ identifier, password }) => controller.signIn(identifier, password),
   );
   handle(IpcChannel.accountSignOut, noPayload, () => controller.signOut());
+  handle(
+    IpcChannel.accountChangePassword,
+    z
+      .object({
+        // Checked, not set: any length the server would compare.
+        currentPassword: z.string().min(1).max(200),
+        newPassword: z
+          .string()
+          .min(newPasswordLimits.minLength)
+          .max(newPasswordLimits.maxLength),
+      })
+      .strict(),
+    ({ currentPassword, newPassword }) =>
+      controller.changePassword(currentPassword, newPassword),
+  );
+  handle(IpcChannel.accountGetCapabilities, noPayload, () =>
+    controller.getCapabilities(),
+  );
+  handle(IpcChannel.accountsList, noPayload, () => controller.listAccounts());
+  handle(IpcChannel.accountsCreate, newAccountInputSchema, (input) =>
+    controller.createAccount(input),
+  );
+  handle(IpcChannel.accountsResetPassword, uuid, (accountId) =>
+    controller.resetAccountPassword(accountId),
+  );
+  handle(IpcChannel.invitationsListRoles, noPayload, () =>
+    controller.listInvitableRoles(),
+  );
+  handle(IpcChannel.invitationsList, noPayload, () =>
+    controller.listInvitations(),
+  );
+  handle(
+    IpcChannel.invitationsCreate,
+    z
+      .object({
+        identifier: z
+          .string()
+          .trim()
+          .min(invitationLimits.identifier.minLength)
+          .max(invitationLimits.identifier.maxLength),
+        roleId: uuid,
+      })
+      .strict(),
+    ({ identifier, roleId }) => controller.createInvitation(identifier, roleId),
+  );
+  handle(IpcChannel.invitationsReissue, uuid, (invitationId) =>
+    controller.reissueInvitation(invitationId),
+  );
+  handle(IpcChannel.invitationsRevoke, uuid, (invitationId) =>
+    controller.revokeInvitation(invitationId),
+  );
+  handle(
+    IpcChannel.invitationsAccept,
+    z
+      .string()
+      .trim()
+      .min(invitationCodeLimits.minLength)
+      .max(invitationCodeLimits.maxLength),
+    (code) => controller.acceptInvitation(code),
+  );
   handle(IpcChannel.workspacesList, noPayload, () =>
     controller.listWorkspaces(),
   );
@@ -274,9 +364,6 @@ async function start(): Promise<void> {
     z.object({ translationId: uuid, search: z.string().max(200) }).strict(),
     ({ translationId, search }) =>
       controller.searchBible(translationId, search),
-  );
-  handle(IpcChannel.bibleCanImport, noPayload, () =>
-    controller.canImportBibles(),
   );
   handle(IpcChannel.bibleChooseImportFolder, noPayload, () =>
     controller.chooseBibleImportFolder(),

@@ -15,10 +15,22 @@ export const IpcChannel = {
   appGetState: 'app:get-state',
   appGetUpdate: 'app:get-update',
   appOpenUpdate: 'app:open-update',
+  appCopyText: 'app:copy-text',
   databaseGetHealth: 'database:get-health',
   serverConnect: 'server:connect',
   accountSignIn: 'account:sign-in',
   accountSignOut: 'account:sign-out',
+  accountChangePassword: 'account:change-password',
+  accountGetCapabilities: 'account:get-capabilities',
+  accountsList: 'accounts:list',
+  accountsCreate: 'accounts:create',
+  accountsResetPassword: 'accounts:reset-password',
+  invitationsListRoles: 'invitations:list-roles',
+  invitationsList: 'invitations:list',
+  invitationsCreate: 'invitations:create',
+  invitationsReissue: 'invitations:reissue',
+  invitationsRevoke: 'invitations:revoke',
+  invitationsAccept: 'invitations:accept',
   workspacesList: 'workspaces:list',
   workspaceSelect: 'workspace:select',
   workspacesCreate: 'workspaces:create',
@@ -36,7 +48,6 @@ export const IpcChannel = {
   bibleListBooks: 'bible:list-books',
   bibleGetChapter: 'bible:get-chapter',
   bibleSearch: 'bible:search',
-  bibleCanImport: 'bible:can-import',
   bibleChooseImportFolder: 'bible:choose-import-folder',
   bibleImport: 'bible:import',
   themesList: 'themes:list',
@@ -95,6 +106,72 @@ export interface AccountSummary {
   readonly displayName: string;
   /** False when the laptop holds the account's content but must sign in again. */
   readonly isSignedIn: boolean;
+  /**
+   * The password was chosen by an administrator and must be replaced before
+   * anything else (`account.changePassword`).
+   */
+  readonly isPasswordChangeRequired: boolean;
+}
+
+/**
+ * The administrative actions the signed-in person may take. All false
+ * offline or signed out: each needs the server.
+ */
+export interface AccountCapabilities {
+  /** Import a Bible translation (the platform administrator). */
+  readonly canImportBibles: boolean;
+  /** Create accounts and set their passwords (the platform administrator). */
+  readonly canManageAccounts: boolean;
+  /** Invite people to the open church. */
+  readonly canInviteMembers: boolean;
+}
+
+/** An account on the church server, as an administrator sees it. */
+export interface ManagedAccount {
+  readonly id: string;
+  readonly email: string;
+  readonly username: string | null;
+  readonly displayName: string;
+  readonly isActive: boolean;
+  /** Still on a password an administrator chose. */
+  readonly isPasswordChangeRequired: boolean;
+}
+
+export interface NewAccountInput {
+  readonly email: string;
+  readonly username: string | null;
+  readonly firstName: string;
+  readonly lastName: string;
+}
+
+/**
+ * A one-time password Pakita generated for an account. Shown to the
+ * administrator once, to pass on; the person must replace it at sign-in.
+ */
+export interface IssuedPassword {
+  readonly account: ManagedAccount;
+  readonly temporaryPassword: string;
+}
+
+/** A role the signed-in person may give in the open church. */
+export interface InvitableRole {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+}
+
+export interface InvitationSummary {
+  readonly id: string;
+  /** Who was invited (their name), or why that is unknown. */
+  readonly invitee: string;
+  readonly roleName: string;
+  readonly expiresAt: string;
+}
+
+/** An invitation with its one-time code, which is never shown again. */
+export interface IssuedInvitation {
+  readonly invitation: InvitationSummary;
+  readonly code: string;
 }
 
 export interface AppState {
@@ -311,6 +388,11 @@ export interface PakitaApi {
     getUpdate(): Promise<AvailableUpdate | null>;
     /** Opens that release's download page in the browser. */
     openUpdate(): Promise<void>;
+    /**
+     * Puts text on the system clipboard (a one-time password or code to pass
+     * on). Through the main process: the page itself has no clipboard access.
+     */
+    copyText(text: string): Promise<void>;
     onUpdateAvailable(listener: (update: AvailableUpdate) => void): () => void;
   };
   readonly database: {
@@ -322,6 +404,33 @@ export interface PakitaApi {
   readonly account: {
     signIn(identifier: string, password: string): Promise<AccountSummary>;
     signOut(): Promise<void>;
+    /** Replaces the signed-in person's password; this laptop stays signed in. */
+    changePassword(
+      currentPassword: string,
+      newPassword: string,
+    ): Promise<AccountSummary>;
+    getCapabilities(): Promise<AccountCapabilities>;
+  };
+  /** The church server's accounts (the platform administrator only). */
+  readonly accounts: {
+    list(): Promise<ManagedAccount[]>;
+    /** Creates the account with a generated one-time password. */
+    create(input: NewAccountInput): Promise<IssuedPassword>;
+    /** Gives the account a new one-time password and ends its sessions. */
+    resetPassword(accountId: string): Promise<IssuedPassword>;
+  };
+  /** Invitations to the open church. */
+  readonly invitations: {
+    listRoles(): Promise<InvitableRole[]>;
+    /** The pending ones. */
+    list(): Promise<InvitationSummary[]>;
+    /** Invites an existing account, by email or username. */
+    create(identifier: string, roleId: string): Promise<IssuedInvitation>;
+    /** A fresh code for a pending invitation; the old one stops working. */
+    reissue(invitationId: string): Promise<IssuedInvitation>;
+    revoke(invitationId: string): Promise<void>;
+    /** Joins the church a code was issued for; returns its id. */
+    accept(code: string): Promise<string>;
   };
   readonly workspaces: {
     list(): Promise<WorkspaceSummary[]>;
@@ -355,11 +464,6 @@ export interface PakitaApi {
       chapter: number,
     ): Promise<BibleVerse[]>;
     search(translationId: string, search: string): Promise<BibleSearchHit[]>;
-    /**
-     * Whether the signed-in person may import a translation (the platform
-     * administrator). False offline or signed out: importing needs the server.
-     */
-    canImport(): Promise<boolean>;
     /** Asks for a folder of USFM files; null when the operator cancels. */
     chooseImportFolder(): Promise<BibleImportPreview | null>;
     /** Imports and publishes the chosen folder, then synchronises. */

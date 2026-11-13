@@ -16,7 +16,10 @@ import { resolve } from 'node:path';
 // 2: Bible translations (/api/bible-translations).
 // 3: themes and playlists, also in the sync feed.
 // 4: copying a song to another workspace.
-export const API_LEVEL = 4;
+// 5: no email, text or bot check — administrator-created accounts that must
+//    replace their first password (PASSWORD_CHANGE_REQUIRED), and invitation
+//    codes returned to the inviter.
+export const API_LEVEL = 5;
 export const MINIMUM_DESKTOP_VERSION = '0.0.0';
 
 // This package's version, read once from its package.json: three levels up

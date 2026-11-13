@@ -9,11 +9,6 @@ export interface AppConfig {
   serviceName: string;
   port: number;
   apiBaseUrl: string;
-  // Customer-facing web frontend base URL. Distinct from `apiBaseUrl`
-  // (the API) — emails that link the customer to a page they actually
-  // browse (booking confirmation CTAs, marketing links, etc.) compose
-  // their hrefs from `webBaseUrl + path`. No trailing slash.
-  webBaseUrl: string;
   // Commit hash of the build that produced the running container.
   // Populated by the deploy workflows via a Docker build arg → ENV;
   // defaults to 'unknown' for local dev. Surfaced in the Swagger doc
@@ -97,49 +92,12 @@ export interface AppConfig {
     // firewall that admits only Cloudflare's ranges).
     isHeaderTrustEnabled: boolean;
   };
-  turnstile: {
-    // Cloudflare Turnstile secret keys, one per widget: `web` for the website,
-    // `mobile` for the app. Both unset turns the bot check off (local
-    // development, the test suite); staging and production refuse to boot
-    // without both, and no environment accepts exactly one.
-    webSecretKey: string | undefined;
-    mobileSecretKey: string | undefined;
-    // The website widget's public site key. Only the API's own server-rendered
-    // page (the MCP OAuth sign-in form) renders a widget, so only it reads this.
-    // Optional: with the check on and no key, only that page refuses (see
-    // TURNSTILE_WEB_SITE_KEY in env.validation.ts).
-    webSiteKey: string | undefined;
-    // The app widget's public site key, rendered by the API's desktop
-    // sign-in check page (Pakita's desktop app opens it to get a token).
-    // Optional, like webSiteKey: without it only that page refuses.
-    mobileSiteKey: string | undefined;
-  };
   workspaceInvitation: {
-    // How long an invitation token stays redeemable. Bounded because the token
-    // is a bearer credential sitting in somebody's inbox: the longer it lives,
-    // the longer a forwarded or breached mailbox is a way into the workspace.
+    // How long an invitation code stays redeemable. Bounded because the code
+    // is a credential passed on by hand: the longer it lives, the longer a
+    // copy left in a chat history is worth something. Only the invited account
+    // can redeem it, so a leaked code alone opens nothing.
     expiresInDays: number;
-  };
-  email: {
-    provider: 'stub' | 'resend' | 'mailgun' | 'smtp';
-    from: string | undefined;
-    resendApiKey: string | undefined;
-    mailgunApiKey: string | undefined;
-    mailgunDomain: string | undefined;
-    mailgunRegion: 'us' | 'eu';
-    // The SMTP relay for EMAIL_PROVIDER=smtp — the local Mailpit inbox.
-    smtpHost: string | undefined;
-    smtpPort: number | undefined;
-  };
-  sms: {
-    provider: 'stub' | 'twilio';
-    twilioAccountSid: string | undefined;
-    twilioAuthToken: string | undefined;
-    twilioFrom: string | undefined;
-  };
-  phoneCodes: {
-    // PHONE_CODE_FIXED: every texted code is this value (stub SMS only).
-    fixedCode: string | undefined;
   };
   storage: {
     // Which object-storage adapter is active. `stub` persists nothing and is
@@ -244,22 +202,13 @@ export interface AppConfig {
       redirectOrigins: string[];
     };
   };
-  // Public web URL the API redirects to after a GET /auth/verify-email
-  // click. The web app reads `?status=success|error&reason=…` and
-  // renders the matching state. Optional in dev (defaults to a stub
-  // page on `webBaseUrl`); production should set this to the real
-  // verify-email landing page on the web frontend.
-  emailVerifiedRedirectUrl: string;
-  // Web page a password-reset email links to, with `?token=…&email=…`. The
-  // page posts both, plus the new password, to `POST /users/reset-password`.
-  passwordResetUrl: string;
 }
 
 /**
  * Whether ConfigModule skips `.env`. Under test it does: the suite runs on
  * `.env.test` alone, which test/setup loads before the app is built, so a
  * developer's `.env` can never fill a value `.env.test` leaves unset — a real
- * text or email provider among them. Read when AppModule is imported.
+ * storage provider among them. Read when AppModule is imported.
  */
 export const isEnvFileIgnored = (): boolean => process.env.NODE_ENV === 'test';
 
@@ -295,7 +244,6 @@ export default (): AppConfig => ({
   serviceName: process.env.SERVICE_NAME!,
   port: parseInt(process.env.PORT ?? '3000', 10),
   apiBaseUrl: readApiBaseUrl(),
-  webBaseUrl: process.env.WEB_BASE_URL ?? 'http://localhost:5173',
   gitSha: process.env.GIT_SHA ?? 'unknown',
   database: {
     url: process.env.DATABASE_URL!,
@@ -361,40 +309,11 @@ export default (): AppConfig => ({
   cloudflare: {
     isHeaderTrustEnabled: process.env.TRUST_CLOUDFLARE_HEADERS === 'true',
   },
-  turnstile: {
-    webSecretKey: process.env.TURNSTILE_WEB_SECRET?.trim() || undefined,
-    mobileSecretKey: process.env.TURNSTILE_MOBILE_SECRET?.trim() || undefined,
-    webSiteKey: process.env.TURNSTILE_WEB_SITE_KEY?.trim() || undefined,
-    mobileSiteKey: process.env.TURNSTILE_MOBILE_SITE_KEY?.trim() || undefined,
-  },
   workspaceInvitation: {
     expiresInDays: parseInt(
       process.env.WORKSPACE_INVITATION_EXPIRES_IN_DAYS ?? '7',
       10,
     ),
-  },
-  email: {
-    provider:
-      (process.env.EMAIL_PROVIDER as 'stub' | 'resend' | 'mailgun' | 'smtp') ??
-      'stub',
-    from: process.env.EMAIL_FROM,
-    resendApiKey: process.env.RESEND_API_KEY,
-    mailgunApiKey: process.env.MAILGUN_API_KEY || undefined,
-    mailgunDomain: process.env.MAILGUN_DOMAIN || undefined,
-    mailgunRegion: (process.env.MAILGUN_REGION as 'us' | 'eu') || 'us',
-    smtpHost: process.env.SMTP_HOST || undefined,
-    smtpPort: process.env.SMTP_PORT
-      ? parseInt(process.env.SMTP_PORT, 10)
-      : undefined,
-  },
-  sms: {
-    provider: (process.env.SMS_PROVIDER as 'stub' | 'twilio') ?? 'stub',
-    twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || undefined,
-    twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || undefined,
-    twilioFrom: process.env.TWILIO_FROM || undefined,
-  },
-  phoneCodes: {
-    fixedCode: process.env.PHONE_CODE_FIXED || undefined,
   },
   storage: {
     provider:
@@ -459,10 +378,4 @@ export default (): AppConfig => ({
   },
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY ?? 'false'),
   mcp: parseMcpConfig(readApiBaseUrl()),
-  emailVerifiedRedirectUrl:
-    process.env.EMAIL_VERIFIED_REDIRECT_URL ??
-    `${process.env.WEB_BASE_URL ?? 'http://localhost:5173'}/auth/verify-email`,
-  passwordResetUrl:
-    process.env.PASSWORD_RESET_URL ??
-    `${process.env.WEB_BASE_URL ?? 'http://localhost:5173'}/auth/reset-password`,
 });

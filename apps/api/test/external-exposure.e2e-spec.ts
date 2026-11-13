@@ -171,8 +171,6 @@ function runtimeSecrets(): string[] {
     'REDIS_PASSWORD',
     'DATABASE_URL',
     'REDIS_URL',
-    'RESEND_API_KEY',
-    'TWILIO_AUTH_TOKEN',
   ]
     .map((name) => process.env[name])
     .filter((value): value is string => !!value && value.length >= 8);
@@ -192,7 +190,7 @@ function expectNothingSensitive(
   expect(response.body).not.toMatch(/\n\s+at \S+ \(/);
 }
 
-// NODE_ENV=production, with inert provider settings. What a production boot
+// NODE_ENV=production. What a production boot
 // re-resolves here is `configuration.ts` — the Swagger gate, CORS, trust
 // proxy, throttler storage — not the Joi schema, which validated `.env.test`
 // once at import; env.validation.spec.ts owns the production refusals.
@@ -205,13 +203,6 @@ const PRODUCTION_ENV = {
   // supertest connects over loopback, so the test client is the listed hop —
   // the role the edge proxy plays in a deployment (docs/deployment/README.md).
   TRUST_PROXY: '127.0.0.1',
-  EMAIL_PROVIDER: 'resend',
-  EMAIL_FROM: 'no-reply@example.test',
-  RESEND_API_KEY: 're_exposure_spec_inert_key',
-  SMS_PROVIDER: 'twilio',
-  TWILIO_ACCOUNT_SID: `AC${'0'.repeat(32)}`,
-  TWILIO_AUTH_TOKEN: 'exposure-spec-inert-token',
-  TWILIO_FROM: '+15005550006',
 } as const satisfies Record<string, string>;
 
 describe('External exposure (e2e)', () => {
@@ -309,18 +300,18 @@ describe('External exposure (e2e)', () => {
     // every caller behind Cloudflare in one bucket. Runs on the Redis-backed
     // throttler storage, which is live only outside NODE_ENV=test.
     it('keys per-IP rate limits on the forwarded client address', async () => {
-      const resendVerification = (clientAddress: string) =>
+      const refresh = (clientAddress: string) =>
         request(app.getHttpServer())
-          .post('/api/auth/resend-verification')
+          .post('/api/auth/refresh')
           .set('X-Forwarded-For', clientAddress)
-          .send({ email: 'nobody@example.test' });
+          .send({ refreshToken: 'not-a-real-refresh-token' });
 
-      // The route allows 3 per minute per client (auth.controller.ts).
-      for (let attempt = 0; attempt < 3; attempt++) {
-        expect((await resendVerification('203.0.113.7')).status).toBe(200);
+      // The route allows 10 per minute per client (auth.controller.ts).
+      for (let attempt = 0; attempt < 10; attempt++) {
+        expect((await refresh('203.0.113.7')).status).toBe(401);
       }
-      expect((await resendVerification('203.0.113.7')).status).toBe(429);
-      expect((await resendVerification('203.0.113.8')).status).toBe(200);
+      expect((await refresh('203.0.113.7')).status).toBe(429);
+      expect((await refresh('203.0.113.8')).status).toBe(401);
     });
 
     // Password sign-in's per-identifier limit through the real AppModule:
@@ -352,9 +343,9 @@ describe('External exposure (e2e)', () => {
     // empty body fails validation, which runs AFTER the throttler, so every
     // request counts and nothing is written.
     it('gives each signed-in user their own budget behind one address', async () => {
-      const verifyPhone = (token: string) =>
+      const changePassword = (token: string) =>
         request(app.getHttpServer())
-          .patch('/api/users/me/verify-phone')
+          .patch('/api/users/me/password')
           .set('X-Forwarded-For', '203.0.113.20')
           .set('Authorization', `Bearer ${token}`)
           .send({});
@@ -362,10 +353,10 @@ describe('External exposure (e2e)', () => {
       const second = await createRegularUser(app, 'second@example.test');
 
       for (let attempt = 0; attempt < 5; attempt++) {
-        expect((await verifyPhone(first.token)).status).toBe(400);
+        expect((await changePassword(first.token)).status).toBe(400);
       }
-      expect((await verifyPhone(first.token)).status).toBe(429);
-      expect((await verifyPhone(second.token)).status).toBe(400);
+      expect((await changePassword(first.token)).status).toBe(429);
+      expect((await changePassword(second.token)).status).toBe(400);
     });
 
     it('applies the production HTTP edge: Helmet headers and a closed CORS origin', async () => {

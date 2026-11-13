@@ -4,7 +4,9 @@
 > the template's, kept because it describes this code. Two differences: run
 > commands from a pnpm workspace (see the root [`AGENTS.md`](../../AGENTS.md)),
 > and the image publishing workflow is not part of Pakita yet — it returns with
-> Pakita's release tooling.
+> Pakita's release tooling. Pakita has also removed the template's email, SMS
+> and Turnstile integrations: it uses no outside service, accounts are created
+> by an administrator, and invitations are one-time codes (see `AGENTS.md`).
 
 <div align="center">
 
@@ -45,7 +47,7 @@ value is in the decisions around it.
 
 - SaaS and multi-tenant products, where one tenant must never read another's data
 - APIs with real authorization requirements — staff roles, tenant roles, support access
-- Systems with background work: email, retention sweeps, scheduled jobs
+- Systems with background work: retention sweeps, file cleanup, scheduled jobs
 - Teams that want one reviewed baseline for every new service
 
 **Probably more than you need for**
@@ -69,7 +71,7 @@ TypeScript  →  ESLint  →  config validation  →  boot-time checks  →  e2e
 |---|---|---|
 | **Compiler** | Code that assumes data exists, or an override that silently stops overriding | `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride` — [`tsconfig.json`](tsconfig.json) |
 | **Lint** | Architectural shortcuts | `@casl/prisma` imported outside the authorization module; `src/common` importing `src/modules`; a raw `HttpException` instead of the `Errors.*` factory; a bare `user: true` include that skips soft-delete filtering — [`eslint.config.mjs`](eslint.config.mjs) |
-| **Config validation** | Unsafe configuration, before a request is served | In production: a wildcard `CORS_ORIGIN`, a `TRUST_PROXY` that names no proxy hop, a stub email or SMS provider (stubs log one-time codes), the local-only `smtp` email provider. Everywhere: a blank, short or template `JWT_SECRET`, and `REDIS_TLS_ENABLED` disagreeing with the `redis://` / `rediss://` scheme — [`env.validation.ts`](src/config/env.validation.ts) |
+| **Config validation** | Unsafe configuration, before a request is served | In production: a wildcard `CORS_ORIGIN`, a `TRUST_PROXY` that names no proxy hop, the `stub` storage provider. Everywhere: a blank, short or template `JWT_SECRET`, and `REDIS_TLS_ENABLED` disagreeing with the `redis://` / `rediss://` scheme — [`env.validation.ts`](src/config/env.validation.ts) |
 | **Boot checks** | An application whose wiring is inconsistent | A route handler with no authorization decision; a permission catalog that differs from the database; a role assigned outside its scope; a job with no handler, or a queue with no processor |
 | **e2e tests** | Behaviour that breaks under real conditions | Run against real PostgreSQL, Redis and S3-compatible storage — no mocks. Concurrent refresh-token replay revokes the whole family; concurrent demotion never leaves a workspace with zero owners; an invitation redeemed twice at once yields one membership; tenant isolation holds under a forged path parameter |
 | **CI** | Regressions and known-vulnerable artifacts | Lint, build, unit tests and four sharded e2e jobs; the RBAC catalog projected onto a fresh database and checked; the container image built and scanned with Trivy; a dependency audit gate and Trivy filesystem scan; a weekly authenticated OWASP ZAP API scan — [`.github/workflows/`](.github/workflows) |
@@ -101,14 +103,12 @@ flowchart TB
     worker -- "Prisma" --> pg
     migrate -- "before each rollout" --> pg
     api -- "uploads · signed URLs" --> storage[("Object storage<br/>S3 · GCS · Azure")]
-    api -- "OTP SMS" --> providers["Email and SMS providers"]
-    worker -- "queued email" --> providers
 ```
 
 **Two runtimes, one codebase, one switch.** The API and the worker boot the
 same `AppModule` from the same container image, and `QUEUE_WORKER_ENABLED`
 decides which one consumes queues. The API serves HTTP and enqueues; it never
-processes a job, so a slow mail provider never delays a response. The worker
+processes a job, so slow background work never delays a response. The worker
 consumes queues and owns the recurring schedules. Locally, one process does
 both. Migrations and the RBAC projection run as a separate job **before** a new
 revision takes traffic, never on startup.
@@ -143,10 +143,10 @@ Google Cloud, Azure, Kubernetes, or Docker Compose on a single VM.
 
 ### Identity and sessions
 
-- Email-verified registration. Login is throttled per identifier + IP (5/min) with no account lockout, and an unknown email costs the same bcrypt work as a wrong password.
+- No public sign-up: an administrator creates each account, and the person must replace that first password before their session can do anything else. Login is throttled per identifier + IP (5/min), and failed sign-ins are limited per account from every address (10 per 15 minutes) as a temporary slow-down, never a lockout; an unknown email costs the same bcrypt work as a wrong password.
 - Access JWTs (15 minutes by default) carry only `{ sub, jti }` and are bound to the service by `iss` / `aud`. A password change invalidates every outstanding token.
 - **Refresh-token rotation with reuse detection** ([RFC 9700 §4.14.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2)). Re-presenting a consumed token revokes its whole family — including when the replay is concurrent rather than sequential, which is the case a serial test cannot reach.
-- Per-device logout (Redis blocklist) and logout everywhere. Password reset uses a single-use, hashed, 60-minute link and ends every session.
+- Per-device logout (Redis blocklist) and logout everywhere. An administrator resets a lost password, which ends every session and requires a new password at the next sign-in.
 - Passwords of 8–72 characters with a letter and a digit, hashed with bcrypt at cost 12.
 - GDPR data export and erase (PII anonymised, account soft-deleted).
 
@@ -154,7 +154,7 @@ Google Cloud, Azure, Kubernetes, or Docker Compose on a single VM.
 
 - DB-backed RBAC with CASL over two scopes: **platform** (staff) and **workspace** (tenant).
 - Every handler declares exactly one of `@Public()`, `@AuthenticatedOnly()` or `@RequirePermission()`, or the application refuses to boot.
-- Slack-style tenancy: one account, many workspaces, exactly one role in each. Memberships have a lifecycle (`active ⇄ suspended → left`). A pending invite is a separate single-use, hashed invitation, never a placeholder member.
+- Slack-style tenancy: one account, many workspaces, exactly one role in each. Memberships have a lifecycle (`active ⇄ suspended → left`). A pending invite is a separate single-use, hashed invitation code bound to one account, never a placeholder member.
 - Role assignment is rank-guarded, so nobody can grant a role above their own. Ownership transfer never leaves a workspace without an owner.
 - An audit log of every privileged action, filterable and searchable for incident review.
 
@@ -197,14 +197,9 @@ All routes are under `/api`. Swagger at `/api/docs` is the full specification.
 
 **Public**
 
-The routes that send an email, create an account or check a password require an `X-Turnstile-Token` header (`@RequireTurnstile()`; the Swagger document marks each one). Without it they answer 400 `TURNSTILE_TOKEN_MISSING`; a token Cloudflare refuses answers 400 `TURNSTILE_TOKEN_INVALID` — see `src/common/errors/README.md`.
+There is no public sign-up and no bot check: an administrator creates every account (`POST /users`).
 
-- `POST /auth/register` — creates an unverified user and emails a verification link. Returns `{ message }` only, the same for every address: a registered email creates nothing, and its owner is emailed that someone tried. A disposable domain → 400 `EMAIL_DOMAIN_DISALLOWED`.
-- `POST /auth/login` / `POST /auth/refresh` — return `{ accessToken, refreshToken, expiresIn, user }`. Login rejects with `EMAIL_NOT_VERIFIED` if the email is unverified.
-- `GET|POST /auth/verify-email` — consumes a verification link.
-- `POST /auth/resend-verification` — resends the link (always 200, no enumeration).
-- `POST /users/request-password-reset` — emails a reset link to `PASSWORD_RESET_URL?token=…&email=…` (always 200).
-- `POST /users/reset-password` — `{ email, token, newPassword }`; single use, ends every session.
+- `POST /auth/login` / `POST /auth/refresh` — return `{ accessToken, refreshToken, expiresIn, user }`. `user.isPasswordChangeRequired` says the password was chosen by an administrator: until `PATCH /users/me/password` replaces it, every other authenticated route answers 403 `PASSWORD_CHANGE_REQUIRED` except `GET /users/me` and sign-out.
 - `GET /app-versions` (paginated), `GET /app-versions/:id`, `GET /app-versions/latest?platform=mobile&os=ios` — client update checks. `os` names the **release train**: `mobile` and `desktop` ship one independently versioned build per OS, `web` ships one for everyone and omits it.
 - `GET /enums` (all) and `GET /enums/{role-scopes,permission-ownerships,app-platforms,device-types,device-oses}` — client-facing enum catalog.
 - `GET /public/ping` — example of the unauthenticated, throttled `public/` module pattern.
@@ -214,8 +209,7 @@ The routes that send an email, create an account or check a password require an 
 - `POST /auth/logout` / `POST /auth/logout-all` — per-token / everywhere revocation.
 - `GET /users/me`, `GET /users/me/export` (GDPR data access), `PATCH /users/me`, `DELETE /users/me` (soft delete).
 - `POST /users/me/gdpr-erase` — PII anonymisation and deletion (requires `currentPassword`).
-- `PATCH /users/me/{username,email,password}` — self-service updates; `PATCH /users/me` also sets the profile picture by the id `POST /files` returned (see `docs/file-uploads.md`). `email` and `password` end every other session and return a fresh `{ accessToken, refreshToken, expiresIn, user }`; a new email is unverified until its link is followed.
-- `POST /users/me/request-phone-verification` → `PATCH /users/me/verify-phone` — OTP-verify a phone number; `PATCH /users/me/phone` sets one unverified.
+- `PATCH /users/me/{username,email,password}` — self-service updates; `PATCH /users/me` also sets the profile picture by the id `POST /files` returned (see `docs/file-uploads.md`). `email` and `password` end every other session and return a fresh `{ accessToken, refreshToken, expiresIn, user }`.
 - `GET /users/me/permissions` — the caller's packed CASL rules, for client-side ability sync.
 - `POST|GET|PATCH|DELETE /device-tokens` — your own push tokens (a platform admin manages anyone's).
 - `POST /files` — upload one file (multipart `file` + `purpose`); attach it by the returned id in a JSON request. See `docs/file-uploads.md`.
@@ -225,15 +219,15 @@ The routes that send an email, create an account or check a password require an 
 - `POST|GET|PATCH|DELETE /workspaces` — any user may create one; the creator becomes its `WORKSPACE_OWNER`.
 - `.../workspaces/:workspaceId/memberships` — the **one** roster. Every role is the same resource distinguished by `roleId`, so there is no parallel tree to keep in step. Rank-guarded: you may never grant a role above your own.
 - `.../memberships/:id/{role,suspend,reactivate,transfer-ownership}` — each a separate permission, because CASL's `manage` wildcard would otherwise let anyone holding "update" also assign roles.
-- `.../workspaces/:workspaceId/invitations` (create, list, `:invitationId/resend`, revoke) and `POST /invitations/accept` — invite an address that may not have an account yet. Single-use hashed token; concurrent redemption yields exactly one membership.
+- `.../workspaces/:workspaceId/invitations` (create, list, `:invitationId/resend`, revoke) and `POST /invitations/accept` — invite an existing account by email or username. Create and resend return the one-time code once (only its hash is stored); only the invited account can redeem it, and concurrent redemption yields exactly one membership.
 
 **Platform scope**
 
-- `POST|GET|PATCH|DELETE /users`, `/users/:id`, `/users/:id/password` — full user management.
+- `POST|GET|PATCH|DELETE /users`, `/users/:id`, `/users/:id/password` — full user management. A created account, and one whose password an administrator resets, must choose its own password at its next sign-in.
 - `POST|DELETE /users/:userId/roles` — grant or revoke a platform role.
 - `GET /roles`, `GET /roles/:id`, `GET /permissions` — **read-only**. Roles and permissions are both code-owned; no endpoint creates one.
 - `GET /queues`, `GET|DELETE /queues/:queue/jobs/:jobId`, `POST /queues/:queue/jobs/:jobId/retry` — background-job diagnostics and recovery. Payloads are visible only to `PLATFORM_ENGINEER` (and `PLATFORM_ADMIN`); `PLATFORM_TECHNICAL_SUPPORT` can see that a job failed and retry it without reading the data it carried; app support has no queue access.
-- `POST /users/:id/{revoke-sessions,resend-verification}` — narrow support capabilities, each its own permission, so app support can help an account holder without being able to change their email.
+- `POST /users/:id/revoke-sessions` — a narrow support capability with its own permission, so app support can help an account holder without being able to change their email.
 - `GET /audit-logs`, `GET /audit-logs/:id` — the platform audit trail. Filter by `action` / `actorId` / `targetUserId` / `startCreatedAt` / `endCreatedAt`, or cast a wide net with `?search=`, which matches the action name, either party's email and the `metadata` envelope as text (trigram-indexed). Rows arrive with `actor` / `targetUser` hydrated (id, email, name, current platform roles), batched one query per page, and still resolve for soft-deleted users.
 - `POST|PATCH|DELETE /app-versions` — release signal management.
 
@@ -253,8 +247,7 @@ pnpm install
 cp .env.example .env
 sed -i.bak "s|^JWT_SECRET=.*|JWT_SECRET=\"$(openssl rand -hex 48)\"|" .env && rm .env.bak
 
-# PostgreSQL, Redis and S3-compatible storage (RustFS) on host ports 5433 / 6378 / 9000,
-# and the Mailpit email inbox (SMTP 1025, inbox 8025)
+# PostgreSQL, Redis and S3-compatible storage (RustFS) on host ports 5433 / 6378 / 9000
 docker compose up -d
 
 # Schema, then the RBAC catalog. The API refuses to boot until the catalog is in the database
@@ -268,15 +261,6 @@ pnpm start:dev
 
 The Swagger UI is at [localhost:3000/api/docs](http://localhost:3000/api/docs)
 and the readiness check is at [localhost:3000/api/health/readiness](http://localhost:3000/api/health/readiness).
-
-Every email the API sends locally (verification links, one-time codes,
-password resets, invitations) lands in Mailpit, because `.env.example` sets
-`EMAIL_PROVIDER="smtp"` against it. Read them at [localhost:8025](http://localhost:8025),
-or from scripts and automated QA through its HTTP API:
-`GET http://localhost:8025/api/v1/messages` lists them and
-`GET http://localhost:8025/api/v1/message/<ID>` returns one with its text and
-HTML body. Set `EMAIL_PROVIDER="stub"` to log emails to the console instead.
-The e2e stack does not run Mailpit; the suite refuses every provider but the stub.
 
 Run the tests:
 
@@ -375,8 +359,6 @@ src/
     enums/                   # RoleScope, PermissionOwnership, SeededRoleName, Gender, AppPlatform, …
     filters/                 # GlobalExceptionFilter (single unified filter)
     errors/                  # AppException, ErrorCode catalog, Errors factory
-    email/                   # EmailService, adapters (stub/resend/mailgun/smtp), typed Handlebars templates
-    sms/                     # SmsService, adapters (stub/twilio)
     storage/                 # FileStorageService, adapters (stub/s3/gcs/azure)
     logging/                 # pino-http options (redaction, request id)
     telemetry/               # telemetry shutdown hook
@@ -438,11 +420,9 @@ worker with `QUEUE_WORKER_ENABLED=true`.
 <summary><b>Production checklist</b>: confirm these before the first real deploy</summary>
 
 - [ ] `JWT_SECRET` regenerated per environment (`openssl rand -hex 48`). Validation refuses a blank, short or template value at boot.
-- [ ] `TURNSTILE_WEB_SECRET` and `TURNSTILE_MOBILE_SECRET` set to real widget secrets. Both are required in staging and production, and Cloudflare's test secrets are refused there.
 - [ ] `CORS_ORIGIN` set to an explicit origin list (`*` is refused in `NODE_ENV=production`).
 - [ ] `TRUST_PROXY` lists the addresses of the proxy hops in front of the API, and only those — see "Client topologies" in [`docs/deployment/README.md`](docs/deployment/README.md).
 - [ ] `TRUST_CLOUDFLARE_HEADERS` left at `false` **unless** the origin is provably unreachable except through Cloudflare (an edge or firewall that admits only Cloudflare's ranges). These headers are forgeable by anyone who can reach the origin directly, and they are written into `audit_logs`, the table an incident responder trusts.
-- [ ] `EMAIL_PROVIDER=resend` (with `RESEND_API_KEY`) or `mailgun` (with `MAILGUN_API_KEY` and `MAILGUN_DOMAIN`), and `EMAIL_FROM` on a domain verified with that provider, with DKIM/SPF/DMARC in DNS.
 - [ ] `OTEL_EXPORTER_OTLP_ENDPOINT` pointed at an OpenTelemetry Collector (traces and metrics), with an error tracker wired behind it or into pino.
 - [ ] Managed PostgreSQL point-in-time recovery (PITR) enabled.
 - [ ] Secrets served from a secret manager (GCP Secret Manager / Vault / Kubernetes secrets) rather than a plaintext env file.
@@ -483,7 +463,7 @@ worker with `QUEUE_WORKER_ENABLED=true`.
 | Validation | class-validator + class-transformer for requests; Joi for configuration |
 | Rate limiting | `@nestjs/throttler` with shared Redis storage |
 | Observability | pino via `nestjs-pino`, OpenTelemetry SDK with OTLP exporters, `nestjs-cls` request context |
-| Integrations | Resend or Mailgun (email), Twilio (SMS), S3 / GCS / Azure Blob, each behind an adapter with a `stub` for development (email: `smtp` to the local Mailpit inbox) |
+| Integrations | S3 / GCS / Azure Blob, each behind an adapter with a `stub` for development |
 | API docs | `@nestjs/swagger`, generated from DTOs by the compiler plugin |
 | Testing | Jest + supertest; e2e against real infrastructure |
 

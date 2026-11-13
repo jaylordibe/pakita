@@ -13,11 +13,9 @@ import {
   lockRefreshTokenFamily,
   lockUserRow,
 } from '../../common/util/row-lock.util';
-import {
-  nextWholeSecond,
-  waitForSessionCutoff,
-} from '../../common/util/session-cutoff.util';
+import { waitForSessionCutoff } from '../../common/util/session-cutoff.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { endAllSessionsWithin } from './end-all-sessions';
 import type { JwtPayload } from './strategies/jwt.strategy';
 
 // Where a refresh token came from, captured at issue for the audit trail.
@@ -427,46 +425,14 @@ export class RefreshTokenService {
     });
   }
 
-  /**
-   * THE security mutation: end every session this account holds, everywhere.
-   *
-   * Moves the session cutoff and revokes every family in one statement pair, so
-   * neither access tokens nor refresh tokens survive. Pairs with logout-all,
-   * support-driven revocation, every credential change, deactivation, deletion,
-   * and erasure — all of which previously did some subset of this by hand.
-   *
-   * `userData` is folded into the SAME `users` update, so the reason for the
-   * revocation and the revocation itself are one row version. That is what makes
-   * "a password change always ends sessions" a structural property rather than a
-   * rule five call sites happened to remember: there is no way to write the new
-   * password without also writing the cutoff.
-   *
-   * The caller must already hold the user lock. It is not taken here, because
-   * taking it twice in one transaction is harmless but taking it in the wrong
-   * ORDER is not, and the caller is the only one who knows what else it holds.
-   */
+  /** See {@link endAllSessionsWithin}; the caller must hold the user lock. */
   async endAllSessionsInTransaction(
     transaction: Prisma.TransactionClient,
     userId: string,
     actorId: string | null,
     userData: Prisma.UserUpdateInput = {},
   ): Promise<User> {
-    const updated = await transaction.user.update({
-      where: { id: userId },
-      data: {
-        ...userData,
-        // Rounded up to the next whole second — see `nextWholeSecond`. A raw
-        // timestamp leaves a token minted in the same second as the change
-        // valid, because `iat` has no sub-second precision to compare against.
-        passwordChangedAt: nextWholeSecond(),
-        updatedBy: actorId,
-      },
-    });
-    await transaction.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
-    return updated;
+    return endAllSessionsWithin(transaction, userId, actorId, userData);
   }
 
   /** {@link endAllSessionsInTransaction} under its own transaction and lock. */

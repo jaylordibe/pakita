@@ -27,6 +27,7 @@ const pakita: PakitaApi = {
     getState: () => invoke(IpcChannel.appGetState),
     getUpdate: () => invoke(IpcChannel.appGetUpdate),
     openUpdate: () => invoke(IpcChannel.appOpenUpdate),
+    copyText: (text) => invoke(IpcChannel.appCopyText, text),
     onUpdateAvailable: (listener) =>
       subscribe(IpcEvent.updateAvailable, listener),
   },
@@ -40,6 +41,29 @@ const pakita: PakitaApi = {
     signIn: (identifier, password) =>
       invoke(IpcChannel.accountSignIn, { identifier, password }),
     signOut: () => invoke(IpcChannel.accountSignOut),
+    changePassword: (currentPassword, newPassword) =>
+      invoke(IpcChannel.accountChangePassword, {
+        currentPassword,
+        newPassword,
+      }),
+    getCapabilities: () => invoke(IpcChannel.accountGetCapabilities),
+  },
+  accounts: {
+    list: () => invoke(IpcChannel.accountsList),
+    create: (input) => invoke(IpcChannel.accountsCreate, input),
+    resetPassword: (accountId) =>
+      invoke(IpcChannel.accountsResetPassword, accountId),
+  },
+  invitations: {
+    listRoles: () => invoke(IpcChannel.invitationsListRoles),
+    list: () => invoke(IpcChannel.invitationsList),
+    create: (identifier, roleId) =>
+      invoke(IpcChannel.invitationsCreate, { identifier, roleId }),
+    reissue: (invitationId) =>
+      invoke(IpcChannel.invitationsReissue, invitationId),
+    revoke: (invitationId) =>
+      invoke(IpcChannel.invitationsRevoke, invitationId),
+    accept: (code) => invoke(IpcChannel.invitationsAccept, code),
   },
   workspaces: {
     list: () => invoke(IpcChannel.workspacesList),
@@ -72,7 +96,6 @@ const pakita: PakitaApi = {
       invoke(IpcChannel.bibleGetChapter, { translationId, bookCode, chapter }),
     search: (translationId, search) =>
       invoke(IpcChannel.bibleSearch, { translationId, search }),
-    canImport: () => invoke(IpcChannel.bibleCanImport),
     chooseImportFolder: () => invoke(IpcChannel.bibleChooseImportFolder),
     import: (input) => invoke(IpcChannel.bibleImport, input),
     onImportProgress: (listener) =>

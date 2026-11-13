@@ -30,10 +30,10 @@ import { JWT_ALGORITHM } from '../jwt-algorithm';
 // traffic still keys on IP — that is the only stable identifier a guest has.
 //
 // `@Public()` routes ALWAYS key on IP, token or not. They are anonymous by
-// design (JwtAuthGuard skips them), and they are the routes that send email or
-// check a credential. A token there would let one address holding N accounts
-// multiply every per-route limit by N — N × resend-verification aimed at one
-// victim's inbox — so a token on a public route buys no quota at all.
+// design (JwtAuthGuard skips them), and they are the routes that check a
+// credential. A token there would let one address holding N accounts
+// multiply every per-route limit by N — N × password guesses aimed at one
+// victim's account — so a token on a public route buys no quota at all.
 //
 // WHY THE TOKEN IS FULLY VERIFIED HERE, rather than just decoded. The tracker
 // key IS the security boundary: if the `sub` claim were trusted without

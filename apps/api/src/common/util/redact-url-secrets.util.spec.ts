@@ -5,15 +5,15 @@ import {
 } from './redact-url-secrets.util';
 
 describe('redactUrlSecrets', () => {
-  // The concrete leak this exists for: the email-verification link carries a
-  // bearer token in the query string, and following that link is precisely
-  // what produces the log line.
-  it('redacts the email-verification token', () => {
+  // The concrete leak this exists for: a link that carries a bearer token in
+  // its query string, where following the link is precisely what produces
+  // the log line.
+  it('redacts a token in the query string', () => {
     expect(
       redactUrlSecrets(
-        '/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.payload.signature',
+        '/api/some/link?token=eyJhbGciOiJIUzI1NiJ9.payload.signature',
       ),
-    ).toBe('/api/auth/verify-email?token=[redacted]');
+    ).toBe('/api/some/link?token=[redacted]');
   });
 
   it('leaves a URL with no query string untouched', () => {
@@ -103,7 +103,7 @@ describe('redactedIncomingUrlAttributes', () => {
       redactedIncomingUrlAttributes('/api/users?search=juan&page=2'),
     ).toEqual({ 'url.query': 'search=[redacted]&page=2' });
     expect(
-      redactedIncomingUrlAttributes('/api/auth/verify-email?token=secret'),
+      redactedIncomingUrlAttributes('/api/some/link?token=secret'),
     ).toEqual({ 'url.query': 'token=[redacted]' });
   });
 

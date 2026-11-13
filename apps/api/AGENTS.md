@@ -84,7 +84,7 @@ src/
   prisma/        PrismaService + soft-delete extension
   common/        leaf layer: authorization catalog, audit, constants,
                  decorators, dto, enums, errors, filters,
-                 email/sms/storage, queue, redis, logging, telemetry, util
+                 storage, queue, redis, logging, telemetry, util
   modules/       feature modules; authorization/ holds the global guard,
                  AbilityScopedQueryService and the boot-time integrity gates
 prisma/          schema, migrations, seed.ts + rbac-seeder.ts, scripts/
@@ -160,24 +160,20 @@ test/            e2e specs + setup/ (global DB setup, worker isolation)
   import from `@nestjs/swagger`. DTO JSDoc is the published API description
   (`introspectComments`): a `//` comment directly above a JSDoc block drops
   it silently.
-- **Bot check:** every `@Public()` endpoint that sends a text or email,
-  creates an account or checks a password carries `@RequireTurnstile()`; a
-  step that only redeems a code or link one of those issued does not.
-  `TurnstileGuard` says why `Origin` only selects the widget.
-- **Rate limiting:** every `@Public()` or OTP/SMS/email endpoint gets its own
-  `@Throttle`. Every email or SMS send also goes through
-  `DestinationSendLimitService`, reserving the destination's budget before
-  minting any token or code (an invitation token is minted at the request, so
-  `resend` checks the budget before rotating it); a refused send is skipped
-  silently. The only
-  uncapped sends are the security notices to a VERIFIED address
-  (password changed, email changed); `UsersService` says why.
+- **No outside services:** the API sends no email or text and uses no bot
+  check, so a church self-hosts it with no outside account. Accounts are
+  created by an administrator (`POST /users`); there is no public sign-up.
+  Do not add a route that depends on proving an address or a number.
+- **Rate limiting:** every `@Public()` endpoint gets its own `@Throttle`.
+  Every password sign-in goes through `AuthService.verifyCredentials`, which
+  also limits failed sign-ins per account from every address
+  (`SignInFailureLimitService`); the `auth-security` skill has the numbers.
 - **Logging:** pino to stdout only; for a new secret extend
   `buildRedactPaths()` (headers) or `redactUrlSecrets` (query strings).
   Request bodies are never logged.
 - **Health indicators** log the real error and return a fixed string.
-- **Providers:** email/SMS/storage adapters are selected by env; a provider
-  SDK is imported only by its own adapter. Store `storageKey`, never a URL;
+- **Providers:** storage adapters are selected by env; a provider SDK is
+  imported only by its own adapter. Store `storageKey`, never a URL;
   authorize before issuing a signed URL.
 - **Files:** resource endpoints stay JSON; a file is uploaded with
   `POST /files` and attached by id through `FilesService` inside the domain's
@@ -185,8 +181,8 @@ test/            e2e specs + setup/ (global DB setup, worker isolation)
 - **Redis:** build every client from `buildRedisConnectionOptions`.
 - **Background work:** BullMQ only, and by default: work the response does
   not need (every notification, side-effect call, unbounded loop) is
-  enqueued, never run inline. A side effect the change must not lose (an
-  email or push to a user, an outbound webhook) is an outbox:
+  enqueued, never run inline. A side effect the change must not lose (a
+  push to a user, an outbound webhook) is an outbox:
   a row written in the same transaction as the change, enqueued after the
   commit, and re-queued by a sweep if its job is lost. Never reintroduce
   `@nestjs/schedule`. Consumers tolerate duplicate delivery and keep
@@ -245,7 +241,7 @@ repository, the change and the owner.
 | Reasoning behind every rule above | `docs/engineering-conventions.md` |
 | New CRUD resource | `resource-pattern` skill, `docs/resource-pattern.md` |
 | Permissions, roles, tenant isolation | `authorization` skill, `src/common/authorization/README.md` |
-| Auth, JWT, sessions, verification, password reset | `auth-security` skill |
+| Auth, JWT, sessions, forced password change, sign-in limits | `auth-security` skill |
 | e2e specs | `e2e-testing` skill |
 | Background work (immediate, delayed, recurring) | `src/common/queue/README.md` |
 | File uploads, attaching files to a resource | `docs/file-uploads.md` |

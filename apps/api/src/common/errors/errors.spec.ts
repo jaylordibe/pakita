@@ -28,17 +28,16 @@ describe('Errors.rateLimited', () => {
   });
 });
 
-// The two Turnstile refusals are 400s a client branches on by code alone; the
-// rejected one deliberately carries no `details`, so Cloudflare's own error
-// codes never become part of this contract.
-describe('Errors.turnstileToken*', () => {
-  it.each([
-    [Errors.turnstileTokenMissing(), ErrorCode.TURNSTILE_TOKEN_MISSING],
-    [Errors.turnstileTokenInvalid(), ErrorCode.TURNSTILE_TOKEN_INVALID],
-  ])('carries 400, its code and no details', (exception, errorCode) => {
-    expect(exception.getStatus()).toBe(HttpStatus.BAD_REQUEST);
-    expect(exception.getResponse()).toMatchObject({ errorCode });
-    expect(exception.getResponse()).not.toHaveProperty('details');
+// A session on an administrator-chosen password is refused by code alone, as
+// a 403 rather than a 401, so a client keeps its tokens and asks for a new
+// password instead of signing out.
+describe('Errors.passwordChangeRequired', () => {
+  it('carries 403 and its code', () => {
+    const exception = Errors.passwordChangeRequired();
+    expect(exception.getStatus()).toBe(HttpStatus.FORBIDDEN);
+    expect(exception.getResponse()).toMatchObject({
+      errorCode: ErrorCode.PASSWORD_CHANGE_REQUIRED,
+    });
   });
 });
 

@@ -28,17 +28,14 @@ describe('buildAuditSnapshot', () => {
 
   // The whole point of the denylist. The audit trail is readable by support and
   // developer roles, not just PLATFORM_ADMIN.
-  it.each(['password', 'otpHash', 'otpPurpose', 'otpExpiresAt', 'token'])(
-    'never snapshots `%s`',
-    (column) => {
-      const snapshot = buildAuditSnapshot({
-        id: 'a',
-        [column]: 'secret-value',
-      });
-      expect(snapshot).not.toHaveProperty(column);
-      expect(JSON.stringify(snapshot)).not.toContain('secret-value');
-    },
-  );
+  it.each(['password', 'token'])('never snapshots `%s`', (column) => {
+    const snapshot = buildAuditSnapshot({
+      id: 'a',
+      [column]: 'secret-value',
+    });
+    expect(snapshot).not.toHaveProperty(column);
+    expect(JSON.stringify(snapshot)).not.toContain('secret-value');
+  });
 
   it('drops secrets entirely rather than masking them (no length leak)', () => {
     const snapshot = buildAuditSnapshot({

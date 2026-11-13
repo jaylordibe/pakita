@@ -8,7 +8,6 @@ export class UpdateAuthUserInfoDto extends PickType(UpdateUserDto, [
   'firstName',
   'middleName',
   'lastName',
-  'phoneNumber',
   'gender',
   'birthday',
   'timezone',

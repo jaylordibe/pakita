@@ -12,7 +12,6 @@ import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
 import { UAParser } from 'ua-parser-js';
 import { AuditModule } from './common/audit/audit.module';
-import { TurnstileModule } from './common/turnstile/turnstile.module';
 import { Errors } from './common/errors/errors';
 import { flattenValidationErrors } from './common/errors/flatten-validation-errors';
 import { buildPinoHttpOptions } from './common/logging/pino-http-options';
@@ -25,14 +24,11 @@ import { redactUrlSecrets } from './common/util/redact-url-secrets.util';
 // moved into buildPinoHttpOptions, and both call this same memoised resolver so
 // the two cannot disagree about a request's id.
 import { resolveRequestId } from './common/util/request-id.util';
-import { EmailModule } from './common/email/email.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { QueueModule } from './common/queue/queue.module';
 import { RedisModule } from './common/redis/redis.module';
-import { SendLimitModule } from './common/send-limit/send-limit.module';
 import { RedisService } from './common/redis/redis.service';
 import { TelemetryShutdownService } from './common/telemetry/telemetry-shutdown.service';
-import { SmsModule } from './common/sms/sms.module';
 import { FileStorageModule } from './common/storage/file-storage.module';
 import configuration, { isEnvFileIgnored } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
@@ -264,11 +260,7 @@ import { UsersModule } from './modules/users/users.module';
     PrismaModule,
     RedisModule,
     QueueModule,
-    EmailModule,
-    SmsModule,
-    SendLimitModule,
     AuditModule,
-    TurnstileModule,
     FileStorageModule,
     AuthorizationModule,
     AuthModule,

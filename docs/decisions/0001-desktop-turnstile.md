@@ -1,8 +1,14 @@
 # 0001 — Desktop sign-in and the Turnstile bot check
 
-- **Status:** accepted (2026-11-13). The flow is proven end to end in Phase 2
-  with Cloudflare's test keys; the hostname check against a real widget is
-  proven by the first church deployment (see "What is not yet proven").
+- **Status:** superseded (2026-11-13). Pakita removed Cloudflare Turnstile,
+  together with email and text messages, so a church can self-host with no
+  outside service: its data (lyrics, Bible translations) is public, and it is
+  an internal tool. Password guessing is bounded by the sign-in route
+  throttles plus a per-account failed sign-in limit instead (the
+  `auth-security` skill in `apps/api/.claude/skills/`). The desktop Turnstile
+  window and the API's check page are gone. The record below is kept as
+  history; it was accepted on 2026-11-13 and proven with Cloudflare's test
+  keys.
 - **Context:** Pakita adopts the API template unchanged, and in staging and
   production the template requires a Cloudflare Turnstile token on every
   password sign-in (`apps/api/src/common/turnstile/turnstile.guard.ts`). The

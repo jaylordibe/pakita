@@ -1,5 +1,9 @@
 import { ApiClient, ApiError, type ApiRequest } from '../api/api-client';
-import { loginResponseSchema, type LoginResponse } from '../api/api-schemas';
+import {
+  loginResponseSchema,
+  passwordSignInResponseSchema,
+  type LoginResponse,
+} from '../api/api-schemas';
 import type { CredentialStore, StoredAccount } from './credential-store';
 
 /** Refresh the access token this long before it expires. */
@@ -74,23 +78,65 @@ export class Session {
     return this.account !== null && this.refreshToken !== null;
   }
 
-  async signIn(
-    identifier: string,
-    password: string,
-    turnstileToken: string | null,
-  ): Promise<StoredAccount> {
+  async signIn(identifier: string, password: string): Promise<StoredAccount> {
     this.generation += 1;
     const generation = this.generation;
     const response = await this.api.request({
       method: 'POST',
       path: '/api/auth/login',
+      schema: passwordSignInResponseSchema,
+      body: {
+        identifier,
+        password,
+        deviceTokens: this.store.loadDeviceTokens(this.api.origin),
+      },
+    });
+    // Kept even if this sign-in is then discarded below: the device did sign
+    // in to that account.
+    this.store.saveDeviceToken(
+      this.api.origin,
+      response.user.id,
+      response.deviceToken,
+    );
+    return this.adopt(response, generation);
+  }
+
+  /**
+   * Changes the signed-in person's password. The server ends every other
+   * session and answers with a fresh one for this laptop, which replaces the
+   * current one. It is also how a password an administrator chose is
+   * replaced, which lifts `isPasswordChangeRequired`.
+   */
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<StoredAccount> {
+    const generation = this.generation;
+    const response = await this.request({
+      method: 'PATCH',
+      path: '/api/users/me/password',
       schema: loginResponseSchema,
-      body: { identifier, password },
-      headers: turnstileToken ? { 'X-Turnstile-Token': turnstileToken } : {},
+      body: { currentPassword, newPassword },
     });
     if (generation !== this.generation) {
-      // Signed out (or in again) while this sign-in was on its way.
-      this.endServerSession(response.refreshToken);
+      // Signed out (or in again) while the change was on its way.
+      void this.endServerSession(response.refreshToken);
+      throw new SignInRequiredError();
+    }
+    // A new generation, as a sign-in starts one: a refresh still in flight
+    // spent the old token, and must not overwrite the session issued here.
+    this.generation += 1;
+    return this.adopt(response, this.generation);
+  }
+
+  /** Makes a session the server just issued this laptop's session. */
+  private async adopt(
+    response: LoginResponse,
+    generation: number,
+  ): Promise<StoredAccount> {
+    if (generation !== this.generation) {
+      // Signed out (or in again) while this request was on its way.
+      void this.endServerSession(response.refreshToken);
       throw new SignInRequiredError();
     }
     const account: StoredAccount = {
@@ -99,6 +145,7 @@ export class Session {
       email: response.user.email,
       displayName:
         `${response.user.firstName} ${response.user.lastName}`.trim(),
+      isPasswordChangeRequired: response.user.isPasswordChangeRequired,
     };
     this.account = account;
     this.refreshToken = response.refreshToken;

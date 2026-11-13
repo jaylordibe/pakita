@@ -26,29 +26,22 @@ import { AuthenticatedOnly } from '../../common/decorators/authenticated-only.de
 import { CurrentAbility } from '../../common/decorators/current-ability.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
-import { MetaQueryDto } from '../../common/dto/meta-query.dto';
-import { OperationAcknowledgementDto } from '../../common/dto/operation-acknowledgement.dto';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
-import { Public } from '../../common/decorators/public.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
-import { RequireTurnstile } from '../../common/decorators/require-turnstile.decorator';
+import { AllowedWhilePasswordChangeRequired } from '../../common/decorators/allowed-while-password-change-required.decorator';
 import { CreateUserDto } from './dto/create-user.dto';
 import { GdprEraseDto } from './dto/gdpr-erase.dto';
-import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
-import { RequestPhoneVerificationDto } from './dto/request-phone-verification.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SetProfileImageDto } from './dto/set-profile-image.dto';
 import { UpdateAuthUserEmailDto } from './dto/update-auth-user-email.dto';
 import { UpdateAuthUserInfoDto } from './dto/update-auth-user-info.dto';
 import { UpdateAuthUserPasswordDto } from './dto/update-auth-user-password.dto';
-import { UpdateAuthUserPhoneDto } from './dto/update-auth-user-phone.dto';
 import { UpdateAuthUsernameDto } from './dto/update-auth-username.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import type { AppAbility } from '../../common/authorization/app-ability';
+import { UserListQueryDto } from './dto/user-list-query.dto';
 import { UserPermissionsResponseDto } from './dto/user-permissions-response.dto';
 import { UserResponseDto } from './dto/user-response.dto';
-import { VerifyAuthUserPhoneDto } from './dto/verify-auth-user-phone.dto';
 import { UsersService } from './users.service';
 import { LoginResponseDto } from '../auth/dto/login-response.dto';
 import { readRefreshTokenContext } from '../auth/refresh-token-context';
@@ -58,34 +51,6 @@ import { readRefreshTokenContext } from '../auth/refresh-token-context';
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
-
-  @Post('request-password-reset')
-  @Public()
-  @RequireTurnstile()
-  @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOkResponse({ type: OperationAcknowledgementDto })
-  async requestPasswordReset(
-    @Body() dto: RequestPasswordResetDto,
-  ): Promise<{ isOk: true }> {
-    await this.usersService.requestPasswordReset(dto.email);
-    // Same answer whether or not the address is registered.
-    return { isOk: true };
-  }
-
-  @Post('reset-password')
-  @Public()
-  @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOkResponse({ type: OperationAcknowledgementDto })
-  async resetPassword(@Body() dto: ResetPasswordDto): Promise<{ isOk: true }> {
-    await this.usersService.resetPassword(dto);
-    return { isOk: true };
-  }
-
-  // Email verification lives on POST /auth/verify-email (link-based) and
-  // POST /auth/resend-verification (public — unverified users cannot log in,
-  // so requiring auth would make the endpoint unreachable).
 
   // `@AuthenticatedOnly()`: the caller is asking what THEY may do. There is no
   // subject to check a permission against — gating this behind a permission
@@ -102,6 +67,7 @@ export class UsersController {
 
   @Get('me')
   @RequirePermission('read', 'User')
+  @AllowedWhilePasswordChangeRequired()
   @ApiOkResponse({ type: UserResponseDto })
   async getAuthUser(
     @CurrentUser() currentUser: AuthenticatedUser,
@@ -177,7 +143,7 @@ export class UsersController {
   @Post('me/gdpr-erase')
   @RequirePermission('delete', 'User')
   // Checks currentPassword: with a stolen access token this is a password
-  // oracle, so it gets the same 5/60s ceiling as reset-password — per user,
+  // oracle, so it gets a 5/60s ceiling — per user,
   // which is what binds a stolen token (UserAwareThrottlerGuard).
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -221,7 +187,7 @@ export class UsersController {
   @Patch('me/email')
   @RequirePermission('update', 'User')
   // Checks currentPassword: with a stolen access token this is a password
-  // oracle, so it gets the same 5/60s ceiling as reset-password — per user,
+  // oracle, so it gets a 5/60s ceiling — per user,
   // which is what binds a stolen token (UserAwareThrottlerGuard).
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOkResponse({ type: LoginResponseDto })
@@ -239,12 +205,14 @@ export class UsersController {
   }
 
   // Other sessions end; the caller gets a fresh session in the response and
-  // must replace their stored tokens.
+  // must replace their stored tokens. The one way to replace a password an
+  // administrator chose, so it stays open while that change is required.
   @Patch('me/password')
   @RequirePermission('update', 'User')
+  @AllowedWhilePasswordChangeRequired()
   // Checks currentPassword: with a stolen access token this is a password
-  // oracle, so it gets the same 5/60s ceiling as reset-password — per user,
-  // which is what binds a stolen token (UserAwareThrottlerGuard).
+  // oracle, so it gets a 5/60s ceiling — per user, which is what binds a
+  // stolen token (UserAwareThrottlerGuard).
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOkResponse({ type: LoginResponseDto })
   async updateAuthUserPassword(
@@ -260,65 +228,9 @@ export class UsersController {
     return { ...tokens, user: await this.usersService.toResponse(user) };
   }
 
-  // Step 1 of the verified-phone flow — re-auth with the current password,
-  // then send a one-time code via SMS to the new number. Throttled at 5/60s
-  // per user (UserAwareThrottlerGuard keys a signed-in caller on its user) to
-  // limit abuse of the SMS provider's send budget.
-  @Post('me/request-phone-verification')
-  @RequirePermission('update', 'User')
-  @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOkResponse({ type: OperationAcknowledgementDto })
-  async requestPhoneVerification(
-    @Body() dto: RequestPhoneVerificationDto,
-    @CurrentUser() currentUser: AuthenticatedUser,
-  ): Promise<{ isOk: true }> {
-    await this.usersService.requestPhoneVerification(
-      currentUser.id,
-      dto.currentPassword,
-      dto.phoneNumber,
-    );
-    return { isOk: true };
-  }
-
-  // Step 2 of the verified-phone flow — verify the OTP and apply the new
-  // number. Stamps `phoneNumberVerifiedAt = now` on success. Throttled at
-  // 5/60s per user — a 6-digit OTP with a 15-min expiry needs the rate limit to
-  // bound brute-force on the verify endpoint.
-  @Patch('me/verify-phone')
-  @RequirePermission('update', 'User')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOkResponse({ type: UserResponseDto })
-  async verifyAuthUserPhone(
-    @Body() dto: VerifyAuthUserPhoneDto,
-    @CurrentUser() currentUser: AuthenticatedUser,
-  ): Promise<UserResponseDto> {
-    const user = await this.usersService.verifyAndUpdatePhoneNumber(
-      currentUser.id,
-      dto,
-      currentUser.id,
-    );
-    return this.usersService.toResponse(user);
-  }
-
-  // Plain phone update — no OTP, no verification. Sets the new number and
-  // clears `phoneNumberVerifiedAt` so the row no longer claims a verified
-  // phone. Use the OTP flow above when you need verification.
-  @Patch('me/phone')
-  @RequirePermission('update', 'User')
-  @ApiOkResponse({ type: UserResponseDto })
-  async updateAuthUserPhone(
-    @Body() dto: UpdateAuthUserPhoneDto,
-    @CurrentUser() currentUser: AuthenticatedUser,
-  ): Promise<UserResponseDto> {
-    const user = await this.usersService.updatePhoneNumber(
-      currentUser.id,
-      dto.phoneNumber,
-      currentUser.id,
-    );
-    return this.usersService.toResponse(user);
-  }
-
+  // The only way an account comes to exist: there is no public sign-up. The
+  // administrator chooses the first password, and the person must replace it
+  // at their first sign-in (`isPasswordChangeRequired`).
   @Post()
   @RequirePermission('create', 'User', { isAdministrative: true })
   // Hashes a password (bcrypt cost 12): bounded so a compromised admin
@@ -337,7 +249,7 @@ export class UsersController {
   @RequirePermission('read', 'User', { isAdministrative: true })
   @ApiPaginatedResponse(UserResponseDto)
   async findPaginated(
-    @Query() query: MetaQueryDto,
+    @Query() query: UserListQueryDto,
   ): Promise<PaginatedResponseDto<UserResponseDto>> {
     const { data, meta } = await this.usersService.findPaginated(query);
     return {
@@ -368,6 +280,8 @@ export class UsersController {
     return this.usersService.toResponse(user);
   }
 
+  // An administrator's reset for someone who lost their password: their
+  // sessions end, and they must choose their own at the next sign-in.
   @Patch(':id/password')
   @RequirePermission('resetPassword', 'User', { isAdministrative: true })
   // Hashes a password (bcrypt cost 12): bounded so a compromised admin
@@ -410,20 +324,5 @@ export class UsersController {
     @CurrentUser() currentUser: AuthenticatedUser,
   ): Promise<void> {
     await this.usersService.revokeAllSessions(id, currentUser.id);
-  }
-
-  // Unlike the public `POST /auth/resend-verification`, which must answer
-  // identically for a registered and an unregistered address, this one is
-  // called by staff who can already see the account — so it reports honestly.
-  @Post(':id/resend-verification')
-  @HttpCode(HttpStatus.OK)
-  @RequirePermission('resendVerification', 'User', { isAdministrative: true })
-  @ApiOkResponse({ type: OperationAcknowledgementDto })
-  async resendVerification(
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @CurrentUser() currentUser: AuthenticatedUser,
-  ): Promise<OperationAcknowledgementDto> {
-    await this.usersService.resendVerificationForUser(id, currentUser.id);
-    return { isOk: true };
   }
 }

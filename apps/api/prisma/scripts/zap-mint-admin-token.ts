@@ -59,8 +59,6 @@ async function main(): Promise<void> {
           // but the column is NOT NULL. Placeholder, not a valid credential.
           password: 'zap-scan-no-login',
           isActive: true,
-          // Verified so email-gated endpoints are in scope for the scan.
-          emailVerifiedAt: new Date(),
         },
       }));
 

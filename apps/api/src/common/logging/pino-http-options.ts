@@ -50,9 +50,6 @@ export function buildRedactPaths(): string[] {
     `${PINO_REQUEST_KEY}.headers.cookie`,
     `${PINO_REQUEST_KEY}.headers["x-api-key"]`,
     `${PINO_REQUEST_KEY}.headers["proxy-authorization"]`,
-    // Single-use, but replayable until Cloudflare redeems it — and a request
-    // the throttler refuses never reaches Cloudflare at all.
-    `${PINO_REQUEST_KEY}.headers["x-turnstile-token"]`,
     `${PINO_RESPONSE_KEY}.headers["set-cookie"]`,
   ];
 }
@@ -62,10 +59,9 @@ export function buildRedactPaths(): string[] {
 // is a substring of `req.url` — censoring that property would erase the path
 // too and take every access log with it.
 //
-// Load-bearing, not defensive: `GET /api/auth/verify-email?token=…` carries a
-// bearer credential in the query string by design, and an email client
-// following that link is exactly what produces the log line. Signed
-// object-storage URLs have the same property.
+// Load-bearing, not defensive: a signed object-storage URL or an OAuth
+// callback carries a credential in its query string by design, and following
+// it is exactly what produces the log line.
 export function redactLoggedRequest(loggedRequest: {
   url?: string;
   query?: Record<string, unknown>;

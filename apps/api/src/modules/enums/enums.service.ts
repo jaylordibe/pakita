@@ -21,7 +21,7 @@ const DEVICE_OS_META: EnumMeta = {
 // One entry per client-facing enum: [response key, enum object, optional meta].
 // Declaration order here is the order of keys in `GET /enums`. Add a new enum by
 // appending a row and a matching one-line `@Get` in the controller. Excludes
-// server-internal enums (e.g. OtpPurpose) that no client renders.
+// server-internal enums that no client renders.
 const ENUM_REGISTRY: ReadonlyArray<readonly [string, object, EnumMeta?]> = [
   // Roles are database rows now, not a TS enum — list them via `GET /roles`.
   // What clients still need statically is the vocabulary around them.

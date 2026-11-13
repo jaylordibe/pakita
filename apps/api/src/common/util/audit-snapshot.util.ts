@@ -9,13 +9,7 @@ import type { Prisma } from '@prisma/client';
 // exclude it. Here, a new *non*-sensitive column is included by default, and a
 // new sensitive one is a one-line addition — the failure mode of forgetting is
 // "too little history", not "leaked credentials".
-const REDACTED_COLUMNS: ReadonlySet<string> = new Set([
-  'password',
-  'otpHash',
-  'otpPurpose',
-  'otpExpiresAt',
-  'token',
-]);
+const REDACTED_COLUMNS: ReadonlySet<string> = new Set(['password', 'token']);
 
 /**
  * A JSON-safe copy of a row, for `AuditService.record({ metadata: { snapshot } })`.

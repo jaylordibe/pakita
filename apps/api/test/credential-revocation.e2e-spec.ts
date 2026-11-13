@@ -4,17 +4,12 @@ import { App } from 'supertest/types';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { truncateAll } from './setup/db';
 import {
-  captureEmails,
-  deliverQueuedEmails,
-  linkParameter,
-} from './setup/emails';
-import {
   createPlatformAdmin,
+  createUser,
   seedRbacCatalog,
   TEST_PASSWORD,
 } from './setup/rbac';
 import { createTestApp } from './setup/test-app';
-import { firstElement } from './setup/elements';
 
 const NEW_PASSWORD = 'brand-new-passphrase-9';
 
@@ -45,24 +40,8 @@ describe('Credential change revokes every session (e2e)', () => {
     await app.close();
   });
 
-  const registerVerified = async (email: string): Promise<string> => {
-    await request(app.getHttpServer())
-      .post('/api/auth/register')
-      .send({
-        email,
-        password: TEST_PASSWORD,
-        firstName: 'Credential',
-        lastName: 'Tester',
-      })
-      .expect(201);
-    const prisma = app.get(PrismaService);
-    const user = await prisma.user.findFirstOrThrow({ where: { email } });
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerifiedAt: new Date() },
-    });
-    return user.id;
-  };
+  const createAccount = async (email: string): Promise<string> =>
+    (await createUser(app, { email, firstName: 'Credential' })).id;
 
   const login = async (
     email: string,
@@ -87,7 +66,7 @@ describe('Credential change revokes every session (e2e)', () => {
 
   describe('every password-change route applies the same policy', () => {
     it('self-service: PATCH /users/me/password ends other sessions and returns a fresh one', async () => {
-      const userId = await registerVerified('self@example.com');
+      const userId = await createAccount('self@example.com');
       // Two devices, so "other devices" is a real assertion.
       const phone = await login('self@example.com');
       const laptop = await login('self@example.com');
@@ -117,43 +96,9 @@ describe('Credential change revokes every session (e2e)', () => {
       await refresh(fresh.refreshToken).expect(200);
     });
 
-    it('reset link: POST /users/reset-password', async () => {
-      const userId = await registerVerified('reset@example.com');
-      const session = await login('reset@example.com');
-      await deliverQueuedEmails(app);
-
-      const emails = captureEmails(app);
-      try {
-        await request(app.getHttpServer())
-          .post('/api/users/request-password-reset')
-          .send({ email: 'reset@example.com' })
-          .expect(200);
-        await deliverQueuedEmails(app);
-        const token = linkParameter(
-          firstElement(emails.sent, 'sent email'),
-          'resetUrl',
-          'token',
-        );
-
-        await request(app.getHttpServer())
-          .post('/api/users/reset-password')
-          .send({
-            email: 'reset@example.com',
-            token,
-            newPassword: NEW_PASSWORD,
-          })
-          .expect(200);
-      } finally {
-        emails.restore();
-      }
-
-      await refresh(session.refreshToken).expect(401);
-      expect(await liveTokenCount(userId)).toBe(0);
-    });
-
     it('administrative reset: PATCH /users/:id/password', async () => {
       const admin = await createPlatformAdmin(app);
-      const userId = await registerVerified('victim@example.com');
+      const userId = await createAccount('victim@example.com');
       const session = await login('victim@example.com');
 
       await request(app.getHttpServer())
@@ -173,7 +118,7 @@ describe('Credential change revokes every session (e2e)', () => {
       // purpose. Letting the profile-edit route write a credential collapsed
       // that boundary and skipped the current-password re-auth.
       const admin = await createPlatformAdmin(app);
-      const userId = await registerVerified('target@example.com');
+      const userId = await createAccount('target@example.com');
 
       const response = await request(app.getHttpServer())
         .patch(`/api/users/${userId}`)
@@ -194,7 +139,7 @@ describe('Credential change revokes every session (e2e)', () => {
     it("a refresh racing a password change leaves only the caller's new session", async () => {
       // Without the user-level lock, a rotation that had inserted its
       // replacement but not committed escaped the revocation.
-      const userId = await registerVerified('race@example.com');
+      const userId = await createAccount('race@example.com');
       const session = await login('race@example.com');
       const actor = await login('race@example.com');
 
@@ -212,7 +157,7 @@ describe('Credential change revokes every session (e2e)', () => {
     });
 
     it('a refresh racing logout-all leaves NO live token', async () => {
-      const userId = await registerVerified('logoutall@example.com');
+      const userId = await createAccount('logoutall@example.com');
       const session = await login('logoutall@example.com');
       const actor = await login('logoutall@example.com');
 
@@ -228,7 +173,7 @@ describe('Credential change revokes every session (e2e)', () => {
 
     it('a refresh racing support revocation leaves NO live token', async () => {
       const support = await createPlatformAdmin(app, 'support@example.com');
-      const userId = await registerVerified('supported@example.com');
+      const userId = await createAccount('supported@example.com');
       const session = await login('supported@example.com');
 
       await Promise.all([
@@ -247,7 +192,7 @@ describe('Credential change revokes every session (e2e)', () => {
       // Simulates a future code path that writes a password without going
       // through `applyPasswordChange`: the row is left live on purpose, and
       // `rotate` must still refuse it on the timestamp alone.
-      const userId = await registerVerified('backstop@example.com');
+      const userId = await createAccount('backstop@example.com');
       const session = await login('backstop@example.com');
 
       const prisma = app.get(PrismaService);
@@ -264,7 +209,7 @@ describe('Credential change revokes every session (e2e)', () => {
     // Revoking sessions is an incident-response action, not a credential
     // change: the account holder keeps their password.
     const support = await createPlatformAdmin(app, 'ops@example.com');
-    const userId = await registerVerified('kept@example.com');
+    const userId = await createAccount('kept@example.com');
     void userId;
     const session = await login('kept@example.com');
 

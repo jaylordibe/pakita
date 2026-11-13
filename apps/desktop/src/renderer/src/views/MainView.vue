@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import type {
+  AccountCapabilities,
   AccountSummary,
   Song,
   SongSummary,
@@ -10,10 +11,12 @@ import type {
 } from '../../../shared/ipc-contract';
 import { buildSongSlides } from '../../../shared/slides';
 import pakitaMark from '../assets/pakita-mark.png';
+import AccountsPanel from '../components/AccountsPanel.vue';
 import AddToPlaylist from '../components/AddToPlaylist.vue';
 import AppIcon, { type IconName } from '../components/AppIcon.vue';
 import BiblePanel from '../components/BiblePanel.vue';
 import CopyToWorkspace from '../components/CopyToWorkspace.vue';
+import InvitationsPanel from '../components/InvitationsPanel.vue';
 import PlaylistsPanel from '../components/PlaylistsPanel.vue';
 import SongEditor from '../components/SongEditor.vue';
 import ThemesPanel from '../components/ThemesPanel.vue';
@@ -46,13 +49,31 @@ async function loadOtherWorkspaces(): Promise<void> {
   }
 }
 
-type Tab = 'songs' | 'bible' | 'playlists' | 'themes';
-const TABS: ReadonlyArray<{ id: Tab; label: string; icon: IconName }> = [
-  { id: 'songs', label: 'Songs', icon: 'songs' },
-  { id: 'bible', label: 'Bible', icon: 'bible' },
-  { id: 'playlists', label: 'Playlists', icon: 'playlists' },
-  { id: 'themes', label: 'Themes', icon: 'themes' },
-];
+type Tab = 'songs' | 'bible' | 'playlists' | 'themes' | 'members' | 'people';
+const CONTENT_TABS: ReadonlyArray<{ id: Tab; label: string; icon: IconName }> =
+  [
+    { id: 'songs', label: 'Songs', icon: 'songs' },
+    { id: 'bible', label: 'Bible', icon: 'bible' },
+    { id: 'playlists', label: 'Playlists', icon: 'playlists' },
+    { id: 'themes', label: 'Themes', icon: 'themes' },
+  ];
+
+// Administration, offered only to whoever may do it (the server checks every
+// request anyway). Unknown offline, so hidden until the server answers.
+const capabilities = ref<AccountCapabilities | null>(null);
+const TABS = computed(() => [
+  ...CONTENT_TABS,
+  ...(capabilities.value?.canInviteMembers
+    ? [{ id: 'members' as const, label: 'Invite', icon: 'people' as const }]
+    : []),
+  ...(capabilities.value?.canManageAccounts
+    ? [{ id: 'people' as const, label: 'People', icon: 'key' as const }]
+    : []),
+]);
+async function loadCapabilities(): Promise<void> {
+  if (!props.account.isSignedIn) return;
+  capabilities.value = await window.pakita.account.getCapabilities();
+}
 const tab = ref<Tab>('songs');
 const search = ref('');
 const songs = ref<SongSummary[]>([]);
@@ -189,6 +210,15 @@ async function signOut(): Promise<void> {
 }
 
 watch(search, () => void refreshLibrary());
+// Inviting is granted per church: ask again when another church opens, and
+// leave a tab this church does not offer.
+watch(
+  () => props.workspaceId,
+  async () => {
+    await loadCapabilities();
+    if (!TABS.value.some((item) => item.id === tab.value)) tab.value = 'songs';
+  },
+);
 
 const unsubscribes: Array<() => void> = [];
 onMounted(async () => {
@@ -206,6 +236,7 @@ onMounted(async () => {
   syncStatus.value = await window.pakita.sync.getStatus();
   await refreshLibrary();
   void loadOtherWorkspaces();
+  void loadCapabilities();
 });
 onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 </script>
@@ -306,6 +337,8 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
       <BiblePanel v-if="tab === 'bible'" />
       <PlaylistsPanel v-else-if="tab === 'playlists'" />
       <ThemesPanel v-else-if="tab === 'themes'" />
+      <InvitationsPanel v-else-if="tab === 'members'" />
+      <AccountsPanel v-else-if="tab === 'people'" />
       <div v-else class="panel">
         <aside class="panel-list">
           <div class="panel-head">

@@ -202,7 +202,9 @@ onMounted(async () => {
     if (status.state === 'idle') void loadTranslations();
   });
   await loadTranslations();
-  canImport.value = await window.pakita.bible.canImport();
+  canImport.value = (
+    await window.pakita.account.getCapabilities()
+  ).canImportBibles;
 });
 onUnmounted(() => unsubscribe?.());
 </script>

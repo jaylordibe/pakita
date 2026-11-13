@@ -42,9 +42,10 @@ type NodeHandler = (
  * is still good (`verifyAccessToken`).
  *
  * Both decisions apply ONE rule — `isAccountUsable` — the rule REST access
- * already follows (`JwtStrategy`): the account exists, is active, has a
- * verified email, and the credential was issued at or after the account's
- * session cutoff (`passwordChangedAt`). Every way a session ends —
+ * already follows (`JwtStrategy`): the account exists, is active, is not on
+ * a password an administrator chose (REST limits such a session to changing
+ * it; MCP has no such step, so it refuses outright), and the credential was
+ * issued at or after the account's session cutoff (`passwordChangedAt`). Every way a session ends —
  * sign-out-everywhere, a password or email change, deactivation, deletion,
  * erase — moves that cutoff or the account state, so an MCP token, code or
  * refresh token issued before it is refused at its next use without a second
@@ -275,10 +276,13 @@ export class McpOAuthProviderService implements OnModuleInit {
  * the same comparison `JwtStrategy` makes.
  */
 export function isAccountUsable(
-  user: Pick<User, 'isActive' | 'emailVerifiedAt' | 'passwordChangedAt'>,
+  user: Pick<
+    User,
+    'isActive' | 'isPasswordChangeRequired' | 'passwordChangedAt'
+  >,
   issuedAt: number | undefined,
 ): boolean {
-  if (!user.isActive || !user.emailVerifiedAt) return false;
+  if (!user.isActive || user.isPasswordChangeRequired) return false;
   if (user.passwordChangedAt && issuedAt !== undefined) {
     return issuedAt >= Math.floor(user.passwordChangedAt.getTime() / 1000);
   }

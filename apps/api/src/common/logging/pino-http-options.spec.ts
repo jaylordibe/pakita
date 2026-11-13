@@ -28,7 +28,6 @@ describe('pino-http options', () => {
   const PROXY_AUTHORIZATION_SECRET = 'Basic dddd-proxy-authorization-secret';
   const RESPONSE_COOKIE_SECRET = 'session=eeee-response-cookie-secret';
   const QUERY_TOKEN_SECRET = 'ffff-query-token-secret';
-  const TURNSTILE_TOKEN_SECRET = 'gggg-turnstile-token-secret';
   // Personal rather than secret: what was typed into a search box.
   const SEARCH_TEXT = 'hhhh-juan-dela-cruz';
 
@@ -70,13 +69,12 @@ describe('pino-http options', () => {
         {
           port,
           host: '127.0.0.1',
-          path: `/api/auth/verify-email?token=${QUERY_TOKEN_SECRET}&page=2&search=${SEARCH_TEXT}`,
+          path: `/api/some/link?token=${QUERY_TOKEN_SECRET}&page=2&search=${SEARCH_TEXT}`,
           headers: {
             authorization: AUTHORIZATION_SECRET,
             cookie: REQUEST_COOKIE_SECRET,
             'x-api-key': API_KEY_SECRET,
             'proxy-authorization': PROXY_AUTHORIZATION_SECRET,
-            'x-turnstile-token': TURNSTILE_TOKEN_SECRET,
           },
         },
         (response) => {
@@ -100,7 +98,7 @@ describe('pino-http options', () => {
   // for the wrong reason — which is precisely how the original defect hid.
   it('actually emits a log line', () => {
     expect(logOutput.length).toBeGreaterThan(0);
-    expect(logOutput).toContain('/api/auth/verify-email');
+    expect(logOutput).toContain('/api/some/link');
   });
 
   it.each([
@@ -110,7 +108,6 @@ describe('pino-http options', () => {
     ['Proxy-Authorization header', PROXY_AUTHORIZATION_SECRET],
     ['response Set-Cookie header', RESPONSE_COOKIE_SECRET],
     ['query-string token', QUERY_TOKEN_SECRET],
-    ['X-Turnstile-Token header', TURNSTILE_TOKEN_SECRET],
     ['search text', SEARCH_TEXT],
   ])('never writes the %s to the log', (_label, secret) => {
     expect(logOutput).not.toContain(secret);
@@ -122,7 +119,7 @@ describe('pino-http options', () => {
 
   // The access log has to stay useful, or the "fix" is just deleting the logs.
   it('keeps the path and non-secret query parameters', () => {
-    expect(logOutput).toContain('/api/auth/verify-email');
+    expect(logOutput).toContain('/api/some/link');
     expect(logOutput).toContain('page');
   });
 

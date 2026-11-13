@@ -1,61 +1,10 @@
 {
   "openapi": "3.0.0",
   "paths": {
-    "/api/auth/register": {
-      "post": {
-        "operationId": "AuthController_register",
-        "parameters": [
-          {
-            "name": "X-Turnstile-Token",
-            "in": "header",
-            "description": "A fresh Cloudflare Turnstile token from this client's widget (the website's when the request carries a browser Origin, the app's otherwise). Single-use: get a new one for every submission.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RegisterDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegisterResponseDto"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Auth"
-        ]
-      }
-    },
     "/api/auth/login": {
       "post": {
         "operationId": "AuthController_login",
-        "parameters": [
-          {
-            "name": "X-Turnstile-Token",
-            "in": "header",
-            "description": "A fresh Cloudflare Turnstile token from this client's widget (the website's when the request carries a browser Origin, the app's otherwise). Single-use: get a new one for every submission.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
@@ -72,7 +21,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LoginResponseDto"
+                  "$ref": "#/components/schemas/PasswordSignInResponseDto"
                 }
               }
             }
@@ -110,99 +59,6 @@
           }
         },
         "summary": "Exchanges a refresh token for a new access + refresh pair.\n\n`@Public()` by necessity: a client arrives here precisely because its\naccess token has expired, so it has no bearer credential to present. The\nrefresh token in the body IS the credential. A legitimate client\nrefreshes once per access-token lifetime, so 10/min per IP is ample.",
-        "tags": [
-          "Auth"
-        ]
-      }
-    },
-    "/api/auth/verify-email": {
-      "post": {
-        "operationId": "AuthController_verifyEmailPost",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerifyEmailDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EmailVerificationResponseDto"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Auth"
-        ]
-      },
-      "get": {
-        "operationId": "AuthController_verifyEmailGet",
-        "parameters": [
-          {
-            "name": "token",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Redirects (302) to the web app email-verification result page — ?status=success or ?status=error&reason=<slug>. No response body."
-          }
-        },
-        "tags": [
-          "Auth"
-        ]
-      }
-    },
-    "/api/auth/resend-verification": {
-      "post": {
-        "operationId": "AuthController_resendVerification",
-        "parameters": [
-          {
-            "name": "X-Turnstile-Token",
-            "in": "header",
-            "description": "A fresh Cloudflare Turnstile token from this client's widget (the website's when the request carries a browser Origin, the app's otherwise). Single-use: get a new one for every submission.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResendVerificationDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationAcknowledgementDto"
-                }
-              }
-            }
-          }
-        },
         "tags": [
           "Auth"
         ]
@@ -265,88 +121,6 @@
         ],
         "tags": [
           "Auth"
-        ]
-      }
-    },
-    "/api/users/request-password-reset": {
-      "post": {
-        "operationId": "UsersController_requestPasswordReset",
-        "parameters": [
-          {
-            "name": "X-Turnstile-Token",
-            "in": "header",
-            "description": "A fresh Cloudflare Turnstile token from this client's widget (the website's when the request carries a browser Origin, the app's otherwise). Single-use: get a new one for every submission.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RequestPasswordResetDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationAcknowledgementDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Users"
-        ]
-      }
-    },
-    "/api/users/reset-password": {
-      "post": {
-        "operationId": "UsersController_resetPassword",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResetPasswordDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationAcknowledgementDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Users"
         ]
       }
     },
@@ -772,141 +546,6 @@
         ]
       }
     },
-    "/api/users/me/request-phone-verification": {
-      "post": {
-        "operationId": "UsersController_requestPhoneVerification",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RequestPhoneVerificationDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationAcknowledgementDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing, invalid, expired, or revoked access token"
-          },
-          "403": {
-            "description": "Authenticated, but no permission grants `update` on `User`"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Users"
-        ]
-      }
-    },
-    "/api/users/me/verify-phone": {
-      "patch": {
-        "operationId": "UsersController_verifyAuthUserPhone",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerifyAuthUserPhoneDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserResponseDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing, invalid, expired, or revoked access token"
-          },
-          "403": {
-            "description": "Authenticated, but no permission grants `update` on `User`"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Users"
-        ]
-      }
-    },
-    "/api/users/me/phone": {
-      "patch": {
-        "operationId": "UsersController_updateAuthUserPhone",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateAuthUserPhoneDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserResponseDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing, invalid, expired, or revoked access token"
-          },
-          "403": {
-            "description": "Authenticated, but no permission grants `update` on `User`"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Users"
-        ]
-      }
-    },
     "/api/users": {
       "post": {
         "operationId": "UsersController_create",
@@ -973,6 +612,15 @@
               "minimum": 1,
               "default": 20,
               "type": "number"
+            }
+          },
+          {
+            "name": "isDeleted",
+            "required": false,
+            "in": "query",
+            "description": "`false`: live accounts only; `true`: deleted (and erased) ones only.\nAbsent means both, so a deleted account stays findable for recovery.",
+            "schema": {
+              "type": "boolean"
             }
           },
           {
@@ -1259,50 +907,6 @@
           },
           "403": {
             "description": "Requires `revokeSession` on `User` beyond your own records"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Users"
-        ]
-      }
-    },
-    "/api/users/{id}/resend-verification": {
-      "post": {
-        "operationId": "UsersController_resendVerification",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationAcknowledgementDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing, invalid, expired, or revoked access token"
-          },
-          "403": {
-            "description": "Requires `resendVerification` on `User` beyond your own records"
           }
         },
         "security": [
@@ -2156,7 +1760,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkspaceInvitationResponseDto"
+                  "$ref": "#/components/schemas/IssuedWorkspaceInvitationResponseDto"
                 }
               }
             }
@@ -2316,7 +1920,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkspaceInvitationResponseDto"
+                  "$ref": "#/components/schemas/IssuedWorkspaceInvitationResponseDto"
                 }
               }
             }
@@ -2336,7 +1940,7 @@
             "bearer": []
           }
         ],
-        "summary": "Re-sends a pending invitation on a fresh token.\n\nGuarded by `create WorkspaceInvitation`, not `delete`: resending is the same\nauthority as inviting — same address, same role, same workspace — and gating\nit behind `delete` would leave a manager able to raise an invitation they\ncould not repair when the mail went astray.\n\n200, not 201: nothing new comes into existence. The invitation is the same\nrow, carrying a rotated secret.",
+        "summary": "Re-issues a pending invitation on a fresh code, which it returns; the old\ncode stops working.\n\nGuarded by `create WorkspaceInvitation`, not `delete`: re-issuing is the\nsame authority as inviting — same person, same role, same workspace — and\ngating it behind `delete` would leave a manager able to raise an\ninvitation they could not repair when the code was lost.\n\n200, not 201: nothing new comes into existence. The invitation is the same\nrow, carrying a rotated secret.",
         "tags": [
           "Workspace Invitations"
         ]
@@ -2424,7 +2028,7 @@
             "bearer": []
           }
         ],
-        "summary": "`@AuthenticatedOnly()`, not `@Public()`.\n\nAn invitee without an account registers through the ordinary\n`POST /auth/register` first — which is what keeps ONE registration policy\n(disposable-email rejection, verification) instead of forking a\nsecond, less-guarded account-creation path behind a bearer token.\n\nNo permission is required because there is none that could apply: authority\ninside the workspace is precisely what this call grants.",
+        "summary": "`@AuthenticatedOnly()`, not `@Public()`.\n\nThe code is bound to the invited account, so the caller must be signed in\nas that account; accepting never creates one (only an administrator does,\n`POST /users`).\n\nNo permission is required because there is none that could apply: authority\ninside the workspace is precisely what this call grants.",
         "tags": [
           "Workspace Invitations"
         ]
@@ -4740,37 +4344,7 @@
             }
           }
         },
-        "summary": "What Pakita's desktop app checks before anything else: that it reached a\nPakita server, whether the two versions are compatible, and whether\nsigning in needs the bot check. Reveals nothing about the server's data.",
-        "tags": [
-          "Public"
-        ]
-      }
-    },
-    "/api/public/desktop-turnstile": {
-      "get": {
-        "operationId": "PublicController_desktopTurnstile",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "The Turnstile check page"
-          }
-        },
-        "summary": "The Turnstile check Pakita's desktop app shows in its own window before\na password sign-in (docs/decisions/0001-desktop-turnstile.md at the\nworkspace root). Renders the app widget; refuses (503) while the bot\ncheck is on without TURNSTILE_MOBILE_SITE_KEY.",
-        "tags": [
-          "Public"
-        ]
-      }
-    },
-    "/api/public/desktop-turnstile/done": {
-      "get": {
-        "operationId": "PublicController_desktopTurnstileDone",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "A page telling the person to return to Pakita"
-          }
-        },
-        "summary": "Where the check page goes once solved. The desktop app intercepts this\nnavigation and reads the token from the URL fragment, so the page itself\nonly shows when it is opened some other way.",
+        "summary": "What Pakita's desktop app checks before anything else: that it reached a\nPakita server, and whether the two versions are compatible. Reveals\nnothing about the server's data.",
         "tags": [
           "Public"
         ]
@@ -6152,49 +5726,6 @@
       }
     },
     "schemas": {
-      "RegisterDto": {
-        "type": "object",
-        "properties": {
-          "password": {
-            "type": "string",
-            "minLength": 8,
-            "maxLength": 72,
-            "pattern": "^(?=.*[A-Za-z])(?=.*\\d).+$",
-            "description": "At least 8 characters and at most 72 bytes in UTF-8 (a character such as ñ takes 2, an emoji 4), with a letter and a digit."
-          },
-          "email": {
-            "type": "string",
-            "format": "email"
-          },
-          "firstName": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "lastName": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          }
-        },
-        "required": [
-          "password",
-          "email",
-          "firstName",
-          "lastName"
-        ]
-      },
-      "RegisterResponseDto": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "message"
-        ]
-      },
       "LoginDto": {
         "type": "object",
         "properties": {
@@ -6208,6 +5739,15 @@
             "type": "string",
             "minLength": 3,
             "maxLength": 254
+          },
+          "deviceTokens": {
+            "description": "The `deviceToken`s earlier sign-ins on this device were given, for any\naccounts (a shared laptop holds several). One for the account signing in\nmarks a device it has used before, which a stranger's failed guesses at\nthe account cannot lock out (`SignInDeviceTokenService`).",
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            }
           }
         },
         "required": [
@@ -6296,14 +5836,9 @@
           "email": {
             "type": "string"
           },
-          "phoneNumber": {
-            "type": "string",
-            "nullable": true
-          },
-          "phoneNumberVerifiedAt": {
-            "format": "date-time",
-            "type": "string",
-            "nullable": true
+          "isPasswordChangeRequired": {
+            "type": "boolean",
+            "description": "The password was chosen by an administrator (a new account, or a reset)\nand must be replaced before anything else: every other route answers\nPASSWORD_CHANGE_REQUIRED until `PATCH /users/me/password` succeeds."
           },
           "gender": {
             "nullable": true,
@@ -6337,11 +5872,54 @@
           "lastName",
           "username",
           "email",
-          "phoneNumber",
-          "phoneNumberVerifiedAt",
+          "isPasswordChangeRequired",
           "gender",
           "birthday",
           "timezone"
+        ]
+      },
+      "PasswordSignInResponseDto": {
+        "type": "object",
+        "properties": {
+          "expiresIn": {
+            "type": "number",
+            "description": "Access-token lifetime in seconds.",
+            "example": 900
+          },
+          "deviceToken": {
+            "type": "string",
+            "description": "Keep it with this device and send it in `deviceTokens` at the next\nsign-in: a device the account has signed in from is not locked out by\nsomeone else's failed guesses. Not a credential on its own — the password\nis still checked — and replaced by every sign-in."
+          },
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserResponseDto"
+          }
+        },
+        "required": [
+          "expiresIn",
+          "deviceToken",
+          "accessToken",
+          "refreshToken",
+          "user"
+        ]
+      },
+      "RefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "description": "The refresh token issued by `POST /auth/login` or a previous\n`POST /auth/refresh`.\n\nBounded on both sides so a malformed or hostile body is rejected by the\nvalidation pipe before it reaches a database lookup. The generated token is\n32 random bytes in base64url — 43 characters — so the window is generous\nenough to survive a future change of token length without being an open\ndoor for megabyte-sized payloads.",
+            "minLength": 20,
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "refreshToken"
         ]
       },
       "LoginResponseDto": {
@@ -6369,65 +5947,6 @@
           "user"
         ]
       },
-      "RefreshTokenDto": {
-        "type": "object",
-        "properties": {
-          "refreshToken": {
-            "type": "string",
-            "description": "The refresh token issued by `POST /auth/login` or a previous\n`POST /auth/refresh`.\n\nBounded on both sides so a malformed or hostile body is rejected by the\nvalidation pipe before it reaches a database lookup. The generated token is\n32 random bytes in base64url — 43 characters — so the window is generous\nenough to survive a future change of token length without being an open\ndoor for megabyte-sized payloads.",
-            "minLength": 20,
-            "maxLength": 512
-          }
-        },
-        "required": [
-          "refreshToken"
-        ]
-      },
-      "VerifyEmailDto": {
-        "type": "object",
-        "properties": {
-          "token": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "token"
-        ]
-      },
-      "EmailVerificationResponseDto": {
-        "type": "object",
-        "properties": {
-          "isVerified": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "isVerified"
-        ]
-      },
-      "ResendVerificationDto": {
-        "type": "object",
-        "properties": {
-          "email": {
-            "type": "string",
-            "format": "email"
-          }
-        },
-        "required": [
-          "email"
-        ]
-      },
-      "OperationAcknowledgementDto": {
-        "type": "object",
-        "properties": {
-          "isOk": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "isOk"
-        ]
-      },
       "LogoutDto": {
         "type": "object",
         "properties": {
@@ -6438,43 +5957,6 @@
             "maxLength": 512
           }
         }
-      },
-      "RequestPasswordResetDto": {
-        "type": "object",
-        "properties": {
-          "email": {
-            "type": "string",
-            "format": "email"
-          }
-        },
-        "required": [
-          "email"
-        ]
-      },
-      "ResetPasswordDto": {
-        "type": "object",
-        "properties": {
-          "newPassword": {
-            "type": "string",
-            "minLength": 8,
-            "maxLength": 72,
-            "pattern": "^(?=.*[A-Za-z])(?=.*\\d).+$",
-            "description": "At least 8 characters and at most 72 bytes in UTF-8 (a character such as ñ takes 2, an emoji 4), with a letter and a digit."
-          },
-          "email": {
-            "type": "string",
-            "format": "email"
-          },
-          "token": {
-            "type": "string",
-            "maxLength": 256
-          }
-        },
-        "required": [
-          "newPassword",
-          "email",
-          "token"
-        ]
       },
       "PermissionsWorkspaceMembershipDto": {
         "type": "object",
@@ -6579,10 +6061,6 @@
             "minLength": 1,
             "maxLength": 100
           },
-          "phoneNumber": {
-            "type": "string",
-            "maxLength": 16
-          },
           "gender": {
             "enum": [
               "male",
@@ -6682,55 +6160,6 @@
           "newPassword"
         ]
       },
-      "RequestPhoneVerificationDto": {
-        "type": "object",
-        "properties": {
-          "currentPassword": {
-            "type": "string",
-            "minLength": 8,
-            "maxLength": 72,
-            "description": "At least 8 characters and at most 72 bytes in UTF-8."
-          },
-          "phoneNumber": {
-            "type": "string",
-            "maxLength": 16
-          }
-        },
-        "required": [
-          "currentPassword",
-          "phoneNumber"
-        ]
-      },
-      "VerifyAuthUserPhoneDto": {
-        "type": "object",
-        "properties": {
-          "phoneNumber": {
-            "type": "string",
-            "maxLength": 16
-          },
-          "otp": {
-            "type": "string",
-            "minLength": 4,
-            "maxLength": 12
-          }
-        },
-        "required": [
-          "phoneNumber",
-          "otp"
-        ]
-      },
-      "UpdateAuthUserPhoneDto": {
-        "type": "object",
-        "properties": {
-          "phoneNumber": {
-            "type": "string",
-            "maxLength": 16
-          }
-        },
-        "required": [
-          "phoneNumber"
-        ]
-      },
       "CreateUserDto": {
         "type": "object",
         "properties": {
@@ -6764,10 +6193,6 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100
-          },
-          "phoneNumber": {
-            "type": "string",
-            "maxLength": 16
           },
           "gender": {
             "type": "string",
@@ -6844,10 +6269,6 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100
-          },
-          "phoneNumber": {
-            "type": "string",
-            "maxLength": 16
           },
           "gender": {
             "enum": [
@@ -7137,9 +6558,11 @@
       "CreateWorkspaceInvitationDto": {
         "type": "object",
         "properties": {
-          "email": {
+          "identifier": {
             "type": "string",
-            "format": "email"
+            "description": "The email or username of the account to invite. Pakita has no public\nsign-up, so the person must already have an account (an administrator\ncreates it).",
+            "minLength": 3,
+            "maxLength": 254
           },
           "roleId": {
             "type": "string",
@@ -7147,7 +6570,7 @@
           }
         },
         "required": [
-          "email",
+          "identifier",
           "roleId"
         ]
       },
@@ -7170,9 +6593,31 @@
           "rank"
         ]
       },
-      "WorkspaceInvitationResponseDto": {
+      "WorkspaceInvitationInviteeDto": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "firstName",
+          "lastName"
+        ]
+      },
+      "IssuedWorkspaceInvitationResponseDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
@@ -7187,8 +6632,10 @@
           "workspaceId": {
             "type": "string"
           },
-          "email": {
-            "type": "string"
+          "invitedUserId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Null only on history whose account has since been removed."
           },
           "roleId": {
             "type": "string"
@@ -7230,14 +6677,25 @@
           },
           "role": {
             "$ref": "#/components/schemas/WorkspaceInvitationRoleDto"
+          },
+          "invitedUser": {
+            "nullable": true,
+            "description": "Null only on history whose account has since been removed.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WorkspaceInvitationInviteeDto"
+              }
+            ]
           }
         },
         "required": [
+          "token",
           "id",
           "createdAt",
           "updatedAt",
           "workspaceId",
-          "email",
+          "invitedUserId",
           "roleId",
           "status",
           "invitedBy",
@@ -7246,7 +6704,100 @@
           "acceptedBy",
           "revokedAt",
           "revokedBy",
-          "role"
+          "role",
+          "invitedUser"
+        ]
+      },
+      "WorkspaceInvitationResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "invitedUserId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Null only on history whose account has since been removed."
+          },
+          "roleId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "revoked",
+              "expired"
+            ]
+          },
+          "invitedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "acceptedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "acceptedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "revokedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "revokedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceInvitationRoleDto"
+          },
+          "invitedUser": {
+            "nullable": true,
+            "description": "Null only on history whose account has since been removed.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WorkspaceInvitationInviteeDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "workspaceId",
+          "invitedUserId",
+          "roleId",
+          "status",
+          "invitedBy",
+          "expiresAt",
+          "acceptedAt",
+          "acceptedBy",
+          "revokedAt",
+          "revokedBy",
+          "role",
+          "invitedUser"
         ]
       },
       "AcceptWorkspaceInvitationDto": {
@@ -7976,18 +7527,13 @@
           },
           "minimumDesktopVersion": {
             "type": "string"
-          },
-          "isBotCheckRequired": {
-            "type": "boolean",
-            "description": "Whether password sign-in needs a Turnstile token. When true, the desktop\nopens `GET /api/public/desktop-turnstile` to get one first."
           }
         },
         "required": [
           "product",
           "serverVersion",
           "apiLevel",
-          "minimumDesktopVersion",
-          "isBotCheckRequired"
+          "minimumDesktopVersion"
         ]
       },
       "SongSectionResponseDto": {

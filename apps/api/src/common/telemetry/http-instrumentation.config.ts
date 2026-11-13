@@ -6,7 +6,7 @@ import { redactedIncomingUrlAttributes } from '../util/redact-url-secrets.util';
 // app and has no spec of its own.
 //
 // An incoming span records the query string, and some queries carry a
-// credential (`/auth/verify-email?token=`) or something personal (search
+// credential (a signed URL's `signature`, a `token`) or something personal (search
 // text). `startIncomingSpanHook`'s attributes replace the instrumentation's
 // own `url.query` before the span starts, so nothing downstream sees the
 // unredacted value.

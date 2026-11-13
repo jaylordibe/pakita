@@ -1,12 +1,11 @@
-import { createPrivateKey, hkdfSync, type JsonWebKey } from 'node:crypto';
+import { createPrivateKey, type JsonWebKey } from 'node:crypto';
+import { deriveKey } from './key-derivation.util';
 
 /**
  * Keys the MCP OAuth authorization server needs, derived from one existing
  * secret (`JWT_SECRET`) so a fork gets them without a configuration edit.
  *
- * HKDF (RFC 5869) with a distinct `info` label per use gives keys that are
- * independent of each other and of the secret's own use: knowing one derived
- * key reveals neither the secret nor any other key. Rotating `JWT_SECRET`
+ * Each comes from `deriveKey` with its own label. Rotating `JWT_SECRET`
  * rotates all of them (signed cookies, sign-in forms in progress). It does not
  * end issued MCP tokens: those are random values looked up by digest, ended by
  * the account's session cutoff or by deleting their `oauth_payloads` rows.
@@ -29,20 +28,8 @@ const ED25519_PKCS8_PREFIX = Buffer.from(
   'hex',
 );
 
-function derive(secret: string, label: string, length: number): Buffer {
-  return Buffer.from(
-    hkdfSync(
-      'sha256',
-      Buffer.from(secret, 'utf8'),
-      Buffer.alloc(0),
-      label,
-      length,
-    ),
-  );
-}
-
 export function deriveOAuthServerKeys(secret: string): OAuthServerKeys {
-  const seed = derive(secret, 'mcp-oauth/signing-key/v1', 32);
+  const seed = deriveKey(secret, 'mcp-oauth/signing-key/v1', 32);
   const privateKey = createPrivateKey({
     key: Buffer.concat([ED25519_PKCS8_PREFIX, seed]),
     format: 'der',
@@ -51,14 +38,14 @@ export function deriveOAuthServerKeys(secret: string): OAuthServerKeys {
   const jwk = privateKey.export({ format: 'jwk' });
   // A key id that changes with the key, so a rotated secret never publishes
   // two different keys under one `kid`.
-  const kid = derive(secret, 'mcp-oauth/signing-key-id/v1', 12).toString(
+  const kid = deriveKey(secret, 'mcp-oauth/signing-key-id/v1', 12).toString(
     'base64url',
   );
   return {
     signingJwk: { ...jwk, kid, alg: 'EdDSA', use: 'sig' },
     cookieKeys: [
-      derive(secret, 'mcp-oauth/cookie-key/v1', 32).toString('base64url'),
+      deriveKey(secret, 'mcp-oauth/cookie-key/v1', 32).toString('base64url'),
     ],
-    formTokenKey: derive(secret, 'mcp-oauth/form-token-key/v1', 32),
+    formTokenKey: deriveKey(secret, 'mcp-oauth/form-token-key/v1', 32),
   };
 }

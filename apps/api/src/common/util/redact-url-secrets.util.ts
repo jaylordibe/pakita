@@ -2,11 +2,9 @@
 // logged.
 //
 // Why this is needed at all: pino-http logs `req.url`, query string included,
-// and this API deliberately has endpoints that carry a credential there.
-// `GET /api/auth/verify-email?token=<jwt>` is the clearest — the token is a
-// bearer credential that verifies an email address, and an email client
-// following the link is exactly the flow that produces the log line. Signed
-// object-storage URLs have the same shape: the signature IS the permission.
+// and some requests carry a credential there: a signed object-storage URL
+// (the signature IS the permission), an OAuth code, any link with a `token`.
+// Following such a link is exactly the flow that produces the log line.
 //
 // `redact.paths` in the pino config cannot reach this. It censors OBJECT
 // PROPERTIES, and the token here is a substring inside one — so the property is

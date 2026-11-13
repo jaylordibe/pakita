@@ -1,10 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { truncateAll } from './setup/db';
-import { seedRbacCatalog } from './setup/rbac';
+import { createUser, seedRbacCatalog } from './setup/rbac';
 import { createTestApp } from './setup/test-app';
 
 interface RequestEnvelope {
@@ -40,27 +39,28 @@ describe('Request metadata (e2e)', () => {
     await app.close();
   });
 
-  // Registration audits unconditionally, so it is the cheapest way to get an
+  // Signing out audits unconditionally, so it is the cheapest way to get an
   // audit row with a request envelope attached.
-  const registerWith = (headers: Record<string, string>, email: string) => {
+  const logoutWith = async (
+    headers: Record<string, string>,
+    email: string,
+    path = '/api/auth/logout',
+  ) => {
+    const { token } = await createUser(app, { email });
     const pending = request(app.getHttpServer())
-      .post('/api/auth/register')
-      .send({
-        email,
-        password: 'correct-horse-battery-1',
-        firstName: 'Meta',
-        lastName: 'Probe',
-      });
+      .post(path)
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
     for (const [name, value] of Object.entries(headers)) {
       void pending.set(name, value);
     }
-    return pending;
+    return pending.expect(204);
   };
 
   const auditEnvelope = async (): Promise<RequestEnvelope> => {
     const prisma = app.get(PrismaService);
     const row = await prisma.auditLog.findFirstOrThrow({
-      where: { action: 'user.registered' },
+      where: { action: 'auth.logout' },
       orderBy: { createdAt: 'desc' },
     });
     return (row.metadata as { request?: RequestEnvelope }).request ?? {};
@@ -73,7 +73,7 @@ describe('Request metadata (e2e)', () => {
       // header the client sees and the id recorded in `audit_logs` disagreed on
       // every request that did not carry the header — i.e. essentially all real
       // traffic. A test that always SENDS the header agrees by luck.
-      const response = await registerWith({}, 'nohead@example.com').expect(201);
+      const response = await logoutWith({}, 'nohead@example.com');
 
       const headerId = response.headers['x-request-id'];
       expect(headerId).toMatch(
@@ -83,10 +83,10 @@ describe('Request metadata (e2e)', () => {
     });
 
     it('honours a well-formed client-supplied id end to end', async () => {
-      const response = await registerWith(
+      const response = await logoutWith(
         { 'X-Request-Id': 'client-trace-123' },
         'supplied@example.com',
-      ).expect(201);
+      );
 
       expect(response.headers['x-request-id']).toBe('client-trace-123');
       expect((await auditEnvelope()).requestId).toBe('client-trace-123');
@@ -98,10 +98,10 @@ describe('Request metadata (e2e)', () => {
       // Uncapped, this is ~16 KiB of attacker-chosen data per request into the
       // audit_logs JSONB column, from an unauthenticated endpoint.
       const oversized = 'a'.repeat(5_000);
-      const response = await registerWith(
+      const response = await logoutWith(
         { 'X-Request-Id': oversized },
         'oversized@example.com',
-      ).expect(201);
+      );
 
       expect(response.headers['x-request-id']).not.toBe(oversized);
       const envelope = await auditEnvelope();
@@ -116,10 +116,10 @@ describe('Request metadata (e2e)', () => {
       // else printable — quotes and spaces break out of a quoted logfmt field,
       // and the value lands in a JSONB column read by admins.
       const injected = 'forged" level=error msg="owned';
-      const response = await registerWith(
+      const response = await logoutWith(
         { 'X-Request-Id': injected },
         'injected@example.com',
-      ).expect(201);
+      );
 
       const headerId = response.headers['x-request-id'];
       expect(headerId).not.toBe(injected);
@@ -136,39 +136,21 @@ describe('Request metadata (e2e)', () => {
   // credential still reached the database — the table an incident responder
   // reads, and every backup of it.
   describe('secrets in the query string', () => {
-    // A SUCCESSFUL verification, deliberately. An invalid token throws before
-    // any audit row is written, so driving this with a junk token would assert
-    // against a row that does not exist — which is exactly how the first
-    // version of this test passed while proving nothing.
+    // A request that succeeds and writes an audit row, deliberately: a request
+    // that fails before any row is written would assert against a row that
+    // does not exist — which is exactly how the first version of this test
+    // passed while proving nothing.
     it('redacts a query-string credential out of the persisted audit path', async () => {
-      const email = 'audit-path-redaction@example.com';
-      await registerWith({}, email).expect(201);
+      const secret = 'a-query-string-secret-value';
+      await logoutWith(
+        {},
+        'audit-path-redaction@example.com',
+        `/api/auth/logout?token=${secret}`,
+      );
 
-      const userId = (
-        await app.get(PrismaService).user.findFirstOrThrow({ where: { email } })
-      ).id;
-      const token = app
-        .get(JwtService)
-        .sign(
-          { sub: userId, purpose: 'email_verify', email },
-          { expiresIn: '10m' },
-        );
-
-      await request(app.getHttpServer())
-        .get(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
-        .expect(302);
-
-      // The row this request wrote — NOT the registration row.
-      const row = await app.get(PrismaService).auditLog.findFirstOrThrow({
-        where: { action: 'user.email_verified' },
-        orderBy: { createdAt: 'desc' },
-      });
-      const persistedPath = (
-        (row.metadata as { request?: RequestEnvelope }).request ?? {}
-      ).path;
-
-      expect(persistedPath).toBe('/api/auth/verify-email?token=[redacted]');
-      expect(persistedPath).not.toContain(token);
+      const persistedPath = (await auditEnvelope()).path;
+      expect(persistedPath).toBe('/api/auth/logout?token=[redacted]');
+      expect(persistedPath).not.toContain(secret);
     });
 
     // The error envelope goes back to the client and straight into client-side
@@ -176,11 +158,11 @@ describe('Request metadata (e2e)', () => {
     // credential.
     it('redacts the credential out of the error envelope path', async () => {
       const response = await request(app.getHttpServer())
-        .get('/api/auth/verify-email?token=NOT-A-REAL-TOKEN-VALUE')
-        .expect(400);
+        .get('/api/users/me?token=NOT-A-REAL-TOKEN-VALUE')
+        .expect(401);
 
       const body = response.body as { path: string };
-      expect(body.path).toBe('/api/auth/verify-email?token=[redacted]');
+      expect(body.path).toBe('/api/users/me?token=[redacted]');
       expect(body.path).not.toContain('NOT-A-REAL-TOKEN-VALUE');
     });
 
@@ -230,14 +212,14 @@ describe('Request metadata (e2e)', () => {
     // `.env.test` leaves TRUST_CLOUDFLARE_HEADERS unset, so the suite runs with
     // the safe default. That is deliberate: the default is what a fork inherits.
     it('are IGNORED when trust is disabled', async () => {
-      await registerWith(
+      await logoutWith(
         {
           'CF-Connecting-IP': '203.0.113.9',
           'CF-IPCountry': 'XX',
           'CF-Ray': 'forged-ray-id',
         },
         'cf@example.com',
-      ).expect(201);
+      );
 
       const envelope = await auditEnvelope();
       // The forged IP must not become the recorded one — audit_logs is the
@@ -251,11 +233,11 @@ describe('Request metadata (e2e)', () => {
   });
 
   it('records the server-vouched method and path, not anything the caller sent', async () => {
-    await registerWith({}, 'envelope@example.com').expect(201);
+    await logoutWith({}, 'envelope@example.com');
 
     expect(await auditEnvelope()).toMatchObject({
       method: 'POST',
-      path: '/api/auth/register',
+      path: '/api/auth/logout',
     });
   });
 });

@@ -25,12 +25,6 @@ export enum JobName {
   AUTH_REFRESH_TOKEN_RETENTION_V1 = 'auth.refresh-token-retention.v1',
   MCP_OAUTH_PAYLOAD_RETENTION_V1 = 'mcp-oauth.payload-retention.v1',
   FILES_CLEANUP_V1 = 'files.cleanup.v1',
-  USER_EMAIL_VERIFICATION_V1 = 'user.email-verification.v1',
-  USER_PASSWORD_RESET_V1 = 'user.password-reset.v1',
-  USER_PASSWORD_CHANGED_NOTICE_V1 = 'user.password-changed-notice.v1',
-  USER_EMAIL_CHANGED_NOTICE_V1 = 'user.email-changed-notice.v1',
-  USER_SIGN_UP_ACCOUNT_EXISTS_V1 = 'user.sign-up-account-exists.v1',
-  WORKSPACE_INVITATION_EMAIL_V1 = 'workspace.invitation-email.v1',
 }
 
 export interface JobRegistration {
@@ -98,42 +92,6 @@ export const JOB_REGISTRATIONS: Record<JobName, JobRegistration> = {
       backoffStrategy: 'exponential',
       initialBackoffMilliseconds: 30_000,
     },
-  },
-
-  [JobName.USER_EMAIL_VERIFICATION_V1]: {
-    queueName: QueueName.NOTIFICATIONS,
-    payloadVersion: 1,
-    description:
-      "Emails a verification link to the user's current address. Skipped when the address is already verified.",
-  },
-  [JobName.USER_PASSWORD_RESET_V1]: {
-    queueName: QueueName.NOTIFICATIONS,
-    payloadVersion: 1,
-    description:
-      'Mints a single-use password-reset token, stores its hash, and emails the reset link. A redelivery mints a fresh token, which supersedes the previous one.',
-  },
-  [JobName.USER_SIGN_UP_ACCOUNT_EXISTS_V1]: {
-    queueName: QueueName.NOTIFICATIONS,
-    payloadVersion: 1,
-    description:
-      'Tells an address that already has an account that someone tried to register it, in place of an answer that would say so.',
-  },
-  [JobName.USER_PASSWORD_CHANGED_NOTICE_V1]: {
-    queueName: QueueName.NOTIFICATIONS,
-    payloadVersion: 1,
-    description: 'Tells the user their password was changed.',
-  },
-  [JobName.USER_EMAIL_CHANGED_NOTICE_V1]: {
-    queueName: QueueName.NOTIFICATIONS,
-    payloadVersion: 1,
-    description:
-      "Tells a verified address that the account's email was changed away from it. The address is read from the `user.email_changed` audit row the payload points at, so it never sits in Redis.",
-  },
-  [JobName.WORKSPACE_INVITATION_EMAIL_V1]: {
-    queueName: QueueName.NOTIFICATIONS,
-    payloadVersion: 1,
-    description:
-      'Emails a workspace invitation link. Skipped when the invitation is no longer pending.',
   },
 };
 

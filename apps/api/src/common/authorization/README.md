@@ -449,44 +449,33 @@ acquires the same horizon.
 
 ## Invitations
 
-An invited email need not belong to a user yet, which is the entire reason
-`WorkspaceInvitation` is a separate model — `WorkspaceMembership.userId` is NOT
-NULL.
+An invitation names an existing account (by email or username; Pakita has no
+public sign-up) and is delivered as a one-time code: create and resend return
+it to the inviter once, the server stores only its hash, and the inviter passes
+it on themselves. Pakita sends nothing.
 
-**No membership row is written until acceptance.** When the address already has
-an account, the account id is recorded on the invitation as `invitedUserId` and
-nothing else changes. An earlier design wrote a placeholder `INVITED` membership
-to reserve the slot; because `@@unique([workspaceId, userId])` allows exactly one
-row per pair, that placeholder _overwrote_ a former member's `joinedAt` and
-`endedAt` — so sending an invitation silently rewrote somebody's employment
-history. Everything the placeholder was for is held elsewhere: "one outstanding
-invitation per address" by the partial unique index on `workspace_invitations`,
-and "who is pending?" by `GET /workspaces/:id/invitations`.
+**No membership row is written until acceptance.** The invited account is
+recorded on the invitation as `invitedUserId` and nothing else changes. An
+earlier design wrote a placeholder `INVITED` membership to reserve the slot;
+because `@@unique([workspaceId, userId])` allows exactly one row per pair, that
+placeholder _overwrote_ a former member's `joinedAt` and `endedAt` — so sending
+an invitation silently rewrote somebody's employment history. Everything the
+placeholder was for is held elsewhere: "one outstanding invitation per person"
+by the partial unique index on `workspace_invitations`, and "who is pending?" by
+`GET /workspaces/:id/invitations`.
 
-`POST /workspaces/:id/invitations/:invitationId/resend` rotates the token,
-extends the expiry, and re-mails it. It requires `create WorkspaceInvitation`,
-because resending is the same authority as inviting — same address, same role,
-same workspace. The token is **rotated, never re-sent**: re-mailing the same
-secret would leave every earlier copy live in every inbox it passed through.
+`POST /workspaces/:id/invitations/:invitationId/resend` rotates the code,
+extends the expiry, and returns the new code. It requires
+`create WorkspaceInvitation`, because re-issuing is the same authority as
+inviting — same person, same role, same workspace. The code is **rotated, never
+shown again**: the server cannot show the old one, and after a resend exactly
+one code opens the invitation.
 
-`POST /invitations/accept` is `@AuthenticatedOnly()`, not `@Public()`. Someone
-without an account registers through the ordinary `/auth/register` first, which
-keeps **one** registration policy (disposable-email rejection, verification)
-instead of forking a second account-creation path behind a bearer token. The token survives registration.
-
-The caller must be the invitee, or the token alone would be sufficient and a
-forwarded invitation would let anyone join. Which check applies is decided by
-what was true at invite time:
-
-- `invitedUserId` set — identity is the **account id**, not the address. The
-  invitee may have changed their email since, and somebody else may since have
-  registered the old one.
-- `invitedUserId` null — the address **is** the identity, so the caller must
-  have proven control of it (`emailVerifiedAt`). An unverified match is not
-  proof: changing your own email needs only your password, and that change
-  clears `emailVerifiedAt` while the access token issued beforehand keeps
-  working — so a forwarded token plus an email change would otherwise be a
-  complete bypass.
+`POST /invitations/accept` is `@AuthenticatedOnly()`, not `@Public()`, and the
+caller must be the invited account (`invitedUserId`) — identity is the
+**account id**, not an address, which can change. Without that check the code
+alone would be sufficient and a forwarded code would let anyone join; with it,
+not even the inviter who was shown the code can redeem it.
 
 Every failure raises the same error the unknown-token path raises, so a holder
 of somebody else's token learns nothing about whose it is.

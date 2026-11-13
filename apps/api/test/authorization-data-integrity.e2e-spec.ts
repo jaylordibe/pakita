@@ -111,7 +111,8 @@ describe('Authorization data integrity (e2e)', () => {
     await prisma.workspaceInvitation.create({
       data: {
         workspaceId: workspace.id,
-        email: 'stranger@example.com',
+        invitedUserId: (await createRegularUser(app, 'stranger@example.com'))
+          .id,
         roleId: await roleIdOf(SeededRoleName.PLATFORM_ENGINEER),
         tokenHash: 'not-a-real-token-hash',
         status: 'pending',

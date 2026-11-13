@@ -11,11 +11,6 @@ import { WorkspaceInvitationsService } from '../src/modules/workspaces/invitatio
 import { PrismaService } from '../src/prisma/prisma.service';
 import { truncateAll } from './setup/db';
 import {
-  captureEmails,
-  deliverQueuedEmails,
-  linkParameter,
-} from './setup/emails';
-import {
   addMembership,
   createWorkspaceWithOwner,
   createRegularUser,
@@ -24,10 +19,8 @@ import {
   seedRbacCatalog,
   SeededWorkspace,
   SeededUser,
-  TEST_PASSWORD,
 } from './setup/rbac';
 import { createTestApp } from './setup/test-app';
-import { firstElement } from './setup/elements';
 
 interface ErrorBody {
   errorCode: string;
@@ -56,24 +49,39 @@ describe('Workspace invitations (e2e)', () => {
   const invitationsUrl = () => `/api/workspaces/${workspace.id}/invitations`;
 
   /**
-   * Mints an invitation and returns its plaintext token.
-   *
-   * Goes through the service rather than the HTTP endpoint because the endpoint
-   * deliberately does NOT return the token — it is emailed and nowhere else, so
-   * that being able to invite an address does not also let you redeem the
-   * invitation yourself. The service is the only place the plaintext exists.
-   * Every assertion BELOW this helper still goes over HTTP.
+   * The live account with this email, created when there is none: an
+   * invitation names an existing account.
+   */
+  const accountFor = async (email: string): Promise<SeededUser> => {
+    const existing = await app
+      .get(PrismaService)
+      .user.findFirst({ where: { email, deletedAt: null } });
+    return existing
+      ? {
+          id: existing.id,
+          email,
+          token: await issueAccessToken(app, existing.id),
+        }
+      : createRegularUser(app, email);
+  };
+
+  /**
+   * Mints an invitation for the account with this email (creating it when
+   * missing) and returns its one-time code. Goes through the service so a
+   * spec can choose the actor's ability; the HTTP endpoint returns the same
+   * code, which the tests below assert.
    */
   const inviteAndCaptureToken = async (
     email: string,
     roleName: SeededRoleName = SeededRoleName.WORKSPACE_STAFF,
     actorId: string = owner.id,
   ): Promise<{ token: string; invitationId: string }> => {
+    await accountFor(email);
     const service = app.get(WorkspaceInvitationsService);
     const ability = await abilityFor(actorId);
     const { invitation, token } = await service.create(
       workspace.id,
-      { email, roleId: await roleIdFor(app, roleName) },
+      { identifier: email, roleId: await roleIdFor(app, roleName) },
       ability,
       actorId,
     );
@@ -95,90 +103,90 @@ describe('Workspace invitations (e2e)', () => {
       .send({ token });
 
   describe('issuing', () => {
-    it('an owner may invite an address that has no account yet', async () => {
-      await request(app.getHttpServer())
-        .post(invitationsUrl())
-        .set('Authorization', `Bearer ${owner.token}`)
-        .send({
-          email: 'nobody@example.com',
-          roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
-        })
-        .expect(201);
-
-      // No membership row: there is no user to hang one on. That is the entire
-      // reason invitations are a separate model.
-      const prisma = app.get(PrismaService);
-      expect(
-        await prisma.workspaceMembership.count({
-          where: { workspaceId: workspace.id },
-        }),
-      ).toBe(1); // the owner only
-    });
-
-    it('emails the invitation link through the queue', async () => {
-      const emails = captureEmails(app);
-      try {
-        await request(app.getHttpServer())
-          .post(invitationsUrl())
-          .set('Authorization', `Bearer ${owner.token}`)
-          .send({
-            email: 'invitee@example.com',
-            roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
-          })
-          .expect(201);
-        expect(emails.sent).toHaveLength(0);
-
-        await deliverQueuedEmails(app);
-
-        expect(emails.sent).toHaveLength(1);
-        const sent = firstElement(emails.sent, 'sent email');
-        expect(sent.to).toBe('invitee@example.com');
-        expect(sent.template).toBe('workspace-invitation');
-        const token = linkParameter(sent, 'acceptUrl', 'token');
-        const prisma = app.get(PrismaService);
-        expect(
-          await prisma.workspaceInvitation.count({
-            where: { tokenHash: hashOpaqueToken(token) },
-          }),
-        ).toBe(1);
-      } finally {
-        emails.restore();
-      }
-    });
-
-    it('sends nothing for an invitation revoked before the email went out', async () => {
-      const emails = captureEmails(app);
-      try {
-        const { invitationId } =
-          await inviteAndCaptureToken('late@example.com');
-        await app.get(PrismaService).workspaceInvitation.update({
-          where: { id: invitationId },
-          data: { status: WorkspaceInvitationStatus.REVOKED },
-        });
-
-        await deliverQueuedEmails(app);
-
-        expect(emails.sent).toHaveLength(0);
-      } finally {
-        emails.restore();
-      }
-    });
-
-    it('never returns the token — it goes to the invited address alone', async () => {
+    it('refuses an identifier that names no account (404), inviting nobody', async () => {
       const response = await request(app.getHttpServer())
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${owner.token}`)
         .send({
-          email: 'nobody@example.com',
+          identifier: 'nobody@example.com',
+          roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
+        })
+        .expect(404);
+      expect((response.body as ErrorBody).errorCode).toBe('RESOURCE_NOT_FOUND');
+      expect(
+        await app
+          .get(PrismaService)
+          .workspaceInvitation.count({ where: { workspaceId: workspace.id } }),
+      ).toBe(0);
+    });
+
+    it('invites an account by its username as well as its email', async () => {
+      const invitee = await createRegularUser(app, 'invitee@example.com');
+      await app.get(PrismaService).user.update({
+        where: { id: invitee.id },
+        data: { username: 'invitee' },
+      });
+
+      const response = await request(app.getHttpServer())
+        .post(invitationsUrl())
+        .set('Authorization', `Bearer ${owner.token}`)
+        .send({
+          identifier: 'Invitee',
+          roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
+        })
+        .expect(201);
+      expect(response.body.invitedUserId).toBe(invitee.id);
+      // By name only: never an address the inviter did not type.
+      expect(response.body.invitedUser).toEqual({
+        id: invitee.id,
+        firstName: 'Regular',
+        lastName: 'User',
+      });
+    });
+
+    it('returns the one-time code to the inviter, and stores only its hash', async () => {
+      const invitee = await createRegularUser(app, 'invitee@example.com');
+      const response = await request(app.getHttpServer())
+        .post(invitationsUrl())
+        .set('Authorization', `Bearer ${owner.token}`)
+        .send({
+          identifier: invitee.email,
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
         })
         .expect(201);
 
       const body = response.body as Record<string, unknown>;
-      expect(body.token).toBeUndefined();
-      // The digest must not leak either: SHA-256 over a known 43-character
-      // alphabet is not a slow hash, so publishing it invites an offline search.
+      expect(body.token).toEqual(expect.any(String));
+      // The digest must not leak: SHA-256 over a known 43-character alphabet
+      // is not a slow hash, so publishing it invites an offline search.
       expect(body.tokenHash).toBeUndefined();
+      const prisma = app.get(PrismaService);
+      expect(
+        await prisma.workspaceInvitation.count({
+          where: { tokenHash: hashOpaqueToken(body.token as string) },
+        }),
+      ).toBe(1);
+
+      // The code is the one the invitee redeems.
+      await acceptAs(invitee, body.token as string).expect(200);
+    });
+
+    it('never shows the code again when listing invitations', async () => {
+      await inviteAndCaptureToken('invitee@example.com');
+      const listed = await request(app.getHttpServer())
+        .get(invitationsUrl())
+        .set('Authorization', `Bearer ${owner.token}`)
+        .expect(200);
+      const [row] = listed.body.data as Record<string, unknown>[];
+      expect(row).toBeDefined();
+      expect(row?.token).toBeUndefined();
+      expect(row?.tokenHash).toBeUndefined();
+    });
+
+    it('the inviter cannot redeem the code they were shown', async () => {
+      const { token } = await inviteAndCaptureToken('invitee@example.com');
+      const response = await acceptAs(owner, token).expect(400);
+      expect((response.body as ErrorBody).errorCode).toBe('INVITATION_INVALID');
     });
 
     it('writes NO membership row when the address already has an account', async () => {
@@ -206,20 +214,12 @@ describe('Workspace invitations (e2e)', () => {
       const invitation = await app
         .get(PrismaService)
         .workspaceInvitation.findFirstOrThrow({
-          where: { workspaceId: workspace.id, email: invitee.email },
+          where: {
+            workspaceId: workspace.id,
+            invitedUser: { email: invitee.email },
+          },
         });
       expect(invitation.invitedUserId).toBe(invitee.id);
-    });
-
-    it('leaves invitedUserId null when the address has no account', async () => {
-      await inviteAndCaptureToken('stranger@example.com');
-
-      const invitation = await app
-        .get(PrismaService)
-        .workspaceInvitation.findFirstOrThrow({
-          where: { workspaceId: workspace.id, email: 'stranger@example.com' },
-        });
-      expect(invitation.invitedUserId).toBeNull();
     });
 
     it('an outstanding invitation grants nothing', async () => {
@@ -248,7 +248,7 @@ describe('Workspace invitations (e2e)', () => {
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${owner.token}`)
         .send({
-          email: member.email,
+          identifier: member.email,
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
         })
         .expect(409);
@@ -262,7 +262,7 @@ describe('Workspace invitations (e2e)', () => {
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${owner.token}`)
         .send({
-          email: 'invitee@example.com',
+          identifier: 'invitee@example.com',
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
         })
         .expect(409);
@@ -275,7 +275,10 @@ describe('Workspace invitations (e2e)', () => {
       // still pass — so the status assertion, not the status code, is what
       // pins the rule.
       const invitations = await prisma.workspaceInvitation.findMany({
-        where: { workspaceId: workspace.id, email: 'invitee@example.com' },
+        where: {
+          workspaceId: workspace.id,
+          invitedUser: { email: 'invitee@example.com' },
+        },
         select: { status: true },
       });
       expect(invitations).toHaveLength(1);
@@ -296,7 +299,10 @@ describe('Workspace invitations (e2e)', () => {
       await inviteAndCaptureToken('invitee@example.com');
 
       await prisma.workspaceInvitation.updateMany({
-        where: { workspaceId: workspace.id, email: 'invitee@example.com' },
+        where: {
+          workspaceId: workspace.id,
+          invitedUser: { email: 'invitee@example.com' },
+        },
         data: { expiresAt: new Date(Date.now() - 60_000) },
       });
 
@@ -304,13 +310,16 @@ describe('Workspace invitations (e2e)', () => {
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${owner.token}`)
         .send({
-          email: 'invitee@example.com',
+          identifier: 'invitee@example.com',
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
         })
         .expect(201);
 
       const invitations = await prisma.workspaceInvitation.findMany({
-        where: { workspaceId: workspace.id, email: 'invitee@example.com' },
+        where: {
+          workspaceId: workspace.id,
+          invitedUser: { email: 'invitee@example.com' },
+        },
         select: { status: true },
       });
       // `status` is a String column constrained by the TS enum, so cast at the
@@ -355,7 +364,7 @@ describe('Workspace invitations (e2e)', () => {
         .post(`/api/workspaces/${otherWorkspace.id}/invitations`)
         .set('Authorization', `Bearer ${otherOwner.token}`)
         .send({
-          email: 'shared@example.com',
+          identifier: 'shared@example.com',
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
         })
         .expect(201);
@@ -372,14 +381,17 @@ describe('Workspace invitations (e2e)', () => {
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${owner.token}`)
         .send({
-          email: 'shared@example.com',
+          identifier: 'shared@example.com',
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
         })
         .expect(201);
 
       // The other workspace's invitation is untouched — pins the `workspaceId` half.
       const theirInvitations = await prisma.workspaceInvitation.findMany({
-        where: { workspaceId: otherWorkspace.id, email: 'shared@example.com' },
+        where: {
+          workspaceId: otherWorkspace.id,
+          invitedUser: { email: 'shared@example.com' },
+        },
         select: { status: true },
       });
       expect(theirInvitations).toHaveLength(1);
@@ -390,7 +402,10 @@ describe('Workspace invitations (e2e)', () => {
       // Our own other address is untouched — pins the `email` half. Without
       // this, deleting `email` from the retirement's `where` passes the suite.
       const bystanderInvitations = await prisma.workspaceInvitation.findMany({
-        where: { workspaceId: workspace.id, email: 'bystander@example.com' },
+        where: {
+          workspaceId: workspace.id,
+          invitedUser: { email: 'bystander@example.com' },
+        },
         select: { status: true },
       });
       expect(bystanderInvitations).toHaveLength(1);
@@ -415,7 +430,7 @@ describe('Workspace invitations (e2e)', () => {
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${workspaceAdmin.token}`)
         .send({
-          email: 'invitee@example.com',
+          identifier: 'invitee@example.com',
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_OWNER),
         })
         .expect(403);
@@ -430,7 +445,7 @@ describe('Workspace invitations (e2e)', () => {
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${owner.token}`)
         .send({
-          email: 'invitee@example.com',
+          identifier: 'invitee@example.com',
           roleId: await roleIdFor(app, SeededRoleName.PLATFORM_ADMIN),
         })
         .expect(403);
@@ -452,7 +467,7 @@ describe('Workspace invitations (e2e)', () => {
       await prisma.workspaceInvitation.create({
         data: {
           workspaceId: workspace.id,
-          email: invitee.email,
+          invitedUserId: invitee.id,
           roleId: await roleIdFor(app, SeededRoleName.PLATFORM_ADMIN),
           tokenHash: hashOpaqueToken(token),
           invitedBy: owner.id,
@@ -492,7 +507,7 @@ describe('Workspace invitations (e2e)', () => {
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${member.token}`)
         .send({
-          email: 'invitee@example.com',
+          identifier: 'invitee@example.com',
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
         })
         .expect(403);
@@ -520,42 +535,6 @@ describe('Workspace invitations (e2e)', () => {
         .get(`/api/workspaces/${workspace.id}`)
         .set('Authorization', `Bearer ${invitee.token}`)
         .expect(200);
-    });
-
-    it('someone who registers AFTER being invited can still accept', async () => {
-      // The token stays valid across registration, which is what lets the
-      // platform keep ONE registration policy instead of forking a second
-      // account-creation path behind a bearer token.
-      const { token } = await inviteAndCaptureToken('newcomer@example.com');
-
-      await request(app.getHttpServer())
-        .post('/api/auth/register')
-        .send({
-          email: 'newcomer@example.com',
-          password: TEST_PASSWORD,
-          firstName: 'New',
-          lastName: 'Comer',
-        })
-        .expect(201);
-
-      const prisma = app.get(PrismaService);
-      const created = await prisma.user.findFirstOrThrow({
-        where: { email: 'newcomer@example.com' },
-      });
-      await prisma.user.update({
-        where: { id: created.id },
-        data: { emailVerifiedAt: new Date() },
-      });
-      const newcomer = await createSessionFor('newcomer@example.com');
-
-      await acceptAs(newcomer, token).expect(200);
-
-      const membership = await prisma.workspaceMembership.findUniqueOrThrow({
-        where: {
-          workspaceId_userId: { workspaceId: workspace.id, userId: created.id },
-        },
-      });
-      expect(membership.status).toBe(WorkspaceMembershipStatus.ACTIVE);
     });
 
     it('a DIFFERENT account cannot redeem a forwarded invitation', async () => {
@@ -620,7 +599,7 @@ describe('Workspace invitations (e2e)', () => {
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${owner.token}`)
         .send({
-          email: invitee.email,
+          identifier: invitee.email,
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
         })
         .expect(201);
@@ -846,7 +825,7 @@ describe('Workspace invitations (e2e)', () => {
 
     it('suspension revokes an invitation sent to their address, and only in this workspace', async () => {
       const { invitationId } = await inviteAndCaptureToken('later@example.com');
-      const person = await createRegularUser(app, 'later@example.com');
+      const person = await accountFor('later@example.com');
       const membershipId = await addMembership(
         app,
         workspace.id,
@@ -857,7 +836,7 @@ describe('Workspace invitations (e2e)', () => {
       const elsewhere = await app.get(WorkspaceInvitationsService).create(
         other.id,
         {
-          email: person.email,
+          identifier: person.email,
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_STAFF),
         },
         await abilityFor(owner.id),
@@ -1090,46 +1069,5 @@ describe('Workspace invitations (e2e)', () => {
       const rejected = await acceptAs(bystander, token).expect(400);
       expect((rejected.body as ErrorBody).errorCode).toBe('INVITATION_INVALID');
     });
-
-    it('refuses a re-registered address that inherited the invitation', async () => {
-      // Invite an address with no account, then have somebody register it. The
-      // address alone is not identity; control of it must be proven.
-      const { token } = await inviteAndCaptureToken('ghost@example.com');
-      const prisma = app.get(PrismaService);
-      const squatter = await createRegularUser(app, 'squatter@example.com');
-      // Unverified: exactly the state an email CHANGE leaves an account in,
-      // while the access token issued beforehand keeps working.
-      await prisma.user.update({
-        where: { id: squatter.id },
-        data: { email: 'ghost@example.com', emailVerifiedAt: null },
-      });
-
-      const rejected = await request(app.getHttpServer())
-        .post('/api/invitations/accept')
-        .set('Authorization', `Bearer ${squatter.token}`)
-        .send({ token })
-        .expect(400);
-      expect((rejected.body as ErrorBody).errorCode).toBe('INVITATION_INVALID');
-
-      expect(
-        await prisma.workspaceMembership.count({
-          where: { workspaceId: workspace.id, userId: squatter.id },
-        }),
-      ).toBe(0);
-    });
-
-    it('admits a stranger who registered the address and verified it', async () => {
-      const { token } = await inviteAndCaptureToken('newcomer@example.com');
-      const newcomer = await createRegularUser(app, 'newcomer@example.com');
-
-      await acceptAs(newcomer, token).expect(200);
-    });
   });
-
-  // A session for a user whose row was created out-of-band.
-  const createSessionFor = async (email: string): Promise<SeededUser> => {
-    const prisma = app.get(PrismaService);
-    const user = await prisma.user.findFirstOrThrow({ where: { email } });
-    return { id: user.id, email, token: await issueAccessToken(app, user.id) };
-  };
 });

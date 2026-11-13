@@ -6,7 +6,6 @@ import { WorkspaceRoleAssignmentPolicy } from './workspace-role-assignment.polic
 import { WorkspaceInvitationsController } from './invitations/workspace-invitations.controller';
 import { WorkspaceInvitationAcceptanceController } from './invitations/workspace-invitation-acceptance.controller';
 import { WorkspaceInvitationsService } from './invitations/workspace-invitations.service';
-import { WorkspaceInvitationEmailJobHandler } from './invitations/jobs/workspace-invitation-email.handler';
 import { WorkspaceMembershipsController } from './memberships/workspace-memberships.controller';
 import { WorkspaceMembershipsService } from './memberships/workspace-memberships.service';
 
@@ -21,7 +20,6 @@ import { WorkspaceMembershipsService } from './memberships/workspace-memberships
     WorkspacesService,
     WorkspaceMembershipsService,
     WorkspaceInvitationsService,
-    WorkspaceInvitationEmailJobHandler,
     WorkspaceOwnershipPolicy,
     // Not exported: role assignment is entirely a workspace-module concern, and
     // exporting a policy nothing outside needs invites it being reached for.

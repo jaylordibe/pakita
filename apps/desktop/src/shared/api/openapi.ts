@@ -4,22 +4,6 @@
  */
 
 export interface paths {
-  '/api/auth/register': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['AuthController_register'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   '/api/auth/login': {
     parameters: {
       query?: never;
@@ -60,38 +44,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/auth/verify-email': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['AuthController_verifyEmailGet'];
-    put?: never;
-    post: operations['AuthController_verifyEmailPost'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/auth/resend-verification': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['AuthController_resendVerification'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   '/api/auth/logout': {
     parameters: {
       query?: never;
@@ -118,38 +70,6 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations['AuthController_logoutAll'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/users/request-password-reset': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['UsersController_requestPasswordReset'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/users/reset-password': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['UsersController_resetPassword'];
     delete?: never;
     options?: never;
     head?: never;
@@ -284,54 +204,6 @@ export interface paths {
     patch: operations['UsersController_updateAuthUserPassword'];
     trace?: never;
   };
-  '/api/users/me/request-phone-verification': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['UsersController_requestPhoneVerification'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/users/me/verify-phone': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch: operations['UsersController_verifyAuthUserPhone'];
-    trace?: never;
-  };
-  '/api/users/me/phone': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch: operations['UsersController_updateAuthUserPhone'];
-    trace?: never;
-  };
   '/api/users': {
     parameters: {
       query?: never;
@@ -390,22 +262,6 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations['UsersController_revokeSessions'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/users/{id}/resend-verification': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['UsersController_resendVerification'];
     delete?: never;
     options?: never;
     head?: never;
@@ -566,12 +422,13 @@ export interface paths {
     get?: never;
     put?: never;
     /**
-     * Re-sends a pending invitation on a fresh token.
+     * Re-issues a pending invitation on a fresh code, which it returns; the old
+     *     code stops working.
      *
-     *     Guarded by `create WorkspaceInvitation`, not `delete`: resending is the same
-     *     authority as inviting — same address, same role, same workspace — and gating
-     *     it behind `delete` would leave a manager able to raise an invitation they
-     *     could not repair when the mail went astray.
+     *     Guarded by `create WorkspaceInvitation`, not `delete`: re-issuing is the
+     *     same authority as inviting — same person, same role, same workspace — and
+     *     gating it behind `delete` would leave a manager able to raise an
+     *     invitation they could not repair when the code was lost.
      *
      *     200, not 201: nothing new comes into existence. The invitation is the same
      *     row, carrying a rotated secret.
@@ -611,10 +468,9 @@ export interface paths {
     /**
      * `@AuthenticatedOnly()`, not `@Public()`.
      *
-     *     An invitee without an account registers through the ordinary
-     *     `POST /auth/register` first — which is what keeps ONE registration policy
-     *     (disposable-email rejection, verification) instead of forking a
-     *     second, less-guarded account-creation path behind a bearer token.
+     *     The code is bound to the invited account, so the caller must be signed in
+     *     as that account; accepting never creates one (only an administrator does,
+     *     `POST /users`).
      *
      *     No permission is required because there is none that could apply: authority
      *     inside the workspace is precisely what this call grants.
@@ -1091,53 +947,10 @@ export interface paths {
     };
     /**
      * What Pakita's desktop app checks before anything else: that it reached a
-     *     Pakita server, whether the two versions are compatible, and whether
-     *     signing in needs the bot check. Reveals nothing about the server's data.
+     *     Pakita server, and whether the two versions are compatible. Reveals
+     *     nothing about the server's data.
      */
     get: operations['PublicController_serverInfo'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/public/desktop-turnstile': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * The Turnstile check Pakita's desktop app shows in its own window before
-     *     a password sign-in (docs/decisions/0001-desktop-turnstile.md at the
-     *     workspace root). Renders the app widget; refuses (503) while the bot
-     *     check is on without TURNSTILE_MOBILE_SITE_KEY.
-     */
-    get: operations['PublicController_desktopTurnstile'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/public/desktop-turnstile/done': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Where the check page goes once solved. The desktop app intercepts this
-     *     navigation and reads the token from the URL fragment, so the page itself
-     *     only shows when it is opened some other way.
-     */
-    get: operations['PublicController_desktopTurnstileDone'];
     put?: never;
     post?: never;
     delete?: never;
@@ -1358,21 +1171,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    RegisterDto: {
-      /** @description At least 8 characters and at most 72 bytes in UTF-8 (a character such as ñ takes 2, an emoji 4), with a letter and a digit. */
-      password: string;
-      /** Format: email */
-      email: string;
-      firstName: string;
-      lastName: string;
-    };
-    RegisterResponseDto: {
-      message: string;
-    };
     LoginDto: {
       /** @description At least 8 characters and at most 72 bytes in UTF-8. */
       password: string;
       identifier: string;
+      /**
+       * @description The `deviceToken`s earlier sign-ins on this device were given, for any
+       *     accounts (a shared laptop holds several). One for the account signing in
+       *     marks a device it has used before, which a stranger's failed guesses at
+       *     the account cannot lock out (`SignInDeviceTokenService`).
+       */
+      deviceTokens?: string[];
     };
     AttachedFileResponseDto: {
       id: string;
@@ -1407,9 +1216,12 @@ export interface components {
       lastName: string;
       username: string | null;
       email: string;
-      phoneNumber: string | null;
-      /** Format: date-time */
-      phoneNumberVerifiedAt: string | null;
+      /**
+       * @description The password was chosen by an administrator (a new account, or a reset)
+       *     and must be replaced before anything else: every other route answers
+       *     PASSWORD_CHANGE_REQUIRED until `PATCH /users/me/password` succeeds.
+       */
+      isPasswordChangeRequired: boolean;
       /** @enum {string|null} */
       gender:
         | 'male'
@@ -1422,12 +1234,19 @@ export interface components {
       birthday: string | null;
       timezone: string | null;
     };
-    LoginResponseDto: {
+    PasswordSignInResponseDto: {
       /**
        * @description Access-token lifetime in seconds.
        * @example 900
        */
       expiresIn: number;
+      /**
+       * @description Keep it with this device and send it in `deviceTokens` at the next
+       *     sign-in: a device the account has signed in from is not locked out by
+       *     someone else's failed guesses. Not a credential on its own — the password
+       *     is still checked — and replaced by every sign-in.
+       */
+      deviceToken: string;
       accessToken: string;
       refreshToken: string;
       user: components['schemas']['UserResponseDto'];
@@ -1445,18 +1264,15 @@ export interface components {
        */
       refreshToken: string;
     };
-    VerifyEmailDto: {
-      token: string;
-    };
-    EmailVerificationResponseDto: {
-      isVerified: boolean;
-    };
-    ResendVerificationDto: {
-      /** Format: email */
-      email: string;
-    };
-    OperationAcknowledgementDto: {
-      isOk: boolean;
+    LoginResponseDto: {
+      /**
+       * @description Access-token lifetime in seconds.
+       * @example 900
+       */
+      expiresIn: number;
+      accessToken: string;
+      refreshToken: string;
+      user: components['schemas']['UserResponseDto'];
     };
     LogoutDto: {
       /**
@@ -1469,17 +1285,6 @@ export interface components {
        *     a new one, so clients SHOULD send it.
        */
       refreshToken?: string;
-    };
-    RequestPasswordResetDto: {
-      /** Format: email */
-      email: string;
-    };
-    ResetPasswordDto: {
-      /** @description At least 8 characters and at most 72 bytes in UTF-8 (a character such as ñ takes 2, an emoji 4), with a letter and a digit. */
-      newPassword: string;
-      /** Format: email */
-      email: string;
-      token: string;
     };
     PermissionsWorkspaceMembershipDto: {
       /** @enum {string} */
@@ -1532,7 +1337,6 @@ export interface components {
       firstName?: string;
       middleName?: string;
       lastName?: string;
-      phoneNumber?: string;
       /** @enum {string} */
       gender?: 'male' | 'female' | 'non_binary' | 'other' | 'prefer_not_to_say';
       /** Format: date-time */
@@ -1571,18 +1375,6 @@ export interface components {
       /** @description At least 8 characters and at most 72 bytes in UTF-8 (a character such as ñ takes 2, an emoji 4), with a letter and a digit. */
       newPassword: string;
     };
-    RequestPhoneVerificationDto: {
-      /** @description At least 8 characters and at most 72 bytes in UTF-8. */
-      currentPassword: string;
-      phoneNumber: string;
-    };
-    VerifyAuthUserPhoneDto: {
-      phoneNumber: string;
-      otp: string;
-    };
-    UpdateAuthUserPhoneDto: {
-      phoneNumber: string;
-    };
     CreateUserDto: {
       /** @description At least 8 characters and at most 72 bytes in UTF-8 (a character such as ñ takes 2, an emoji 4), with a letter and a digit. */
       password: string;
@@ -1592,7 +1384,6 @@ export interface components {
       firstName: string;
       middleName?: string;
       lastName: string;
-      phoneNumber?: string;
       /** @enum {string} */
       gender?: 'male' | 'female' | 'non_binary' | 'other' | 'prefer_not_to_say';
       /** Format: date-time */
@@ -1612,7 +1403,6 @@ export interface components {
       firstName?: string;
       middleName?: string;
       lastName?: string;
-      phoneNumber?: string;
       /** @enum {string} */
       gender?: 'male' | 'female' | 'non_binary' | 'other' | 'prefer_not_to_say';
       /** Format: date-time */
@@ -1694,8 +1484,12 @@ export interface components {
       roleId: string;
     };
     CreateWorkspaceInvitationDto: {
-      /** Format: email */
-      email: string;
+      /**
+       * @description The email or username of the account to invite. Pakita has no public
+       *     sign-up, so the person must already have an account (an administrator
+       *     creates it).
+       */
+      identifier: string;
       /** Format: uuid */
       roleId: string;
     };
@@ -1704,14 +1498,21 @@ export interface components {
       name: string;
       rank: number;
     };
-    WorkspaceInvitationResponseDto: {
+    WorkspaceInvitationInviteeDto: {
+      id: string;
+      firstName: string;
+      lastName: string;
+    };
+    IssuedWorkspaceInvitationResponseDto: {
+      token: string;
       id: string;
       /** Format: date-time */
       createdAt: string;
       /** Format: date-time */
       updatedAt: string;
       workspaceId: string;
-      email: string;
+      /** @description Null only on history whose account has since been removed. */
+      invitedUserId: string | null;
       roleId: string;
       /** @enum {string} */
       status: 'pending' | 'accepted' | 'revoked' | 'expired';
@@ -1725,6 +1526,37 @@ export interface components {
       revokedAt: string | null;
       revokedBy: string | null;
       role: components['schemas']['WorkspaceInvitationRoleDto'];
+      /** @description Null only on history whose account has since been removed. */
+      invitedUser:
+        | components['schemas']['WorkspaceInvitationInviteeDto']
+        | null;
+    };
+    WorkspaceInvitationResponseDto: {
+      id: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+      workspaceId: string;
+      /** @description Null only on history whose account has since been removed. */
+      invitedUserId: string | null;
+      roleId: string;
+      /** @enum {string} */
+      status: 'pending' | 'accepted' | 'revoked' | 'expired';
+      invitedBy: string | null;
+      /** Format: date-time */
+      expiresAt: string;
+      /** Format: date-time */
+      acceptedAt: string | null;
+      acceptedBy: string | null;
+      /** Format: date-time */
+      revokedAt: string | null;
+      revokedBy: string | null;
+      role: components['schemas']['WorkspaceInvitationRoleDto'];
+      /** @description Null only on history whose account has since been removed. */
+      invitedUser:
+        | components['schemas']['WorkspaceInvitationInviteeDto']
+        | null;
     };
     AcceptWorkspaceInvitationDto: {
       token: string;
@@ -1933,11 +1765,6 @@ export interface components {
       /** @description See `desktop-compatibility.ts`. */
       apiLevel: number;
       minimumDesktopVersion: string;
-      /**
-       * @description Whether password sign-in needs a Turnstile token. When true, the desktop
-       *     opens `GET /api/public/desktop-turnstile` to get one first.
-       */
-      isBotCheckRequired: boolean;
     };
     SongSectionResponseDto: {
       id: string;
@@ -2325,39 +2152,10 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-  AuthController_register: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description A fresh Cloudflare Turnstile token from this client's widget (the website's when the request carries a browser Origin, the app's otherwise). Single-use: get a new one for every submission. */
-        'X-Turnstile-Token': string;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RegisterDto'];
-      };
-    };
-    responses: {
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['RegisterResponseDto'];
-        };
-      };
-    };
-  };
   AuthController_login: {
     parameters: {
       query?: never;
-      header: {
-        /** @description A fresh Cloudflare Turnstile token from this client's widget (the website's when the request carries a browser Origin, the app's otherwise). Single-use: get a new one for every submission. */
-        'X-Turnstile-Token': string;
-      };
+      header?: never;
       path?: never;
       cookie?: never;
     };
@@ -2372,7 +2170,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['LoginResponseDto'];
+          'application/json': components['schemas']['PasswordSignInResponseDto'];
         };
       };
     };
@@ -2396,75 +2194,6 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['LoginResponseDto'];
-        };
-      };
-    };
-  };
-  AuthController_verifyEmailGet: {
-    parameters: {
-      query: {
-        token: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Redirects (302) to the web app email-verification result page — ?status=success or ?status=error&reason=<slug>. No response body. */
-      302: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  AuthController_verifyEmailPost: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['VerifyEmailDto'];
-      };
-    };
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['EmailVerificationResponseDto'];
-        };
-      };
-    };
-  };
-  AuthController_resendVerification: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description A fresh Cloudflare Turnstile token from this client's widget (the website's when the request carries a browser Origin, the app's otherwise). Single-use: get a new one for every submission. */
-        'X-Turnstile-Token': string;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ResendVerificationDto'];
-      };
-    };
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['OperationAcknowledgementDto'];
         };
       };
     };
@@ -2518,55 +2247,6 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
-      };
-    };
-  };
-  UsersController_requestPasswordReset: {
-    parameters: {
-      query?: never;
-      header: {
-        /** @description A fresh Cloudflare Turnstile token from this client's widget (the website's when the request carries a browser Origin, the app's otherwise). Single-use: get a new one for every submission. */
-        'X-Turnstile-Token': string;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RequestPasswordResetDto'];
-      };
-    };
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['OperationAcknowledgementDto'];
-        };
-      };
-    };
-  };
-  UsersController_resetPassword: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ResetPasswordDto'];
-      };
-    };
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['OperationAcknowledgementDto'];
-        };
       };
     };
   };
@@ -2946,123 +2626,17 @@ export interface operations {
       };
     };
   };
-  UsersController_requestPhoneVerification: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RequestPhoneVerificationDto'];
-      };
-    };
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['OperationAcknowledgementDto'];
-        };
-      };
-      /** @description Missing, invalid, expired, or revoked access token */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Authenticated, but no permission grants `update` on `User` */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  UsersController_verifyAuthUserPhone: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['VerifyAuthUserPhoneDto'];
-      };
-    };
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['UserResponseDto'];
-        };
-      };
-      /** @description Missing, invalid, expired, or revoked access token */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Authenticated, but no permission grants `update` on `User` */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  UsersController_updateAuthUserPhone: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdateAuthUserPhoneDto'];
-      };
-    };
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['UserResponseDto'];
-        };
-      };
-      /** @description Missing, invalid, expired, or revoked access token */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Authenticated, but no permission grants `update` on `User` */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
   UsersController_findPaginated: {
     parameters: {
       query?: {
         page?: number;
         /** @description Values above 100 are clamped to 100. */
         perPage?: number;
+        /**
+         * @description `false`: live accounts only; `true`: deleted (and erased) ones only.
+         *     Absent means both, so a deleted account stays findable for recovery.
+         */
+        isDeleted?: boolean;
         search?: string;
         sortBy?: string;
         sortOrder?: 'asc' | 'desc';
@@ -3308,41 +2882,6 @@ export interface operations {
         content?: never;
       };
       /** @description Requires `revokeSession` on `User` beyond your own records */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  UsersController_resendVerification: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['OperationAcknowledgementDto'];
-        };
-      };
-      /** @description Missing, invalid, expired, or revoked access token */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Requires `resendVerification` on `User` beyond your own records */
       403: {
         headers: {
           [name: string]: unknown;
@@ -3946,7 +3485,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['WorkspaceInvitationResponseDto'];
+          'application/json': components['schemas']['IssuedWorkspaceInvitationResponseDto'];
         };
       };
       /** @description Missing, invalid, expired, or revoked access token */
@@ -3982,7 +3521,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['WorkspaceInvitationResponseDto'];
+          'application/json': components['schemas']['IssuedWorkspaceInvitationResponseDto'];
         };
       };
       /** @description Missing, invalid, expired, or revoked access token */
@@ -5535,42 +5074,6 @@ export interface operations {
         content: {
           'application/json': components['schemas']['ServerInfoResponseDto'];
         };
-      };
-    };
-  };
-  PublicController_desktopTurnstile: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The Turnstile check page */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  PublicController_desktopTurnstileDone: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description A page telling the person to return to Pakita */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
       };
     };
   };

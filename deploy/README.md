@@ -17,13 +17,9 @@ follow is in [`apps/api/docs/deployment/README.md`](../apps/api/docs/deployment/
 - **A domain name** (for example `pakita.yourchurch.org`) whose DNS points at
   the server, with ports **80 and 443** open to the internet. Caddy obtains
   and renews the HTTPS certificate on its own.
-- **Three outside accounts.** The server will not start without them:
 
-| Service | Used for | What to put in `.env` |
-|---|---|---|
-| [Resend](https://resend.com) or [Mailgun](https://www.mailgun.com) | Sign-up verification and password-reset emails | `EMAIL_PROVIDER` (`resend` or `mailgun`), its API key (and for Mailgun, `MAILGUN_DOMAIN` and `MAILGUN_REGION`), and `EMAIL_FROM`, a sender on a domain you have verified with that service |
-| [Twilio](https://www.twilio.com) | Phone-number verification texts | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (a Twilio number) |
-| [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) | The bot check at sign-up and sign-in | Two widgets, both with your domain in their hostname list: one for the website (`TURNSTILE_WEB_SITE_KEY`, `TURNSTILE_WEB_SECRET`) and one for the app (`TURNSTILE_MOBILE_SITE_KEY`, `TURNSTILE_MOBILE_SECRET`) — the desktop app signs in through the app widget |
+No outside account is needed: Pakita sends no email or text and uses no
+third-party service. Everything runs on this machine.
 
 ## Install
 
@@ -31,13 +27,34 @@ follow is in [`apps/api/docs/deployment/README.md`](../apps/api/docs/deployment/
 2. Run `./install.sh`. The first run creates `.env` from `.env.example`,
    generates the database, Redis, storage and sign-in secrets, and lists what
    is still missing.
-3. Fill in `.env` (`PAKITA_VERSION`, `PAKITA_DOMAIN` and the three accounts
-   above), then run `./install.sh` again. It checks every value, downloads the
-   release and starts the server.
+3. Fill in `.env` (`PAKITA_VERSION` and `PAKITA_DOMAIN`), then run
+   `./install.sh` again. It checks every value, downloads the release and
+   starts the server.
 4. Run `./create-admin.sh` to create the first administrator. It asks for an
    email and a password and stores neither anywhere else.
 5. On a laptop, install the Pakita desktop app, connect to
    `https://your-domain`, sign in as the administrator and create your church.
+
+## People and passwords
+
+There is no sign-up. The administrator creates each person's account in the
+desktop app and gives them a one-time password, which they must replace with
+their own the first time they sign in. Someone who forgets their password asks
+the administrator, who sets a new one-time password the same way; that also
+signs them out everywhere. To add someone to a church, an administrator of that
+church creates an invitation code in the app and passes it on; only that
+person's account can use it.
+
+If the administrator cannot sign in themselves, reset their password on the
+server:
+
+```sh
+./reset-password.sh
+```
+
+It asks for the account's email and a new password, stores neither anywhere
+else, and signs that account out everywhere. The administrator chose this
+password, so they are not asked to change it again.
 
 Keep a copy of `.env` somewhere safe: it holds the server's secrets, and it is
 not part of the backups.

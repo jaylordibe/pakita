@@ -48,6 +48,8 @@ describe('Workspace role assignment authority (e2e)', () => {
     owner = await createRegularUser(app, 'owner@example.com');
     workspace = await createWorkspaceWithOwner(app, owner.id);
     manager = await createRegularUser(app, 'manager@example.com');
+    // Invitations name an existing account.
+    await createRegularUser(app, 'stranger@example.com');
     await addMembership(
       app,
       workspace.id,
@@ -121,7 +123,7 @@ describe('Workspace role assignment authority (e2e)', () => {
           .post(invitationsUrl())
           .set('Authorization', `Bearer ${manager.token}`)
           .send({
-            email: 'stranger@example.com',
+            identifier: 'stranger@example.com',
             roleId: await roleIdFor(app, roleName),
           })
           .expect(403);
@@ -144,7 +146,7 @@ describe('Workspace role assignment authority (e2e)', () => {
           .post(invitationsUrl())
           .set('Authorization', `Bearer ${manager.token}`)
           .send({
-            email: 'stranger@example.com',
+            identifier: 'stranger@example.com',
             roleId: await roleIdFor(app, roleName),
           })
           .expect(201);
@@ -217,7 +219,7 @@ describe('Workspace role assignment authority (e2e)', () => {
         .post(invitationsUrl())
         .set('Authorization', `Bearer ${admin.token}`)
         .send({
-          email: 'stranger@example.com',
+          identifier: 'stranger@example.com',
           roleId: await roleIdFor(app, SeededRoleName.WORKSPACE_ADMIN),
         })
         .expect(201);

@@ -199,16 +199,8 @@ describe('Public desktop endpoints (e2e)', () => {
     expect(response.body).toEqual({
       product: 'pakita',
       serverVersion: expect.stringMatching(/^\d+\.\d+\.\d+/),
-      apiLevel: 4,
+      apiLevel: 5,
       minimumDesktopVersion: expect.any(String),
-      // The test environment runs with the bot check off.
-      isBotCheckRequired: false,
     });
-  });
-
-  it('refuses the Turnstile page while the bot check is off', async () => {
-    await request(app.getHttpServer())
-      .get('/api/public/desktop-turnstile')
-      .expect(400);
   });
 });

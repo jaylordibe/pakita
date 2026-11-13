@@ -799,35 +799,19 @@ export class WorkspaceMembershipsService {
    * UP: an admin can never mint an owner.
    */
 
-  /**
-   * Withdraws every pending invitation to this person in this workspace.
-   *
-   * By account where the invitation recorded one, and by address where it
-   * could not (the address had no account when it was sent) — the same two
-   * identities `accept` admits, so the address counts only once it is
-   * verified: an unverified one may be somebody else's.
-   */
+  /** Withdraws every pending invitation to this person in this workspace. */
   private async revokePendingInvitations(
     transaction: Prisma.TransactionClient,
     workspaceId: string,
     userId: string,
     actorId: string,
   ): Promise<void> {
-    const user = await transaction.user.findUnique({
-      where: { id: userId },
-      select: { email: true, emailVerifiedAt: true },
-    });
     const now = new Date();
     await transaction.workspaceInvitation.updateMany({
       where: {
         workspaceId,
         status: WorkspaceInvitationStatus.PENDING,
-        OR: [
-          { invitedUserId: userId },
-          ...(user?.email && user.emailVerifiedAt
-            ? [{ invitedUserId: null, email: user.email.toLowerCase() }]
-            : []),
-        ],
+        invitedUserId: userId,
       },
       data: {
         status: WorkspaceInvitationStatus.REVOKED,

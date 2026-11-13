@@ -20,8 +20,21 @@ const accountSchema = z.object({
   userId: z.string(),
   email: z.string(),
   displayName: z.string(),
+  // The account still has a password an administrator chose; the server
+  // answers almost nothing until it is replaced. Absent in an account saved
+  // before this field existed, which never needed it.
+  isPasswordChangeRequired: z.boolean().default(false),
 });
 export type StoredAccount = z.infer<typeof accountSchema>;
+
+// Device tokens by server origin, then by account id.
+const deviceTokensSchema = z.record(
+  z.string(),
+  z.record(z.string(), z.string()),
+);
+
+/** The most device tokens kept for one server (a shared laptop's people). */
+const MAX_DEVICE_TOKENS_PER_SERVER = 10;
 
 /**
  * Remembers who is signed in on this laptop, so its synchronised content can
@@ -31,6 +44,11 @@ export type StoredAccount = z.infer<typeof accountSchema>;
  * - `credentials.bin`: the refresh token, encrypted by the operating
  *   system's keychain (Electron `safeStorage`). The access token is never
  *   stored; it lives in memory only.
+ * - `sign-in-devices.json`: each account's device token per server (the API's
+ *   `SignInDeviceTokenService`), sent at sign-in so a stranger's failed
+ *   guesses at the account cannot keep this laptop out. Not secret on its own
+ *   — the password is still checked — and kept across sign-out, which is
+ *   exactly when it is needed.
  *
  * Where the system offers no real keychain (Linux's `basic_text` fallback
  * encrypts with a hard-coded key), or the keychain refuses (the operator
@@ -40,6 +58,7 @@ export type StoredAccount = z.infer<typeof accountSchema>;
 export class CredentialStore {
   private readonly accountPath: string;
   private readonly credentialsPath: string;
+  private readonly deviceTokensPath: string;
 
   constructor(
     userDataDirectory: string,
@@ -47,6 +66,29 @@ export class CredentialStore {
   ) {
     this.accountPath = join(userDataDirectory, 'account.json');
     this.credentialsPath = join(userDataDirectory, 'credentials.bin');
+    this.deviceTokensPath = join(userDataDirectory, 'sign-in-devices.json');
+  }
+
+  /** The device tokens this laptop holds for a server, for any account. */
+  loadDeviceTokens(origin: string): string[] {
+    const all = readJsonFile(this.deviceTokensPath, deviceTokensSchema, {});
+    return Object.values(all[origin] ?? {}).slice(
+      -MAX_DEVICE_TOKENS_PER_SERVER,
+    );
+  }
+
+  /** Keeps the device token a sign-in to this account was given. */
+  saveDeviceToken(origin: string, userId: string, token: string): void {
+    const all = readJsonFile(this.deviceTokensPath, deviceTokensSchema, {});
+    const forServer = { ...(all[origin] ?? {}) };
+    // Re-inserted last, so the oldest account's token is the one dropped.
+    delete forServer[userId];
+    forServer[userId] = token;
+    const kept = Object.entries(forServer).slice(-MAX_DEVICE_TOKENS_PER_SERVER);
+    writeJsonFile(this.deviceTokensPath, {
+      ...all,
+      [origin]: Object.fromEntries(kept),
+    });
   }
 
   async canStoreSecrets(): Promise<boolean> {

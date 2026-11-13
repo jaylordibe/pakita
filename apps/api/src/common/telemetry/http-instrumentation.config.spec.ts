@@ -12,7 +12,7 @@ describe('HTTP_INSTRUMENTATION_CONFIG', () => {
     ).toEqual({ 'url.query': 'search=[redacted]&page=2' });
     expect(
       HTTP_INSTRUMENTATION_CONFIG.startIncomingSpanHook(
-        incoming('/api/auth/verify-email?token=secret'),
+        incoming('/api/some/link?token=secret'),
       ),
     ).toEqual({ 'url.query': 'token=[redacted]' });
   });

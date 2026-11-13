@@ -40,18 +40,11 @@ model User {
   email                   String
   password                String
   passwordChangedAt       DateTime? @map("password_changed_at")
-  otpHash                 String?   @map("otp_hash")
-  otpPurpose              String?   @map("otp_purpose")
-  otpExpiresAt            DateTime? @map("otp_expires_at")
-  emailVerifiedAt         DateTime? @map("email_verified_at")
-  // `phoneNumber` may be set without verification (e.g. via admin
-  // create or `PATCH /users/me/phone`); `phoneNumberVerifiedAt` is
-  // stamped only when the OTP flow completes (POST
-  // /users/me/request-phone-verification → PATCH /users/me/verify-phone).
-  // Plain phone updates clear the verifiedAt — the new number hasn't
-  // been proven owned, so any prior verified state is no longer valid.
-  phoneNumber             String?   @map("phone_number")
-  phoneNumberVerifiedAt   DateTime? @map("phone_number_verified_at")
+  // Set when an administrator chose the password (account creation, or a
+  // reset): until the person picks their own, a session may only change it,
+  // read their account and sign out (`JwtAuthGuard`). Cleared
+  // only by the person's own password change.
+  isPasswordChangeRequired Boolean  @default(false) @map("is_password_change_required")
   gender                  String?
   // The stored file shown as this person's picture. Unique: an attached file
   // belongs to exactly one reference (see `FileAsset`). Set only through
@@ -467,18 +460,18 @@ model WorkspaceMembership {
   @@map("workspace_memberships")
 }
 
-/// An outstanding offer to join a workspace.
+/// An outstanding offer to join a workspace, addressed to one existing account.
 ///
-/// Modelled separately from `WorkspaceMembership` because an invited email need
-/// not belong to a user yet — there is no `userId` to hang a membership row on
-/// until somebody accepts. No membership row is written until acceptance: a
-/// placeholder would consume the ONE row `@@unique([workspaceId, userId])`
-/// allows, overwriting a former member's history to record an offer they had
-/// not taken up.
+/// Delivered as a one-time code the inviter copies and passes on themselves
+/// (Pakita sends no email): only the invited account can redeem it, so a code
+/// that reaches anyone else opens nothing. No membership row is written until
+/// acceptance: a placeholder would consume the ONE row
+/// `@@unique([workspaceId, userId])` allows, overwriting a former member's
+/// history to record an offer they had not taken up.
 ///
 /// Acceptance is a conditional UPDATE out of `pending`, inside the same
 /// transaction that writes the membership, so two simultaneous redemptions of
-/// one token produce exactly one membership.
+/// one code produce exactly one membership.
 model WorkspaceInvitation {
   id            String    @id @default(uuid()) @db.Uuid
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -486,27 +479,18 @@ model WorkspaceInvitation {
   createdBy     String?   @map("created_by") @db.Uuid
   updatedBy     String?   @map("updated_by") @db.Uuid
   workspaceId   String    @map("workspace_id") @db.Uuid
-  /// Lowercased at the DTO boundary. Deliberately NOT a FK to `users`: the
-  /// whole point is that the invitee may not exist yet.
+  /// The invited account. Required on every new invitation; null only on
+  /// history whose account was later removed (`SetNull` below).
   ///
-  /// Unique among PENDING rows only, via a partial index declared in the
-  /// workspace_invitations migration (`WHERE status = 'pending'`). Prisma cannot express that, so it
+  /// Unique among PENDING rows, via a partial index declared in the
+  /// migrations (`WHERE status = 'pending'`). Prisma cannot express that, so it
   /// carries no `@@unique` here — look it up with `findFirst`, never
   /// `findUnique`.
-  email         String
-  /// The account the address resolved to AT INVITE TIME, when it resolved to
-  /// one at all. Null means the address had no account yet — the ordinary case
-  /// for inviting a stranger.
-  ///
-  /// This exists so revoke and accept stop re-deriving identity from `email`,
-  /// which is mutable. Deriving it late meant a re-registered address inherited
-  /// somebody else's invitation: the revoke deleted the wrong membership and
-  /// attributed the audit event to the wrong person.
   invitedUserId String?   @map("invited_user_id") @db.Uuid
   roleId        String    @map("role_id") @db.Uuid
   /// SHA-256 of the opaque token, hex-encoded — the same construction, and the
-  /// same reasoning, as `RefreshToken.tokenHash`. The plaintext is emailed once
-  /// and never stored.
+  /// same reasoning, as `RefreshToken.tokenHash`. The plaintext is shown to
+  /// the inviter once and never stored.
   tokenHash     String    @unique @map("token_hash")
   /// `WorkspaceInvitationStatus`.
   status        String    @default("pending")
@@ -521,8 +505,8 @@ model WorkspaceInvitation {
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   role        Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  /// SetNull, not Cascade: an erased account must not take the invitation
-  /// history of a workspace with it. The address on the row is what remains.
+  /// SetNull, not Cascade: a removed account must not take the invitation
+  /// history of a workspace with it.
   invitedUser User?     @relation("WorkspaceInvitationInvitee", fields: [invitedUserId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, status])
