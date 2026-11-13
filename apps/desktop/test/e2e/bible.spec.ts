@@ -82,6 +82,9 @@ test('imports a USFM folder, publishes it and synchronises it', async () => {
   );
   await operator.getByTestId('bible-import-submit').click();
 
+  await expect(operator.getByTestId('bible-imported')).toContainText(
+    'World English Bible is imported and published: 6 verses.',
+  );
   await expect(operator.getByTestId('bible-translation')).toContainText(
     'WEB — World English Bible',
   );
@@ -91,6 +94,22 @@ test('imports a USFM folder, publishes it and synchronises it', async () => {
   expect(published).toEqual([
     expect.objectContaining({ code: 'WEB', isPublished: true, verseCount: 6 }),
   ]);
+});
+
+test('says when the short name is already published, before and after submitting', async () => {
+  await operator.getByTestId('bible-import-open').click();
+  await expect(operator.getByTestId('bible-imported')).toHaveCount(0);
+  await operator.getByTestId('bible-import-choose').click();
+  await expect(operator.getByTestId('bible-import-code-taken')).toContainText(
+    'WEB is already published.',
+  );
+  await operator.getByTestId('bible-import-submit').click();
+  const error = operator.getByTestId('bible-import-error');
+  await expect(error).toContainText(
+    'A translation with the short name WEB is already published.',
+  );
+  await expect(error).toBeInViewport();
+  await operator.getByRole('button', { name: 'Close' }).click();
 });
 
 test('finds a passage and presents it with its reference', async () => {

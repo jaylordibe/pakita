@@ -142,9 +142,29 @@ async function goLive(): Promise<void> {
   }
 }
 
-async function onImported(): Promise<void> {
+const importedNotice = ref<string | null>(null);
+const existingCodes = computed(() =>
+  translations.value.map((translation) => translation.code),
+);
+
+function openImport(): void {
+  importedNotice.value = null;
+  isImportShown.value = true;
+}
+
+async function onImported(imported: {
+  code: string;
+  name: string;
+}): Promise<void> {
   isImportShown.value = false;
   await loadTranslations();
+  const added = translations.value.find(
+    (translation) => translation.code === imported.code,
+  );
+  if (added) translationId.value = added.id;
+  importedNotice.value = added
+    ? `${added.name} is imported and published: ${added.verseCount.toLocaleString()} verses. Everyone in this church receives it when their laptop next synchronises.`
+    : `${imported.name} is imported and published. It appears here once this laptop has synchronised.`;
 }
 
 watch(translationId, async () => {
@@ -187,6 +207,22 @@ onUnmounted(() => unsubscribe?.());
       <div class="panel-head">
         <h1>Bible</h1>
       </div>
+      <p
+        v-if="importedNotice"
+        class="imported"
+        role="status"
+        data-testid="bible-imported"
+      >
+        <AppIcon name="check" class="imported-icon" />
+        <span class="grow">{{ importedNotice }}</span>
+        <button
+          class="ghost sm"
+          aria-label="Dismiss"
+          @click="importedNotice = null"
+        >
+          <AppIcon name="x" />
+        </button>
+      </p>
       <select
         v-model="translationId"
         aria-label="Translation"
@@ -257,7 +293,7 @@ onUnmounted(() => unsubscribe?.());
         v-if="canImport"
         class="import-open"
         data-testid="bible-import-open"
-        @click="isImportShown = true"
+        @click="openImport"
       >
         <AppIcon name="upload" />
         Import a translation…
@@ -267,6 +303,7 @@ onUnmounted(() => unsubscribe?.());
     <main class="panel-content">
       <BibleImport
         v-if="isImportShown && canImport"
+        :existing-codes="existingCodes"
         @imported="onImported"
         @close="isImportShown = false"
       />
@@ -327,6 +364,24 @@ onUnmounted(() => unsubscribe?.());
 </template>
 
 <style scoped>
+.imported {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.6rem 0.4rem 0.6rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  border-radius: var(--radius);
+  background: var(--success-soft);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.imported-icon {
+  margin-top: 0.15rem;
+  color: var(--success);
+}
+
 .import-open {
   border-style: dashed;
   background: transparent;

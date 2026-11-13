@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
 
 import type {
   BibleImportPreview,
@@ -12,7 +12,14 @@ import AppIcon from './AppIcon.vue';
 // The longest value the server accepts for each field.
 const limits = apiConstraints.CreateBibleTranslationDto;
 
-const emit = defineEmits<{ imported: []; close: [] }>();
+const props = defineProps<{
+  /** Short names of the translations this laptop already holds. */
+  existingCodes: readonly string[];
+}>();
+const emit = defineEmits<{
+  imported: [translation: { code: string; name: string }];
+  close: [];
+}>();
 
 const preview = ref<BibleImportPreview | null>(null);
 const progress = ref<BibleImportProgress | null>(null);
@@ -26,6 +33,18 @@ const form = reactive({
   attribution: '',
   sourceUrl: '',
 });
+
+const errorElement = ref<HTMLElement | null>(null);
+const isCodeTaken = computed(() =>
+  props.existingCodes.includes(form.code.trim().toUpperCase()),
+);
+
+/** Shows the error where the person is looking, even below the fold. */
+async function showError(error: unknown): Promise<void> {
+  errorMessage.value = messageOf(error);
+  await nextTick();
+  errorElement.value?.scrollIntoView({ block: 'nearest' });
+}
 
 const isSuggested = computed(
   () => Object.keys(preview.value?.suggested ?? {}).length > 0,
@@ -42,7 +61,7 @@ async function chooseFolder(): Promise<void> {
       form[detail] = chosen.suggested[detail] ?? form[detail];
     }
   } catch (error) {
-    errorMessage.value = messageOf(error);
+    await showError(error);
   }
 }
 
@@ -59,9 +78,12 @@ async function submit(): Promise<void> {
       attribution: form.attribution.trim(),
       sourceUrl: form.sourceUrl.trim() || null,
     });
-    emit('imported');
+    emit('imported', {
+      code: form.code.trim().toUpperCase(),
+      name: form.name.trim(),
+    });
   } catch (error) {
-    errorMessage.value = messageOf(error);
+    await showError(error);
   } finally {
     isImporting.value = false;
   }
@@ -141,7 +163,16 @@ onUnmounted(() => unsubscribe?.());
           aria-describedby="bible-import-code-help"
           data-testid="bible-import-code"
         />
-        <span id="bible-import-code-help" class="field-help">
+        <span
+          v-if="isCodeTaken"
+          id="bible-import-code-help"
+          class="field-help taken"
+          data-testid="bible-import-code-taken"
+        >
+          {{ form.code.trim().toUpperCase() }} is already published. Give this
+          translation another short name to import it as well.
+        </span>
+        <span v-else id="bible-import-code-help" class="field-help">
           A few letters or digits for the translation picker, e.g. WEB or KJV.
         </span>
       </label>
@@ -238,7 +269,13 @@ onUnmounted(() => unsubscribe?.());
         </span>
       </div>
     </form>
-    <p v-if="errorMessage" class="error" role="alert">
+    <p
+      v-if="errorMessage"
+      ref="errorElement"
+      class="error"
+      role="alert"
+      data-testid="bible-import-error"
+    >
       <AppIcon name="alert" />
       <span>{{ errorMessage }}</span>
     </p>
@@ -283,6 +320,10 @@ onUnmounted(() => unsubscribe?.());
   gap: 0.45rem;
   margin: 0;
   font-size: 0.85rem;
+}
+
+.taken {
+  color: var(--danger);
 }
 
 .ok {

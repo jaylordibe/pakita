@@ -153,6 +153,26 @@ describe('uploadTranslation', () => {
     ]);
   });
 
+  it('says plainly when the short name is already published', async () => {
+    const uploader = fakeUploader();
+    uploader.createDraft = vi.fn(async () => {
+      throw Object.assign(new Error('Code already in use'), {
+        errorCode: 'UNIQUE_CONSTRAINT_VIOLATION',
+      });
+    });
+    await expect(
+      uploadTranslation(
+        uploader,
+        input,
+        await readUsfmFolder(FIXTURE),
+        () => {},
+      ),
+    ).rejects.toThrow(
+      'A translation with the short name WEB is already published. Give this one another short name to import it as well.',
+    );
+    expect(uploader.putChapter).not.toHaveBeenCalled();
+  });
+
   it('never deletes once publishing was asked for', async () => {
     const uploader = fakeUploader();
     vi.mocked(uploader.publish).mockRejectedValueOnce(new Error('timed out'));

@@ -185,7 +185,23 @@ export async function uploadTranslation(
     0,
   );
   await uploader.deleteLeftoverDraft(input.code);
-  const translationId = await uploader.createDraft(input);
+  let translationId: string;
+  try {
+    translationId = await uploader.createDraft(input);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      'errorCode' in error &&
+      error.errorCode === 'UNIQUE_CONSTRAINT_VIOLATION'
+    ) {
+      // A published translation is never replaced, so the code stays taken.
+      throw new Error(
+        `A translation with the short name ${input.code} is already published. Give this one another short name to import it as well.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
   let isPublishSent = false;
   try {
     let done = 0;
