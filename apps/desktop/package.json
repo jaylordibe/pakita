@@ -23,6 +23,7 @@
     "package:dir": "pnpm build && electron-builder --dir",
     "package:release": "pnpm build && electron-builder --publish never",
     "smoke:package": "node scripts/smoke-packaged-app.mjs",
+    "generate:mac-icon": "node scripts/generate-mac-icon.mts",
     "generate:api": "openapi-typescript ../api/openapi.json --output src/shared/api/openapi.ts && node scripts/generate-api-enums.mjs ../api/openapi.json src/shared/api/enums.ts && prettier --write src/shared/api/openapi.ts src/shared/api/enums.ts"
   },
   "dependencies": {
@@ -54,6 +55,7 @@
     "openapi-typescript": "7.13.0",
     "pg": "catalog:",
     "prettier": "catalog:",
+    "sharp": "0.35.5",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
     "vite": "8.3.5",

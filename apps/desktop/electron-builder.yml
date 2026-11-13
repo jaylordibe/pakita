@@ -1,7 +1,8 @@
 # `pnpm package:dir` builds an unpacked app to prove packaging works;
 # `pnpm package:release` builds the installers into release/, which the
 # desktop-release workflow attaches to a DRAFT GitHub release.
-# The app icon is build/icon.png. Installers are not code-signed yet: operating
+# The app icon is build/icon.png; macOS uses build/icon-mac.png, the same mark
+# on Apple's icon grid (`pnpm generate:mac-icon` derives it). Installers are not code-signed yet: operating
 # systems warn on first launch (see the deployment guide).
 appId: io.github.jaylordibe.pakita
 productName: Pakita
@@ -48,6 +49,7 @@ electronFuses:
 artifactName: Pakita-${version}-${os}-${arch}.${ext}
 mac:
   category: public.app-category.productivity
+  icon: build/icon-mac.png
   target:
     - target: dmg
       arch: [arm64, x64]

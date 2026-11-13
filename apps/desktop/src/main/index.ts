@@ -10,6 +10,7 @@ import {
 } from '../shared/api/enums';
 import { IpcChannel, type IpcChannelName } from '../shared/ipc-contract';
 import { AppController } from './app-controller';
+import { showDevelopmentDockIcon, windowIcon } from './app-icon';
 import { registerIpcHandler } from './ipc-registry';
 import {
   installWebContentsGuards,
@@ -159,6 +160,7 @@ const playlistInputSchema = z
   .strict();
 
 async function start(): Promise<void> {
+  showDevelopmentDockIcon();
   installWebContentsGuards(trustedOrigins);
   serveRendererFromAppScheme(join(__dirname, '../renderer'));
 
@@ -385,6 +387,7 @@ function createOperatorWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     title: 'Pakita',
+    icon: windowIcon,
     // The interface's darkest surface (--bg in the renderer's style.css), so
     // the window never flashes white before the page paints.
     backgroundColor: '#0b0a18',

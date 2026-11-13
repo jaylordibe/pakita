@@ -1,6 +1,7 @@
 import { BrowserWindow, screen } from 'electron';
 
 import { IpcEvent, type LiveState } from '../../shared/ipc-contract';
+import { windowIcon } from '../app-icon';
 import { createSecureWebPreferences } from '../security-policy';
 import { placeProjector, type ProjectorPlacement } from './projector-placement';
 
@@ -142,6 +143,7 @@ export class Projector {
     }
     const window = new BrowserWindow({
       title: 'Pakita — projector',
+      icon: windowIcon,
       frame: false,
       show: false,
       backgroundColor: '#000000',
