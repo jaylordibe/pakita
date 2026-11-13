@@ -291,6 +291,32 @@ describe('ROLE_DEFINITION_CATALOG', () => {
     expect(creators).toEqual([SeededRoleName.PLATFORM_ADMIN]);
   });
 
+  // `GET /users` names the workspaces each account belongs to. That shows a
+  // reader nothing new only while every role that may list accounts may also
+  // read every workspace.
+  it('lets every role that reads any account also read any workspace', () => {
+    const grantsAny = (
+      definition: (typeof roleEntries)[number][1],
+      subject: string,
+    ) =>
+      definition.permissions.some(
+        (permission) =>
+          permission.action === 'read' &&
+          permission.subject === subject &&
+          permission.ownership === PermissionOwnership.ANY,
+      );
+    const accountReaders = roleEntries.filter(([, definition]) =>
+      grantsAny(definition, 'User'),
+    );
+    expect(accountReaders.length).toBeGreaterThan(0);
+    for (const [roleName, definition] of accountReaders) {
+      expect({
+        roleName,
+        readsAnyWorkspace: grantsAny(definition, 'Workspace'),
+      }).toEqual({ roleName, readsAnyWorkspace: true });
+    }
+  });
+
   it('lets only a workspace owner or admin create accounts for their people', () => {
     const creators = roleEntries
       .filter(([, definition]) =>

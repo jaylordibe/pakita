@@ -23,6 +23,8 @@ import {
   SignInFailureLimitService,
 } from '../auth/sign-in-failure-limit.service';
 import { PermissionLoaderService } from '../authorization/permission-loader.service';
+import { HELD_MEMBERSHIP_OF_LIVE_WORKSPACE } from '../authorization/platform-account.policy';
+import { AttachedFileResponseDto } from '../files/dto/attached-file-response.dto';
 import { FilesService } from '../files/files.service';
 import { WorkspaceOwnershipPolicy } from '../workspaces/workspace-ownership.policy';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -31,8 +33,35 @@ import { UpdateAuthUserEmailDto } from './dto/update-auth-user-email.dto';
 import { UpdateAuthUserInfoDto } from './dto/update-auth-user-info.dto';
 import { UpdateAuthUserPasswordDto } from './dto/update-auth-user-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UserListItemResponseDto } from './dto/user-list-item-response.dto';
 import { UserPermissionsResponseDto } from './dto/user-permissions-response.dto';
 import { UserResponseDto } from './dto/user-response.dto';
+
+/**
+ * What an account belongs to, read with it for the administrative list: its
+ * platform roles, and its memberships of live workspaces (the same rule
+ * `PlatformAccountPolicy` holds an account to).
+ */
+const USER_AFFILIATIONS = {
+  userRoles: {
+    select: { role: { select: { name: true } } },
+    orderBy: { role: { name: 'asc' } },
+  },
+  memberships: {
+    where: HELD_MEMBERSHIP_OF_LIVE_WORKSPACE,
+    select: {
+      workspaceId: true,
+      status: true,
+      role: { select: { name: true } },
+      workspace: { select: { name: true } },
+    },
+    orderBy: { workspace: { name: 'asc' } },
+  },
+} satisfies Prisma.UserInclude;
+
+export type UserWithAffiliations = Prisma.UserGetPayload<{
+  include: typeof USER_AFFILIATIONS;
+}>;
 
 @Injectable()
 export class UsersService {
@@ -159,14 +188,19 @@ export class UsersService {
     });
   }
 
+  /**
+   * One page of accounts, each with what it belongs to: its platform roles and
+   * its live workspace memberships, read in the same query.
+   */
   async findPaginated(
     query: UserListQueryDto,
-  ): Promise<{ data: User[]; meta: PaginationMeta }> {
+  ): Promise<{ data: UserWithAffiliations[]; meta: PaginationMeta }> {
     const { page, perPage } = query;
     const args = this.buildListArgs(query);
     const [data, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         ...args,
+        include: USER_AFFILIATIONS,
         skip: (page - 1) * perPage,
         take: perPage,
       }),
@@ -581,12 +615,32 @@ export class UsersService {
     return response as UserResponseDto;
   }
 
+  /** The administrative list's rows: each account and what it belongs to. */
+  async toListResponses(
+    users: UserWithAffiliations[],
+  ): Promise<UserListItemResponseDto[]> {
+    const pictures = await this.findProfileImages(users);
+    return users.map(({ userRoles, memberships, ...user }) => {
+      return new UserListItemResponseDto(
+        user,
+        (user.profileImageFileAssetId &&
+          pictures.get(user.profileImageFileAssetId)) ||
+          null,
+        {
+          platformRoles: userRoles.map((userRole) => userRole.role.name),
+          workspaceMemberships: memberships.map((membership) => ({
+            workspaceId: membership.workspaceId,
+            workspaceName: membership.workspace.name,
+            roleName: membership.role.name,
+            status: membership.status as WorkspaceMembershipStatus,
+          })),
+        },
+      );
+    });
+  }
+
   async toResponses(users: User[]): Promise<UserResponseDto[]> {
-    const pictures = await this.filesService.findAttachedResponses(
-      users
-        .map((user) => user.profileImageFileAssetId)
-        .filter((fileId): fileId is string => fileId !== null),
-    );
+    const pictures = await this.findProfileImages(users);
     return users.map(
       (user) =>
         new UserResponseDto(
@@ -595,6 +649,16 @@ export class UsersService {
             pictures.get(user.profileImageFileAssetId)) ||
             null,
         ),
+    );
+  }
+
+  private findProfileImages(
+    users: User[],
+  ): Promise<Map<string, AttachedFileResponseDto>> {
+    return this.filesService.findAttachedResponses(
+      users
+        .map((user) => user.profileImageFileAssetId)
+        .filter((fileId): fileId is string => fileId !== null),
     );
   }
 

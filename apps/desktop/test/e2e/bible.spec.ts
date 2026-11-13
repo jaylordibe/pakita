@@ -91,6 +91,16 @@ test('imports a USFM folder, publishes it and synchronises it', async () => {
   await expect(operator.getByTestId('server-bible-WEB')).toContainText(
     'World English Bible',
   );
+  // The new translation opens straight away, selected in the list.
+  await expect(operator.getByTestId('server-bible-title')).toHaveText(
+    'World English Bible',
+  );
+  await expect(
+    operator.getByTestId('server-bible-WEB').getByRole('button'),
+  ).toHaveAttribute('aria-current', 'true');
+  await expect(operator.getByTestId('server-bible-details')).toContainText(
+    'https://ebible.org/web',
+  );
   const published = await api.request<
     Array<{ code: string; isPublished: boolean; verseCount: number }>
   >('GET', '/api/bible-translations');
@@ -118,6 +128,16 @@ test('says when the short name is already published, before and after submitting
   await expect(operator.getByTestId('bible-import-preview')).toHaveCount(0);
   await expect(operator.getByTestId('bible-import-error')).toHaveCount(0);
   await operator.getByRole('button', { name: 'Close' }).click();
+
+  // Choosing a translation in the list opens it.
+  await expect(operator.getByTestId('server-bible-title')).toHaveCount(0);
+  await operator.getByTestId('server-bible-WEB').getByRole('button').click();
+  await expect(operator.getByTestId('server-bible-title')).toHaveText(
+    'World English Bible',
+  );
+  await expect(operator.getByTestId('server-bible-details')).toContainText(
+    'Public Domain',
+  );
 });
 
 test("arrives on a church's laptop with the next synchronisation", async () => {

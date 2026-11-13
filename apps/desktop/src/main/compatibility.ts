@@ -6,7 +6,7 @@ import type { Compatibility } from '../shared/ipc-contract';
  * `API_LEVEL`, apps/api/src/modules/public/desktop-compatibility.ts). A server
  * at this level or above serves it.
  */
-export const REQUIRED_API_LEVEL = 6;
+export const REQUIRED_API_LEVEL = 7;
 
 /** Compares `major.minor.patch` versions; a pre-release suffix is ignored. */
 export function compareVersions(first: string, second: string): number {

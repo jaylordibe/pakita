@@ -665,7 +665,7 @@
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/UserResponseDto"
+                        "$ref": "#/components/schemas/UserListItemResponseDto"
                       }
                     },
                     "meta": {
@@ -6349,6 +6349,137 @@
           "perPage",
           "total",
           "totalPages"
+        ]
+      },
+      "UserListWorkspaceMembershipDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "description": "`active` or `suspended`; a membership the account left is not listed.",
+            "enum": [
+              "active",
+              "suspended"
+            ],
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "workspaceName": {
+            "type": "string"
+          },
+          "roleName": {
+            "type": "string",
+            "description": "The role's name in that workspace, e.g. `workspace_owner`."
+          }
+        },
+        "required": [
+          "status",
+          "workspaceId",
+          "workspaceName",
+          "roleName"
+        ]
+      },
+      "UserListItemResponseDto": {
+        "type": "object",
+        "properties": {
+          "profileImage": {
+            "nullable": true,
+            "description": "The profile picture, with a short-lived URL; null when none is set.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AttachedFileResponseDto"
+              }
+            ]
+          },
+          "platformRoles": {
+            "description": "Names of the account's platform roles, in name order.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "workspaceMemberships": {
+            "description": "The live workspaces the account is a member of (active or suspended), in\nworkspace name order. A deleted workspace, and a membership the account\nleft, are not listed.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserListWorkspaceMembershipDto"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "middleName": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string"
+          },
+          "isPasswordChangeRequired": {
+            "type": "boolean",
+            "description": "The password was chosen by an administrator (a new account, or a reset)\nand must be replaced before anything else: every other route answers\nPASSWORD_CHANGE_REQUIRED until `PATCH /users/me/password` succeeds."
+          },
+          "gender": {
+            "nullable": true,
+            "enum": [
+              "male",
+              "female",
+              "non_binary",
+              "other",
+              "prefer_not_to_say"
+            ],
+            "type": "string"
+          },
+          "birthday": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "timezone": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "profileImage",
+          "platformRoles",
+          "workspaceMemberships",
+          "id",
+          "createdAt",
+          "updatedAt",
+          "isActive",
+          "firstName",
+          "middleName",
+          "lastName",
+          "username",
+          "email",
+          "isPasswordChangeRequired",
+          "gender",
+          "birthday",
+          "timezone"
         ]
       },
       "UpdateUserDto": {

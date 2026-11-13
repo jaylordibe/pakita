@@ -1,12 +1,17 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { SeededRoleName } from '../src/common/enums/seeded-role-name.enum';
+import { WorkspaceMembershipStatus } from '../src/common/enums/workspace-membership-status.enum';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './setup/test-app';
 import { truncateAll } from './setup/db';
 import {
+  addMembership,
   createPlatformAdmin,
   createRegularUser,
+  createUser,
+  createWorkspaceWithOwner,
   seedRbacCatalog,
 } from './setup/rbac';
 
@@ -395,6 +400,115 @@ describe('Users (e2e)', () => {
       // lives in `user_roles` / `workspace_members`, never on the user row.
       expect(res.body.data[0]).not.toHaveProperty('role');
       expect(res.body.data[0]).not.toHaveProperty('password');
+    });
+
+    // Each row says what the account belongs to: platform roles, or the live
+    // churches it is a member of — so a server's staff can tell them apart.
+    it('GET /api/users lists each account with its platform roles and live workspace memberships', async () => {
+      const prisma = app.get(PrismaService);
+      const owner = await createUser(app, { email: 'owner@example.com' });
+      const suspended = await createUser(app, {
+        email: 'suspended@example.com',
+      });
+      const departed = await createUser(app, { email: 'left@example.com' });
+      const orphan = await createUser(app, { email: 'orphan@example.com' });
+      const newcomer = await createUser(app, {
+        email: 'newcomer@example.com',
+      });
+
+      const beta = await createWorkspaceWithOwner(app, owner.id, 'beta');
+      const alpha = await createWorkspaceWithOwner(app, newcomer.id, 'alpha');
+      await addMembership(
+        app,
+        alpha.id,
+        owner.id,
+        SeededRoleName.WORKSPACE_STAFF,
+      );
+      await addMembership(
+        app,
+        alpha.id,
+        suspended.id,
+        SeededRoleName.WORKSPACE_STAFF,
+        WorkspaceMembershipStatus.SUSPENDED,
+      );
+      await addMembership(
+        app,
+        alpha.id,
+        departed.id,
+        SeededRoleName.WORKSPACE_STAFF,
+        WorkspaceMembershipStatus.LEFT,
+      );
+      const gone = await createWorkspaceWithOwner(app, orphan.id, 'gone');
+      await prisma.workspace.update({
+        where: { id: gone.id },
+        data: { deletedAt: new Date() },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/users?perPage=100')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      const byEmail = new Map(
+        (
+          res.body.data as Array<{
+            email: string;
+            platformRoles: string[];
+            workspaceMemberships: unknown[];
+          }>
+        ).map((row) => [
+          row.email,
+          {
+            platformRoles: row.platformRoles,
+            workspaceMemberships: row.workspaceMemberships,
+          },
+        ]),
+      );
+
+      expect(byEmail.get('admin@example.com')).toEqual({
+        platformRoles: [SeededRoleName.PLATFORM_ADMIN],
+        workspaceMemberships: [],
+      });
+      // In workspace name order.
+      expect(byEmail.get('owner@example.com')).toEqual({
+        platformRoles: [],
+        workspaceMemberships: [
+          {
+            workspaceId: alpha.id,
+            workspaceName: 'alpha',
+            roleName: SeededRoleName.WORKSPACE_STAFF,
+            status: WorkspaceMembershipStatus.ACTIVE,
+          },
+          {
+            workspaceId: beta.id,
+            workspaceName: 'beta',
+            roleName: SeededRoleName.WORKSPACE_OWNER,
+            status: WorkspaceMembershipStatus.ACTIVE,
+          },
+        ],
+      });
+      // A suspended member still belongs to the workspace.
+      expect(
+        byEmail.get('suspended@example.com')?.workspaceMemberships,
+      ).toEqual([
+        expect.objectContaining({
+          workspaceId: alpha.id,
+          status: WorkspaceMembershipStatus.SUSPENDED,
+        }),
+      ]);
+      // A membership the account left, and a deleted workspace, are history.
+      expect(byEmail.get('left@example.com')?.workspaceMemberships).toEqual([]);
+      expect(byEmail.get('orphan@example.com')?.workspaceMemberships).toEqual(
+        [],
+      );
+    });
+
+    it('GET /api/users is refused to a workspace owner, who could otherwise see other churches', async () => {
+      const owner = await createUser(app, { email: 'owner@example.com' });
+      await createWorkspaceWithOwner(app, owner.id, 'beta');
+      await request(app.getHttpServer())
+        .get('/api/users')
+        .set('Authorization', `Bearer ${owner.token}`)
+        .expect(403);
     });
 
     // P2002 → 409 envelope contract.

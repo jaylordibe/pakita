@@ -1428,6 +1428,57 @@ export interface components {
       total: number;
       totalPages: number;
     };
+    UserListWorkspaceMembershipDto: {
+      /**
+       * @description `active` or `suspended`; a membership the account left is not listed.
+       * @enum {string}
+       */
+      status: 'active' | 'suspended';
+      workspaceId: string;
+      workspaceName: string;
+      /** @description The role's name in that workspace, e.g. `workspace_owner`. */
+      roleName: string;
+    };
+    UserListItemResponseDto: {
+      /** @description The profile picture, with a short-lived URL; null when none is set. */
+      profileImage: components['schemas']['AttachedFileResponseDto'] | null;
+      /** @description Names of the account's platform roles, in name order. */
+      platformRoles: string[];
+      /**
+       * @description The live workspaces the account is a member of (active or suspended), in
+       *     workspace name order. A deleted workspace, and a membership the account
+       *     left, are not listed.
+       */
+      workspaceMemberships: components['schemas']['UserListWorkspaceMembershipDto'][];
+      id: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+      isActive: boolean;
+      firstName: string;
+      middleName: string | null;
+      lastName: string;
+      username: string | null;
+      email: string;
+      /**
+       * @description The password was chosen by an administrator (a new account, or a reset)
+       *     and must be replaced before anything else: every other route answers
+       *     PASSWORD_CHANGE_REQUIRED until `PATCH /users/me/password` succeeds.
+       */
+      isPasswordChangeRequired: boolean;
+      /** @enum {string|null} */
+      gender:
+        | 'male'
+        | 'female'
+        | 'non_binary'
+        | 'other'
+        | 'prefer_not_to_say'
+        | null;
+      /** Format: date-time */
+      birthday: string | null;
+      timezone: string | null;
+    };
     UpdateUserDto: {
       /** Format: email */
       email?: string;
@@ -2724,7 +2775,7 @@ export interface operations {
         };
         content: {
           'application/json': {
-            data: components['schemas']['UserResponseDto'][];
+            data: components['schemas']['UserListItemResponseDto'][];
             meta: components['schemas']['PaginationMeta'];
           };
         };

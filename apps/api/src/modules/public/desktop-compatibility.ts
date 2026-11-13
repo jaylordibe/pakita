@@ -23,7 +23,9 @@ import { resolve } from 'node:path';
 //    creates one, naming its owner; replacing a workspace's owner
 //    (PUT /workspaces/:id/owner); a workspace's owner and admins create their
 //    people's accounts (POST /workspaces/:id/accounts).
-export const API_LEVEL = 6;
+// 7: the account list (GET /users) says what each account belongs to:
+//    `platformRoles` and `workspaceMemberships`.
+export const API_LEVEL = 7;
 export const MINIMUM_DESKTOP_VERSION = '0.0.0';
 
 // This package's version, read once from its package.json: three levels up

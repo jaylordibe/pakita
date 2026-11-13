@@ -29,7 +29,10 @@ describe('checkCompatibility', () => {
   it('accepts a server at the required level and an allowed desktop', () => {
     expect(checkCompatibility(serverInfo, '1.0.0').status).toBe('compatible');
     expect(
-      checkCompatibility({ ...serverInfo, apiLevel: 6 }, '1.4.0').status,
+      checkCompatibility(
+        { ...serverInfo, apiLevel: REQUIRED_API_LEVEL + 1 },
+        '1.4.0',
+      ).status,
     ).toBe('compatible');
   });
 

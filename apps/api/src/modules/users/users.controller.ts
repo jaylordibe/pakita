@@ -38,6 +38,7 @@ import { UpdateAuthUserPasswordDto } from './dto/update-auth-user-password.dto';
 import { UpdateAuthUsernameDto } from './dto/update-auth-username.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UserListItemResponseDto } from './dto/user-list-item-response.dto';
 import type { AppAbility } from '../../common/authorization/app-ability';
 import { UserListQueryDto } from './dto/user-list-query.dto';
 import { UserPermissionsResponseDto } from './dto/user-permissions-response.dto';
@@ -247,13 +248,13 @@ export class UsersController {
 
   @Get()
   @RequirePermission('read', 'User', { isAdministrative: true })
-  @ApiPaginatedResponse(UserResponseDto)
+  @ApiPaginatedResponse(UserListItemResponseDto)
   async findPaginated(
     @Query() query: UserListQueryDto,
-  ): Promise<PaginatedResponseDto<UserResponseDto>> {
+  ): Promise<PaginatedResponseDto<UserListItemResponseDto>> {
     const { data, meta } = await this.usersService.findPaginated(query);
     return {
-      data: await this.usersService.toResponses(data),
+      data: await this.usersService.toListResponses(data),
       meta,
     };
   }

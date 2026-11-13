@@ -29,6 +29,7 @@ import {
   IpcEvent,
   type IssuedInvitation,
   type IssuedPassword,
+  type ListedAccount,
   type ManagedAccount,
   type NewAccountInput,
   type NewChurchInput,
@@ -65,6 +66,7 @@ import {
   bibleContentSchema,
   bibleTranslationListSchema,
   bibleTranslationSchema,
+  serverBibleTranslationListSchema,
   invitationPageSchema,
   type invitationSchema,
   issuedInvitationSchema,
@@ -374,13 +376,22 @@ export class AppController {
 
   // ── Accounts (the platform administrator) ─────────────────────────────
 
-  async listAccounts(): Promise<ManagedAccount[]> {
+  async listAccounts(): Promise<ListedAccount[]> {
     await this.sessionReady;
     const users = await this.fetchAllPages(
       '/api/users?isDeleted=false&sortBy=firstName&sortOrder=asc',
       userPageSchema,
     );
-    return users.map(toManagedAccount);
+    return users.map((user) => ({
+      ...toManagedAccount(user),
+      platformRoles: user.platformRoles,
+      churches: user.workspaceMemberships.map((membership) => ({
+        id: membership.workspaceId,
+        name: membership.workspaceName,
+        roleName: membership.roleName,
+        isSuspended: membership.status === 'suspended',
+      })),
+    }));
   }
 
   /**
@@ -780,25 +791,46 @@ export class AppController {
     };
   }
 
-  /** Imports the chosen folder as a new translation, publishes it, then syncs. */
   /** The translations published on the server, for its administrator. */
   async listServerBibleTranslations(): Promise<ServerBibleTranslation[]> {
     await this.sessionReady;
     const translations = await this.requireSession().request({
       method: 'GET',
       path: '/api/bible-translations',
-      schema: bibleTranslationListSchema,
+      schema: serverBibleTranslationListSchema,
     });
-    return translations
-      .filter((translation) => translation.isPublished)
-      .map(({ id, code, name, languageCode }) => ({
+    return translations.flatMap(
+      ({
         id,
         code,
         name,
         languageCode,
-      }));
+        licence,
+        attribution,
+        sourceUrl,
+        verseCount,
+        isPublished,
+        publishedAt,
+      }) =>
+        isPublished && publishedAt
+          ? [
+              {
+                id,
+                code,
+                name,
+                languageCode,
+                licence,
+                attribution,
+                sourceUrl,
+                verseCount,
+                publishedAt,
+              },
+            ]
+          : [],
+    );
   }
 
+  /** Imports the chosen folder as a new translation, publishes it, then syncs. */
   async importBible(input: BibleTranslationInput): Promise<void> {
     await this.sessionReady;
     const session = this.requireSession();

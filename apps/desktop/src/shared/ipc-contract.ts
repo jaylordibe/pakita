@@ -151,6 +151,25 @@ export interface ManagedAccount {
   readonly isPasswordChangeRequired: boolean;
 }
 
+/** A church an account belongs to, as the server's administrator sees it. */
+export interface AccountChurch {
+  readonly id: string;
+  readonly name: string;
+  /** The role's name there, e.g. `workspace_owner`. */
+  readonly roleName: string;
+  readonly isSuspended: boolean;
+}
+
+/**
+ * An account in the server's People list, with what it belongs to: platform
+ * roles (the server's staff) or churches (everyone else), never both.
+ */
+export interface ListedAccount extends ManagedAccount {
+  readonly platformRoles: readonly string[];
+  /** In church name order; empty for an account in no church yet. */
+  readonly churches: readonly AccountChurch[];
+}
+
 export interface NewAccountInput {
   readonly email: string;
   readonly username: string | null;
@@ -176,6 +195,12 @@ export interface ServerBibleTranslation {
   readonly code: string;
   readonly name: string;
   readonly languageCode: string;
+  readonly licence: string;
+  readonly attribution: string;
+  readonly sourceUrl: string | null;
+  readonly verseCount: number;
+  /** ISO 8601. */
+  readonly publishedAt: string;
 }
 
 /**
@@ -447,7 +472,7 @@ export interface PakitaApi {
   };
   /** The church server's accounts (the platform administrator only). */
   readonly accounts: {
-    list(): Promise<ManagedAccount[]>;
+    list(): Promise<ListedAccount[]>;
     /** Creates the account with a generated one-time password. */
     create(input: NewAccountInput): Promise<IssuedPassword>;
     /** Gives the account a new one-time password and ends its sessions. */

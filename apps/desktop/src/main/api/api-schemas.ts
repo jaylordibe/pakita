@@ -100,7 +100,44 @@ export function pageSchemaOf<Row>(rowSchema: z.ZodType<Row>) {
   });
 }
 
-export const userPageSchema = pageSchemaOf(userSchema);
+/** A row of the account list (`GET /users`): the account and what it belongs to. */
+const listedUserSchema: z.ZodType<
+  Pick<
+    Schemas['UserListItemResponseDto'],
+    | 'id'
+    | 'email'
+    | 'username'
+    | 'firstName'
+    | 'lastName'
+    | 'isActive'
+    | 'isPasswordChangeRequired'
+    | 'platformRoles'
+    | 'workspaceMemberships'
+  >
+> = z.object({
+  id: z.string(),
+  email: z.string(),
+  username: z.string().nullable(),
+  firstName: z.string(),
+  lastName: z.string(),
+  isActive: z.boolean(),
+  isPasswordChangeRequired: z.boolean(),
+  platformRoles: z.array(z.string().max(100)).max(50),
+  workspaceMemberships: z
+    .array(
+      z.object({
+        workspaceId: z.string(),
+        workspaceName: z
+          .string()
+          .max(apiConstraints.CreateWorkspaceDto.name.maxLength),
+        roleName: z.string().max(100),
+        status: z.enum(['active', 'suspended']),
+      }),
+    )
+    .max(1000),
+});
+
+export const userPageSchema = pageSchemaOf(listedUserSchema);
 
 export const roleSchema: z.ZodType<
   Pick<Schemas['RoleResponseDto'], 'id' | 'name' | 'rank' | 'description'>
@@ -355,6 +392,43 @@ export const bibleTranslationSchema: z.ZodType<
 export type BibleTranslationSummary = z.infer<typeof bibleTranslationSchema>;
 
 export const bibleTranslationListSchema = z.array(bibleTranslationSchema);
+
+/** A translation as its server's administrator reviews it: every detail. */
+const serverBibleTranslationSchema: z.ZodType<
+  Pick<
+    Schemas['BibleTranslationResponseDto'],
+    | 'id'
+    | 'code'
+    | 'name'
+    | 'languageCode'
+    | 'licence'
+    | 'attribution'
+    | 'sourceUrl'
+    | 'isPublished'
+    | 'publishedAt'
+    | 'verseCount'
+  >
+> = z.object({
+  id: z.uuid(),
+  code: z.string().max(12),
+  name: z.string().max(120),
+  languageCode: z.string().max(40),
+  licence: z
+    .string()
+    .max(apiConstraints.CreateBibleTranslationDto.licence.maxLength),
+  attribution: z.string().max(200),
+  sourceUrl: z
+    .string()
+    .max(apiConstraints.CreateBibleTranslationDto.sourceUrl.maxLength)
+    .nullable(),
+  isPublished: z.boolean(),
+  publishedAt: z.iso.datetime().nullable(),
+  verseCount: z.number().int().nonnegative(),
+});
+
+export const serverBibleTranslationListSchema = z.array(
+  serverBibleTranslationSchema,
+);
 
 export const bibleContentSchema: z.ZodType<{
   translation: BibleTranslationSummary;

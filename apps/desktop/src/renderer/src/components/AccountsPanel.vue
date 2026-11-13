@@ -4,8 +4,13 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { apiConstraints } from '../../../shared/api/constraints';
 import type {
   IssuedPassword,
-  ManagedAccount,
+  ListedAccount,
 } from '../../../shared/ipc-contract';
+import {
+  affiliationLabel,
+  churchMembershipLabel,
+  roleLabel,
+} from '../../../shared/role-labels';
 import { messageOf } from '../errors';
 import AppIcon from './AppIcon.vue';
 import IssuedSecret from './IssuedSecret.vue';
@@ -13,11 +18,12 @@ import IssuedSecret from './IssuedSecret.vue';
 // The church server's accounts, for its administrator: Pakita has no public
 // sign-up, so every account is created here, with a one-time password the
 // person replaces at their first sign-in. A forgotten password is replaced
-// the same way.
+// the same way. Each account shows what it belongs to: the server's staff
+// hold platform roles; everyone else belongs to churches, or to none yet.
 
 const limits = apiConstraints.CreateUserDto;
 
-const accounts = ref<ManagedAccount[]>([]);
+const accounts = ref<ListedAccount[]>([]);
 const search = ref('');
 const selectedId = ref<string | null>(null);
 const isCreating = ref(false);
@@ -135,6 +141,16 @@ onMounted(load);
           >
             <span class="item-title">{{ account.displayName }}</span>
             <span class="item-sub">{{ account.email }}</span>
+            <span
+              class="item-sub affiliation"
+              :class="{
+                unaffiliated:
+                  account.platformRoles.length === 0 &&
+                  account.churches.length === 0,
+              }"
+              data-testid="account-affiliation"
+              >{{ affiliationLabel(account) }}</span
+            >
           </button>
         </li>
         <li v-if="visibleAccounts.length === 0" class="list-empty">
@@ -149,8 +165,10 @@ onMounted(load);
           <div class="titles">
             <h2>New account</h2>
             <p class="muted">
-              Pakita makes a one-time password for you to pass on. The person
-              chooses their own when they first sign in.
+              For someone who will own or join a church. The account starts in
+              no church: make it a church's owner in Churches, or have a
+              church's owner invite it. Pakita makes a one-time password for you
+              to pass on; the person chooses their own when they first sign in.
             </p>
           </div>
           <button
@@ -227,6 +245,23 @@ onMounted(load);
             {{ isBusy ? 'Resetting…' : 'Reset password' }}
           </button>
         </div>
+        <section class="belongs" data-testid="account-belongs">
+          <h3>Belongs to</h3>
+          <ul v-if="selected.platformRoles.length > 0">
+            <li v-for="role in selected.platformRoles" :key="role">
+              This server's staff: {{ roleLabel(role) }}. Belongs to no church.
+            </li>
+          </ul>
+          <ul v-else-if="selected.churches.length > 0">
+            <li v-for="church in selected.churches" :key="church.id">
+              {{ churchMembershipLabel(church) }}
+            </li>
+          </ul>
+          <p v-else class="muted">
+            No church yet. Make them a church's owner in Churches, or have a
+            church's owner invite them.
+          </p>
+        </section>
         <p class="muted">
           <template v-if="!selected.isActive"
             >This account is disabled.
@@ -276,5 +311,33 @@ onMounted(load);
 
 .fields input {
   width: 100%;
+}
+
+.affiliation {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.affiliation.unaffiliated {
+  color: var(--text-faint);
+}
+
+.belongs {
+  margin-bottom: 1.25rem;
+}
+
+.belongs h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.belongs ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 </style>

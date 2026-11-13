@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue';
 
 import { apiConstraints } from '../../../shared/api/constraints';
+import { roleLabel } from '../../../shared/role-labels';
 import type {
   InvitableRole,
   InvitationSummary,
@@ -38,9 +39,6 @@ const roleId = ref<string | null>(null);
 const isBusy = ref(false);
 const errorMessage = ref<string | null>(null);
 const issued = ref<IssuedInvitation | null>(null);
-
-const roleLabel = (name: string) =>
-  name.replace(/^workspace_/, '').replace(/_/g, ' ');
 
 async function load(): Promise<void> {
   try {

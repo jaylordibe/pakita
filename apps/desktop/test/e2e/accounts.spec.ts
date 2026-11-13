@@ -87,7 +87,22 @@ test('the administrator creates an account and is shown its one-time password', 
     .textContent())!.trim();
   expect(temporaryPassword).toMatch(/^[a-z2-9]{4}(-[a-z2-9]{4}){3}$/);
   await operator.getByTestId('issued-done').click();
-  await expect(operator.getByTestId(`account-${NEW_EMAIL}`)).toBeVisible();
+  // Each account says what it belongs to: the new one, nothing yet.
+  await expect(
+    operator
+      .getByTestId(`account-${NEW_EMAIL}`)
+      .getByTestId('account-affiliation'),
+  ).toHaveText('No church');
+  await expect(
+    operator
+      .getByTestId(`account-${api.administrator.identifier}`)
+      .getByTestId('account-affiliation'),
+  ).toHaveText('platform admin');
+  await expect(
+    operator
+      .getByTestId(`account-${api.owner.identifier}`)
+      .getByTestId('account-affiliation'),
+  ).toHaveText(`${api.workspace.name} · owner`);
   await signOut();
 });
 
@@ -217,6 +232,18 @@ test('the administrator starts a church, naming its owner, and later replaces th
       (member) => member.user.email === api.administrator.identifier,
     ),
   ).toBe(false);
+
+  // People shows every church the new owner belongs to.
+  await operator.getByTestId('tab-people').click();
+  await operator.getByTestId(`account-${NEW_EMAIL}`).click();
+  const belongs = operator.getByTestId('account-belongs');
+  await expect(belongs).toContainText('Grace Church East · owner');
+  await expect(belongs).toContainText(`${api.workspace.name} · staff`);
+  await expect(
+    operator
+      .getByTestId(`account-${NEW_EMAIL}`)
+      .getByTestId('account-affiliation'),
+  ).toContainText('+1 more');
   await signOut();
 });
 
