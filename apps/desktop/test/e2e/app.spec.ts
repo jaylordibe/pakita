@@ -76,6 +76,7 @@ test('gives the renderer no Node.js or Electron access', async () => {
     pakitaKeys: [
       'account',
       'app',
+      'bible',
       'database',
       'displays',
       'library',

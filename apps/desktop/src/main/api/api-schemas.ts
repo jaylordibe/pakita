@@ -121,3 +121,57 @@ export const errorEnvelopeSchema = z.object({
   errorCode: z.string(),
   message: z.union([z.string(), z.array(z.string())]).optional(),
 });
+
+export const bibleTranslationSchema: z.ZodType<
+  Pick<
+    Schemas['BibleTranslationResponseDto'],
+    | 'id'
+    | 'code'
+    | 'name'
+    | 'languageCode'
+    | 'attribution'
+    | 'isPublished'
+    | 'contentHash'
+    | 'verseCount'
+  >
+> = z.object({
+  id: z.uuid(),
+  code: z.string().max(12),
+  name: z.string().max(120),
+  languageCode: z.string().max(40),
+  attribution: z.string().max(200),
+  isPublished: z.boolean(),
+  contentHash: z.string().nullable(),
+  verseCount: z.number().int().nonnegative(),
+});
+export type BibleTranslationSummary = z.infer<typeof bibleTranslationSchema>;
+
+export const bibleTranslationListSchema = z.array(bibleTranslationSchema);
+
+export const bibleContentSchema: z.ZodType<{
+  translation: BibleTranslationSummary;
+  books: Schemas['BibleBookResponseDto'][];
+  verses: Schemas['BibleVerseResponseDto'][];
+}> = z.object({
+  translation: bibleTranslationSchema,
+  books: z
+    .array(
+      z.object({
+        code: z.string().max(3),
+        name: z.string().max(60),
+        position: z.number().int().nonnegative(),
+      }),
+    )
+    .max(100),
+  verses: z
+    .array(
+      z.object({
+        bookCode: z.string().max(3),
+        chapter: z.number().int().positive(),
+        verse: z.number().int().positive(),
+        text: z.string().max(2000),
+      }),
+    )
+    .max(50_000),
+});
+export type BibleContent = z.infer<typeof bibleContentSchema>;

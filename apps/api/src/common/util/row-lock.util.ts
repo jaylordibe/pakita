@@ -186,6 +186,20 @@ export async function lockRefreshTokenFamily(
 }
 
 /**
+ * Serializes every change to one Bible translation's content and publication,
+ * so a chapter write can never land after publication froze the content hash.
+ *
+ * Independent of the order above: a translation is installation-wide, and
+ * nothing holding its lock goes on to request a user or workspace row.
+ */
+export async function lockBibleTranslationRow(
+  transaction: Prisma.TransactionClient,
+  bibleTranslationId: string,
+): Promise<void> {
+  await transaction.$queryRaw`SELECT id FROM bible_translations WHERE id = ${bibleTranslationId}::uuid FOR UPDATE`;
+}
+
+/**
  * Ascending, duplicates collapsed.
  *
  * De-duplicating matters as much as sorting: locking the same id twice is

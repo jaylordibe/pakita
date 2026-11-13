@@ -18,7 +18,7 @@ root).
 | Unit tests | `pnpm test` | Pure code only (vitest) |
 | App tests | `pnpm test:e2e` | Builds, then drives the real app with Playwright against a real API (see below) |
 | Turnstile sign-in test | `PAKITA_E2E_TURNSTILE=1 pnpm exec playwright test turnstile` | Opt-in: needs the internet (Cloudflare's test keys) |
-| API types | `pnpm generate:api` | Regenerates `src/shared/api/openapi.ts` from `apps/api/openapi.json`; CI fails when stale |
+| API types | `pnpm generate:api` | Regenerates `src/shared/api/openapi.ts` and `enums.ts` from `apps/api/openapi.json`; CI fails when stale |
 | Package (unpacked) | `pnpm package:dir` | Proves packaging; publishes nothing, never signs |
 | Packaged smoke test | `pnpm smoke:package` | Launches the package from `package:dir` and waits for its database |
 
@@ -34,12 +34,15 @@ stack:up` (or its `pretest:e2e`) and `pnpm --filter @pakita/api build` first
 ```
 src/
   main/        Electron main process: windows, security, IPC, database client
+    bible/     USFM parsing and the translation import
     database/  better-sqlite3 in a worker thread, migrations
+    sync/      song and Bible synchronisation
   preload/     the ONLY bridge to the renderer (window.pakita)
   renderer/    Vue app; a browser page with no Node or Electron access
   shared/      the IPC contract, slides, and the generated API types —
                imported by main, preload and renderer alike
 test/e2e/      Playwright tests against the built app
+test/fixtures/ shared test data (a tiny USFM translation)
 ```
 
 ## Security rules
@@ -61,7 +64,7 @@ test/e2e/      Playwright tests against the built app
   renderer folder (`resolveRendererFile`). Navigation, new windows,
   `<webview>` and browser permissions are refused app-wide (`security.ts`).
 - **No `v-html`** (ESLint error). Lyrics and Bible text are untrusted input
-  and are rendered as text only.
+  and are rendered as text only (the projector uses `textContent`).
 - **Credentials stay in the main process.** Tokens are never sent to a
   renderer. The refresh token is stored only through the system keychain
   (`safeStorage`); where none exists (Linux `basic_text`) it is not stored.
@@ -81,6 +84,8 @@ test/e2e/      Playwright tests against the built app
   process validates every server response with the zod schemas in
   `src/main/api/api-schemas.ts`, each typed against those generated types,
   so an API change this app does not follow fails `pnpm typecheck`.
+- **A list of allowed values the API publishes is generated, never copied**
+  (`src/shared/api/enums.ts`, e.g. the USFM book codes an import may send).
 - **Compatibility:** `REQUIRED_API_LEVEL` (`src/main/compatibility.ts`)
   against the server's `apiLevel`, and this app's version against the
   server's `minimumDesktopVersion`; the operator is told which side to update.
@@ -96,6 +101,17 @@ test/e2e/      Playwright tests against the built app
   the keychain** (`AppController.initialize`): the database opens from files;
   the session (whose refresh token lives in the keychain) follows in the
   background.
+- **A Bible translation is stored whole or not at all.** Bible sync
+  (`src/main/sync/bible-sync.ts`) downloads a published translation only when
+  the laptop lacks its content hash, verifies the hash before writing, and
+  replaces it in one transaction; a translation the server stops listing is
+  removed. Presenting a passage reads only the local copy.
+- **A Bible import is parsed on the administrator's laptop**
+  (`src/main/bible/`): USFM files from a chosen folder, sent chapter by
+  chapter to a draft that is published at the end. A failure before
+  publishing deletes the draft (or the next import of that code does); the
+  server never parses an uploaded file. Bible downloads wait while a
+  presentation is live.
 - **The projector never falls back onto the operator's screen.** A chosen
   display that disappears hides the output until it returns
   (`placeProjector`).

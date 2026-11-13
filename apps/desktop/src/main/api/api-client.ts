@@ -3,6 +3,8 @@ import type { z } from 'zod';
 import { errorEnvelopeSchema } from './api-schemas';
 
 const REQUEST_TIMEOUT_MILLISECONDS = 15_000;
+/** Above any ordinary answer (a page of 50 long songs); larger is refused. */
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 export type FetchFunction = (
   input: string,
@@ -30,7 +32,7 @@ export class ServerUnreachableError extends Error {
 }
 
 export interface ApiRequest<Result> {
-  readonly method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /** A path under the server's origin, e.g. `/api/public/server-info`. */
   readonly path: string;
   /** Validates the response body; omitted for a body-less response. */
@@ -38,6 +40,10 @@ export interface ApiRequest<Result> {
   readonly body?: unknown;
   readonly accessToken?: string;
   readonly headers?: Readonly<Record<string, string>>;
+  /** Overrides the default timeout, for a large download. */
+  readonly timeoutMilliseconds?: number;
+  /** Overrides the default response size limit, for a large download. */
+  readonly maxResponseBytes?: number;
 }
 
 /**
@@ -70,7 +76,9 @@ export class ApiClient {
         headers,
         body:
           request.body === undefined ? undefined : JSON.stringify(request.body),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MILLISECONDS),
+        signal: AbortSignal.timeout(
+          request.timeoutMilliseconds ?? REQUEST_TIMEOUT_MILLISECONDS,
+        ),
         // Never follow a redirect off the server the operator chose.
         redirect: 'error',
       });
@@ -84,9 +92,23 @@ export class ApiClient {
     if (!request.schema) {
       return undefined as Result;
     }
+    const maxBytes = request.maxResponseBytes ?? MAX_RESPONSE_BYTES;
+    const declaredLength = Number(response.headers.get('content-length'));
+    if (declaredLength > maxBytes) {
+      await response.body?.cancel();
+      throw new ApiError(
+        response.status,
+        null,
+        'The server sent a response too large for Pakita to read.',
+      );
+    }
     let body: unknown;
     try {
-      body = await response.json();
+      const text = await response.text();
+      if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+        throw new Error('Response too large');
+      }
+      body = JSON.parse(text);
     } catch {
       throw new ApiError(
         response.status,

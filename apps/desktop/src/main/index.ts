@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 import { z } from 'zod';
 
+import { bibleBookCodeValues } from '../shared/api/enums';
 import { IpcChannel, type IpcChannelName } from '../shared/ipc-contract';
 import { AppController } from './app-controller';
 import { registerIpcHandler } from './ipc-registry';
@@ -83,6 +84,27 @@ const songInputSchema = z
       .min(1)
       .max(20)
       .optional(),
+  })
+  .strict();
+
+const bookCode = z.enum(bibleBookCodeValues);
+const chapterNumber = z.number().int().min(1).max(200);
+const versePosition = z
+  .object({ chapter: chapterNumber, verse: z.number().int().min(1).max(200) })
+  .strict();
+
+// The server validates these fully; this bounds what reaches it.
+const bibleTranslationInputSchema = z
+  .object({
+    code: z.string().regex(/^[A-Za-z0-9]{2,12}$/),
+    name: z.string().trim().min(1).max(120),
+    languageCode: z.string().regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/),
+    licence: z.string().trim().min(1).max(2000),
+    attribution: z.string().trim().min(1).max(200),
+    sourceUrl: z
+      .url({ protocol: /^https?$/ })
+      .max(500)
+      .nullable(),
   })
   .strict();
 
@@ -177,6 +199,44 @@ async function start(): Promise<void> {
   handle(IpcChannel.displaysList, noPayload, () => controller.listDisplays());
   handle(IpcChannel.displaysChoose, z.number().int().nullable(), (displayId) =>
     controller.chooseDisplay(displayId),
+  );
+  handle(IpcChannel.bibleListTranslations, noPayload, () =>
+    controller.listBibleTranslations(),
+  );
+  handle(IpcChannel.bibleListBooks, uuid, (translationId) =>
+    controller.listBibleBooks(translationId),
+  );
+  handle(
+    IpcChannel.bibleGetChapter,
+    z
+      .object({ translationId: uuid, bookCode, chapter: chapterNumber })
+      .strict(),
+    ({ translationId, bookCode: code, chapter }) =>
+      controller.getBibleChapter(translationId, code, chapter),
+  );
+  handle(
+    IpcChannel.bibleSearch,
+    z.object({ translationId: uuid, search: z.string().max(200) }).strict(),
+    ({ translationId, search }) =>
+      controller.searchBible(translationId, search),
+  );
+  handle(IpcChannel.bibleChooseImportFolder, noPayload, () =>
+    controller.chooseBibleImportFolder(),
+  );
+  handle(IpcChannel.bibleImport, bibleTranslationInputSchema, (input) =>
+    controller.importBible(input),
+  );
+  handle(
+    IpcChannel.liveStartPassage,
+    z
+      .object({
+        translationId: uuid,
+        bookCode,
+        start: versePosition,
+        end: versePosition,
+      })
+      .strict(),
+    (passage) => controller.startPassage(passage),
   );
   handle(
     IpcChannel.liveStart,

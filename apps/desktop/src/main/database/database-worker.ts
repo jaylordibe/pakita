@@ -6,6 +6,7 @@
 import Database from 'better-sqlite3';
 import { parentPort, workerData } from 'node:worker_threads';
 
+import { BibleStore } from './bible-store';
 import { LATEST_SCHEMA_VERSION, migrateDatabase } from './migrations';
 import { SongStore } from './song-store';
 import {
@@ -27,6 +28,7 @@ database.pragma('journal_mode = WAL');
 database.pragma('foreign_keys = ON');
 migrateDatabase(database);
 const songs = new SongStore(database);
+const bible = new BibleStore(database);
 
 function handle(request: DatabaseWorkerRequest): unknown {
   switch (request.type) {
@@ -65,6 +67,25 @@ function handle(request: DatabaseWorkerRequest): unknown {
       );
     case 'getSong':
       return songs.getSong(request.workspaceId, request.songId);
+    case 'listBibleTranslations':
+      return bible.listTranslations();
+    case 'replaceBibleTranslation':
+      bible.replaceTranslation(request.content);
+      return undefined;
+    case 'removeBibleTranslation':
+      bible.removeTranslation(request.translationId);
+      return undefined;
+    case 'listBibleBooks':
+      return bible.listBooks(request.translationId);
+    case 'getBiblePassage':
+      return bible.getPassage(
+        request.translationId,
+        request.bookCode,
+        request.start,
+        request.end,
+      );
+    case 'searchBible':
+      return bible.search(request.translationId, request.search);
   }
 }
 

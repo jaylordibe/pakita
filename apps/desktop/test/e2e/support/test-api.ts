@@ -118,7 +118,11 @@ const TURNSTILE_TEST_KEYS = {
 };
 
 export async function startTestApi(
-  options: { isBotCheckOn?: boolean } = {},
+  options: {
+    isBotCheckOn?: boolean;
+    /** The owner is also a platform administrator (may import Bibles). */
+    isOwnerPlatformAdmin?: boolean;
+  } = {},
 ): Promise<TestApi> {
   const port = await freePort();
   const databaseName = `pakita_desktop_e2e_${process.pid}_${options.isBotCheckOn ? 'turnstile' : 'plain'}`;
@@ -205,6 +209,15 @@ export async function startTestApi(
       'UPDATE users SET email_verified_at = now() WHERE email = $1',
       [email],
     );
+    // Before the first sign-in, so no permission cache holds the old grants.
+    if (options.isOwnerPlatformAdmin) {
+      await database.query(
+        `INSERT INTO user_roles (id, user_id, role_id)
+         SELECT gen_random_uuid(), users.id, roles.id FROM users, roles
+         WHERE users.email = $1 AND roles.name = 'platform_admin'`,
+        [email],
+      );
+    }
   } finally {
     await database.end();
   }

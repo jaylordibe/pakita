@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { BibleTranslation } from '@prisma/client';
+import type { BibleTranslation, Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import type { AppAbility } from '../../common/authorization/app-ability';
 import {
@@ -9,6 +9,7 @@ import {
 } from '../../common/constants/bible-books';
 import { Errors } from '../../common/errors/errors';
 import { bibleContentHash } from '../../common/util/bible-content-hash.util';
+import { lockBibleTranslationRow } from '../../common/util/row-lock.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BibleContentResponseDto } from './dto/bible-translation-response.dto';
 import { BibleTranslationResponseDto } from './dto/bible-translation-response.dto';
@@ -18,6 +19,9 @@ import { PutBibleChapterDto } from './dto/put-bible-chapter.dto';
 /** Comfortably above any Bible with its deuterocanon (~37,000 verses). */
 export const MAX_VERSES_PER_TRANSLATION = 50_000;
 const MAX_CHAPTER = 200;
+// Reading and hashing a whole Bible takes about a second; Prisma's 5-second
+// default would fail it on a slow server.
+const PUBLISH_TRANSACTION_OPTIONS = { timeout: 60_000 } as const;
 
 /**
  * The installation's Bible translations. A translation is built as a draft,
@@ -78,9 +82,10 @@ export class BibleTranslationsService {
         { field: 'verses', constraints: ['each verse number appears once'] },
       ]);
     }
-    const translation = await this.findDraft(translationId);
-
     await this.prisma.$transaction(async (transaction) => {
+      // Under the lock: publication cannot slip in between this check and
+      // the write, and concurrent chapters count each other's verses.
+      const translation = await this.findDraft(transaction, translationId);
       const otherVerses = await transaction.bibleVerse.count({
         where: {
           bibleTranslationId: translation.id,
@@ -136,23 +141,27 @@ export class BibleTranslationsService {
     translationId: string,
     actorId: string,
   ): Promise<BibleTranslation> {
-    const translation = await this.findDraft(translationId);
-    const { verses } = await this.loadContent(translation.id);
-    if (verses.length === 0) {
-      throw Errors.resourceConflict(
-        'A translation with no verses cannot be published',
-      );
-    }
-    const published = await this.prisma.bibleTranslation.update({
-      where: { id: translation.id },
-      data: {
-        isPublished: true,
-        publishedAt: new Date(),
-        contentHash: bibleContentHash(verses),
-        verseCount: verses.length,
-        updatedBy: actorId,
-      },
-    });
+    // One transaction under the translation's lock: the hash is computed
+    // over exactly the content that is frozen with it.
+    const published = await this.prisma.$transaction(async (transaction) => {
+      const translation = await this.findDraft(transaction, translationId);
+      const { verses } = await this.loadContent(transaction, translation.id);
+      if (verses.length === 0) {
+        throw Errors.resourceConflict(
+          'A translation with no verses cannot be published',
+        );
+      }
+      return transaction.bibleTranslation.update({
+        where: { id: translation.id },
+        data: {
+          isPublished: true,
+          publishedAt: new Date(),
+          contentHash: bibleContentHash(verses),
+          verseCount: verses.length,
+          updatedBy: actorId,
+        },
+      });
+    }, PUBLISH_TRANSACTION_OPTIONS);
     await this.auditService.record({
       action: 'bible_translation.published',
       actorId,
@@ -171,7 +180,10 @@ export class BibleTranslationsService {
       where: { id: translationId, isPublished: true },
     });
     if (!translation) throw Errors.resourceNotFound('BibleTranslation');
-    const { books, verses } = await this.loadContent(translation.id);
+    const { books, verses } = await this.loadContent(
+      this.prisma,
+      translation.id,
+    );
     return {
       translation: new BibleTranslationResponseDto(translation),
       books,
@@ -194,8 +206,13 @@ export class BibleTranslationsService {
     });
   }
 
-  private async findDraft(translationId: string): Promise<BibleTranslation> {
-    const translation = await this.prisma.bibleTranslation.findUnique({
+  /** The draft, locked for the rest of the transaction. */
+  private async findDraft(
+    transaction: Prisma.TransactionClient,
+    translationId: string,
+  ): Promise<BibleTranslation> {
+    await lockBibleTranslationRow(transaction, translationId);
+    const translation = await transaction.bibleTranslation.findUnique({
       where: { id: translationId },
     });
     if (!translation) throw Errors.resourceNotFound('BibleTranslation');
@@ -208,8 +225,11 @@ export class BibleTranslationsService {
   }
 
   // The canonical order: book position, chapter, verse.
-  private async loadContent(translationId: string) {
-    const books = await this.prisma.bibleBook.findMany({
+  private async loadContent(
+    client: Prisma.TransactionClient,
+    translationId: string,
+  ) {
+    const books = await client.bibleBook.findMany({
       where: { bibleTranslationId: translationId },
       select: { code: true, name: true, position: true },
       orderBy: { position: 'asc' },
@@ -218,7 +238,7 @@ export class BibleTranslationsService {
       books.map((book) => [book.code, book.position]),
     );
     const verses = (
-      await this.prisma.bibleVerse.findMany({
+      await client.bibleVerse.findMany({
         where: { bibleTranslationId: translationId },
         select: { bookCode: true, chapter: true, verse: true, text: true },
       })

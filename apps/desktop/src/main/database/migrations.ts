@@ -40,6 +40,41 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (workspace_id, song_id)
   ) STRICT;
   `,
+  // 3 — Bible translations, downloaded whole and verified (see BibleStore),
+  // with a full-text index for searching offline.
+  `
+  CREATE TABLE bible_translations (
+    id TEXT PRIMARY KEY NOT NULL,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    language_code TEXT NOT NULL,
+    attribution TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    verse_count INTEGER NOT NULL CHECK (verse_count >= 0)
+  ) STRICT;
+  CREATE TABLE bible_books (
+    translation_id TEXT NOT NULL REFERENCES bible_translations (id) ON DELETE CASCADE,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    chapter_count INTEGER NOT NULL CHECK (chapter_count > 0),
+    PRIMARY KEY (translation_id, code)
+  ) STRICT;
+  CREATE TABLE bible_verses (
+    translation_id TEXT NOT NULL REFERENCES bible_translations (id) ON DELETE CASCADE,
+    book_code TEXT NOT NULL,
+    chapter INTEGER NOT NULL CHECK (chapter > 0),
+    verse INTEGER NOT NULL CHECK (verse > 0),
+    text TEXT NOT NULL,
+    UNIQUE (translation_id, book_code, chapter, verse)
+  ) STRICT;
+  CREATE VIRTUAL TABLE bible_verses_search USING fts5(
+    text,
+    content = 'bible_verses',
+    content_rowid = 'rowid',
+    tokenize = 'unicode61 remove_diacritics 2'
+  );
+  `,
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;

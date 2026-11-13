@@ -8,6 +8,7 @@ import type {
   SyncStatus,
 } from '../../../shared/ipc-contract';
 import { buildSongSlides } from '../../../shared/slides';
+import BiblePanel from '../components/BiblePanel.vue';
 import SongEditor from '../components/SongEditor.vue';
 import { messageOf } from '../errors';
 
@@ -19,6 +20,7 @@ const emit = defineEmits<{
   stateChanged: [];
 }>();
 
+const tab = ref<'songs' | 'bible'>('songs');
 const search = ref('');
 const songs = ref<SongSummary[]>([]);
 const selectedSong = ref<Song | null>(null);
@@ -131,6 +133,22 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
   <div class="layout">
     <header class="row bar">
       <strong>Pakita</strong>
+      <nav class="tabs" aria-label="Content">
+        <button
+          :class="{ active: tab === 'songs' }"
+          data-testid="tab-songs"
+          @click="tab = 'songs'"
+        >
+          Songs
+        </button>
+        <button
+          :class="{ active: tab === 'bible' }"
+          data-testid="tab-bible"
+          @click="tab = 'bible'"
+        >
+          Bible
+        </button>
+      </nav>
       <span class="muted" data-testid="sync-status">{{ syncLabel }}</span>
       <span class="grow"></span>
       <button
@@ -157,7 +175,8 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
       <button @click="signOut">Sign out</button>
     </header>
 
-    <aside class="library">
+    <BiblePanel v-if="tab === 'bible'" class="bible-area" />
+    <aside v-if="tab === 'songs'" class="library">
       <input
         v-model="search"
         type="search"
@@ -180,7 +199,7 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
       </ul>
     </aside>
 
-    <main class="content">
+    <main v-if="tab === 'songs'" class="content">
       <SongEditor
         v-if="editing"
         :key="editing === 'new' ? 'new' : selectedSong?.id"
@@ -243,6 +262,23 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 
 .grow {
   flex: 1;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.tabs button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.bible-area {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
 }
 
 .library {

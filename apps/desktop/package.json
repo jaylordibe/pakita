@@ -21,7 +21,7 @@
     "test:e2e": "pnpm build && playwright test",
     "package:dir": "pnpm build && electron-builder --dir",
     "smoke:package": "node scripts/smoke-packaged-app.mjs",
-    "generate:api": "openapi-typescript ../api/openapi.json --output src/shared/api/openapi.ts && prettier --write src/shared/api/openapi.ts"
+    "generate:api": "openapi-typescript ../api/openapi.json --output src/shared/api/openapi.ts && node scripts/generate-api-enums.mjs ../api/openapi.json src/shared/api/enums.ts && prettier --write src/shared/api/openapi.ts src/shared/api/enums.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",

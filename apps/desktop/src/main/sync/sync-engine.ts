@@ -19,6 +19,8 @@ export interface SyncDependencies {
     DatabaseClient,
     'getSyncState' | 'applySyncPage' | 'beginResync' | 'finishResync'
   >;
+  /** Brings the laptop's Bible translations up to date (see bible-sync). */
+  syncBibleTranslations(): Promise<void>;
   now(): Date;
 }
 
@@ -82,14 +84,20 @@ export class SyncEngine {
     this.setStatus({ ...this.status, state: 'syncing', message: null });
     try {
       await this.pullAll(workspaceId);
-      return this.setStatus({
-        state: 'idle',
-        lastSyncedAt: this.dependencies.now().toISOString(),
-        message: null,
-      });
     } catch (error) {
       return this.setStatus({ ...this.status, ...describeFailure(error) });
     }
+    // The songs are current whatever happens next: a Bible translation that
+    // could not be updated is reported, but is not a failed synchronisation.
+    const bibleMessage = await this.dependencies
+      .syncBibleTranslations()
+      .then(() => null)
+      .catch(describeBibleFailure);
+    return this.setStatus({
+      state: 'idle',
+      lastSyncedAt: this.dependencies.now().toISOString(),
+      message: bibleMessage,
+    });
   }
 
   private async pullAll(workspaceId: string): Promise<void> {
@@ -172,4 +180,13 @@ function describeFailure(
     state: 'error',
     message: error instanceof Error ? error.message : String(error),
   };
+}
+
+function describeBibleFailure(error: unknown): string {
+  if (error instanceof ServerUnreachableError) {
+    return 'Bible translations could not be downloaded; the laptop’s copies are unchanged.';
+  }
+  return `Bible translations were not updated: ${
+    error instanceof Error ? error.message : String(error)
+  }`;
 }

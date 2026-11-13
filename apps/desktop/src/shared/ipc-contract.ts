@@ -26,7 +26,14 @@ export const IpcChannel = {
   songsUpdate: 'songs:update',
   displaysList: 'displays:list',
   displaysChoose: 'displays:choose',
+  bibleListTranslations: 'bible:list-translations',
+  bibleListBooks: 'bible:list-books',
+  bibleGetChapter: 'bible:get-chapter',
+  bibleSearch: 'bible:search',
+  bibleChooseImportFolder: 'bible:choose-import-folder',
+  bibleImport: 'bible:import',
   liveStart: 'live:start',
+  liveStartPassage: 'live:start-passage',
   liveNext: 'live:next',
   livePrevious: 'live:previous',
   liveGoTo: 'live:go-to',
@@ -42,6 +49,7 @@ export const IpcEvent = {
   syncStatus: 'sync:status',
   liveState: 'live:state',
   displaysChanged: 'displays:changed',
+  bibleImportProgress: 'bible:import-progress',
 } as const;
 
 export interface DatabaseHealth {
@@ -113,6 +121,71 @@ export interface SongInput {
   }>;
 }
 
+export interface BibleTranslation {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly languageCode: string;
+  readonly attribution: string;
+  readonly verseCount: number;
+}
+
+export interface BibleBook {
+  readonly code: string;
+  readonly name: string;
+  readonly chapterCount: number;
+}
+
+export interface BibleVerse {
+  readonly bookCode: string;
+  readonly chapter: number;
+  readonly verse: number;
+  readonly text: string;
+}
+
+export interface BibleSearchHit extends BibleVerse {
+  readonly bookName: string;
+}
+
+export interface VersePosition {
+  readonly chapter: number;
+  readonly verse: number;
+}
+
+/** A passage within one book, from `start` to `end` inclusive. */
+export interface PassageRequest {
+  readonly translationId: string;
+  readonly bookCode: string;
+  readonly start: VersePosition;
+  readonly end: VersePosition;
+}
+
+/** What an administrator states about a translation they import. */
+export interface BibleTranslationInput {
+  readonly code: string;
+  readonly name: string;
+  readonly languageCode: string;
+  readonly licence: string;
+  readonly attribution: string;
+  readonly sourceUrl: string | null;
+}
+
+/** A folder of USFM files, read and ready to import. */
+export interface BibleImportPreview {
+  readonly folderName: string;
+  readonly bookCount: number;
+  readonly verseCount: number;
+  readonly firstBook: string;
+  readonly lastBook: string;
+  readonly skippedCodes: readonly string[];
+}
+
+export interface BibleImportProgress {
+  readonly done: number;
+  readonly total: number;
+  readonly bookName: string;
+}
+
 export interface DisplayInfo {
   readonly id: number;
   readonly label: string;
@@ -169,6 +242,23 @@ export interface PakitaApi {
     create(input: SongInput): Promise<Song>;
     update(songId: string, input: SongInput): Promise<Song>;
   };
+  readonly bible: {
+    listTranslations(): Promise<BibleTranslation[]>;
+    listBooks(translationId: string): Promise<BibleBook[]>;
+    getChapter(
+      translationId: string,
+      bookCode: string,
+      chapter: number,
+    ): Promise<BibleVerse[]>;
+    search(translationId: string, search: string): Promise<BibleSearchHit[]>;
+    /** Asks for a folder of USFM files; null when the operator cancels. */
+    chooseImportFolder(): Promise<BibleImportPreview | null>;
+    /** Imports and publishes the chosen folder, then synchronises. */
+    import(input: BibleTranslationInput): Promise<void>;
+    onImportProgress(
+      listener: (progress: BibleImportProgress) => void,
+    ): () => void;
+  };
   readonly displays: {
     list(): Promise<DisplayInfo[]>;
     /** `null` returns to automatic placement. */
@@ -177,6 +267,7 @@ export interface PakitaApi {
   };
   readonly live: {
     start(songId: string, arrangementId: string | null): Promise<LiveState>;
+    startPassage(passage: PassageRequest): Promise<LiveState>;
     next(): Promise<LiveState>;
     previous(): Promise<LiveState>;
     goTo(index: number): Promise<LiveState>;

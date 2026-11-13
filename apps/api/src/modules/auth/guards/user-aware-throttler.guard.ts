@@ -12,6 +12,7 @@ import {
 import type {
   ThrottlerLimitDetail,
   ThrottlerModuleOptions,
+  ThrottlerRequest,
   ThrottlerStorage,
 } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -91,6 +92,33 @@ export class UserAwareThrottlerGuard extends ThrottlerGuard {
     // unwraps IPv4-mapped addresses — a raw `request.ip` would hand an IPv6
     // client a fresh bucket for every address in its prefix.
     return userId ? `user:${userId}` : `ip:${await super.getTracker(request)}`;
+  }
+
+  // A route may RAISE its limit with `@Throttle` for a heavy, legitimate
+  // workload — a Bible import uploads about 1,200 chapters in a row. That
+  // allowance belongs to authenticated callers only: a caller keyed on the IP
+  // (anonymous, or about to be refused with 401) keeps the throttler's own
+  // limit, so a raised route is never a cheaper target than any other.
+  // Lowered limits (the authentication routes) are untouched.
+  protected override async handleRequest(
+    requestProps: ThrottlerRequest,
+  ): Promise<boolean> {
+    const configured = requestProps.throttler.limit;
+    const baseLimit =
+      typeof configured === 'function'
+        ? await configured(requestProps.context)
+        : configured;
+    if (baseLimit !== undefined && requestProps.limit > baseLimit) {
+      const { req: request } = this.getRequestResponse(requestProps.context);
+      const tracker = await this.getTracker(
+        request as Request,
+        requestProps.context,
+      );
+      if (!tracker.startsWith('user:')) {
+        return super.handleRequest({ ...requestProps, limit: baseLimit });
+      }
+    }
+    return super.handleRequest(requestProps);
   }
 
   private isPublicRoute(context: ExecutionContext): boolean {

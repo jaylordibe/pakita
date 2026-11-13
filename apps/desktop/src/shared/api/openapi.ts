@@ -1194,6 +1194,86 @@ export interface paths {
     patch: operations['SongsController_update'];
     trace?: never;
   };
+  '/api/bible-translations': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['BibleTranslationsController_findAll'];
+    put?: never;
+    post: operations['BibleTranslationsController_create'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/bible-translations/{translationId}/books/{bookCode}/chapters/{chapter}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['BibleTranslationsController_putChapter'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/bible-translations/{translationId}/publish': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['BibleTranslationsController_publish'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/bible-translations/{translationId}/content': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['BibleTranslationsController_findContent'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/bible-translations/{translationId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations['BibleTranslationsController_remove'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1858,6 +1938,149 @@ export interface components {
       isArchived?: boolean;
       sections?: components['schemas']['SongSectionInputDto'][];
       arrangements?: components['schemas']['SongArrangementInputDto'][];
+    };
+    BibleTranslationResponseDto: {
+      id: string;
+      code: string;
+      name: string;
+      languageCode: string;
+      licence: string;
+      attribution: string;
+      sourceUrl: string | null;
+      isPublished: boolean;
+      /** Format: date-time */
+      publishedAt: string | null;
+      /** @description SHA-256 of the canonical content; null until published. */
+      contentHash: string | null;
+      verseCount: number;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    CreateBibleTranslationDto: {
+      /** @description Short and unique, upper-case letters and digits, e.g. "WEB". */
+      code: string;
+      name: string;
+      /** @description BCP 47 language tag, e.g. "en", "tl", "pt-BR". */
+      languageCode: string;
+      /** @description The terms the text is used under, as its publisher states them. */
+      licence: string;
+      /** @description Shown with every passage presented from this translation. */
+      attribution: string;
+      /** Format: uri */
+      sourceUrl?: string;
+    };
+    /** @enum {string} */
+    BibleBookCode:
+      | 'GEN'
+      | 'EXO'
+      | 'LEV'
+      | 'NUM'
+      | 'DEU'
+      | 'JOS'
+      | 'JDG'
+      | 'RUT'
+      | '1SA'
+      | '2SA'
+      | '1KI'
+      | '2KI'
+      | '1CH'
+      | '2CH'
+      | 'EZR'
+      | 'NEH'
+      | 'EST'
+      | 'JOB'
+      | 'PSA'
+      | 'PRO'
+      | 'ECC'
+      | 'SNG'
+      | 'ISA'
+      | 'JER'
+      | 'LAM'
+      | 'EZK'
+      | 'DAN'
+      | 'HOS'
+      | 'JOL'
+      | 'AMO'
+      | 'OBA'
+      | 'JON'
+      | 'MIC'
+      | 'NAM'
+      | 'HAB'
+      | 'ZEP'
+      | 'HAG'
+      | 'ZEC'
+      | 'MAL'
+      | 'MAT'
+      | 'MRK'
+      | 'LUK'
+      | 'JHN'
+      | 'ACT'
+      | 'ROM'
+      | '1CO'
+      | '2CO'
+      | 'GAL'
+      | 'EPH'
+      | 'PHP'
+      | 'COL'
+      | '1TH'
+      | '2TH'
+      | '1TI'
+      | '2TI'
+      | 'TIT'
+      | 'PHM'
+      | 'HEB'
+      | 'JAS'
+      | '1PE'
+      | '2PE'
+      | '1JN'
+      | '2JN'
+      | '3JN'
+      | 'JUD'
+      | 'REV'
+      | 'TOB'
+      | 'JDT'
+      | 'ESG'
+      | 'WIS'
+      | 'SIR'
+      | 'BAR'
+      | 'LJE'
+      | 'S3Y'
+      | 'SUS'
+      | 'BEL'
+      | '1MA'
+      | '2MA'
+      | '3MA'
+      | '4MA'
+      | '1ES'
+      | '2ES'
+      | 'MAN'
+      | 'PS2';
+    BibleVerseInputDto: {
+      number: number;
+      text: string;
+    };
+    PutBibleChapterDto: {
+      /** @description The book's name in the translation's language, e.g. "Juan". */
+      bookName: string;
+      verses: components['schemas']['BibleVerseInputDto'][];
+    };
+    BibleBookResponseDto: {
+      code: string;
+      name: string;
+      position: number;
+    };
+    BibleVerseResponseDto: {
+      bookCode: string;
+      chapter: number;
+      verse: number;
+      text: string;
+    };
+    BibleContentResponseDto: {
+      translation: components['schemas']['BibleTranslationResponseDto'];
+      books: components['schemas']['BibleBookResponseDto'][];
+      verses: components['schemas']['BibleVerseResponseDto'][];
     };
   };
   responses: never;
@@ -5347,6 +5570,220 @@ export interface operations {
         content?: never;
       };
       /** @description Authenticated, but no permission grants `update` on `Song` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  BibleTranslationsController_findAll: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BibleTranslationResponseDto'][];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `BibleTranslation` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  BibleTranslationsController_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateBibleTranslationDto'];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BibleTranslationResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Requires `create` on `BibleTranslation` beyond your own records */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  BibleTranslationsController_putChapter: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        translationId: string;
+        /** @description A USFM book code; the list is in canonical order. */
+        bookCode: components['schemas']['BibleBookCode'];
+        chapter: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PutBibleChapterDto'];
+      };
+    };
+    responses: {
+      /** @description The chapter was stored */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Requires `create` on `BibleTranslation` beyond your own records */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  BibleTranslationsController_publish: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        translationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BibleTranslationResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Requires `create` on `BibleTranslation` beyond your own records */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  BibleTranslationsController_findContent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        translationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BibleContentResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `BibleTranslation` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  BibleTranslationsController_remove: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        translationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Requires `delete` on `BibleTranslation` beyond your own records */
       403: {
         headers: {
           [name: string]: unknown;

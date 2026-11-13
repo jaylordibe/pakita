@@ -13,7 +13,8 @@ import { resolve } from 'node:path';
  * A desktop compares both against its own (see apps/desktop) and tells the
  * operator exactly which side to update.
  */
-export const API_LEVEL = 1;
+// 2: Bible translations (/api/bible-translations).
+export const API_LEVEL = 2;
 export const MINIMUM_DESKTOP_VERSION = '0.0.0';
 
 // This package's version, read once from its package.json: three levels up

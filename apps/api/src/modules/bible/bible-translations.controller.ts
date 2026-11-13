@@ -16,8 +16,11 @@ import {
   ApiCreatedResponse,
   ApiNoContentResponse,
   ApiOkResponse,
+  ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { BIBLE_BOOK_CODES } from '../../common/constants/bible-books';
 import type { AppAbility } from '../../common/authorization/app-ability';
 import { CurrentAbility } from '../../common/decorators/current-ability.decorator';
 import {
@@ -42,6 +45,9 @@ import { PutBibleChapterDto } from './dto/put-bible-chapter.dto';
 export class BibleTranslationsController {
   constructor(private readonly service: BibleTranslationsService) {}
 
+  // Deliberately not paginated (an exception to the list rule): an
+  // installation holds a handful of translations, and every desktop needs the
+  // whole list to know which to download and which to remove.
   @Get()
   @RequirePermission('read', 'BibleTranslation')
   @ApiOkResponse({ type: BibleTranslationResponseDto, isArray: true })
@@ -66,8 +72,17 @@ export class BibleTranslationsController {
 
   @Put(':translationId/books/:bookCode/chapters/:chapter')
   @RequirePermission('create', 'BibleTranslation', { isAdministrative: true })
+  // An import sends every chapter of a Bible (about 1,200) in a row; the
+  // global limit would stop it partway. Administrators only.
+  @Throttle({ default: { limit: 1_500, ttl: 60_000 } })
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiNoContentResponse({ description: 'The chapter was stored' })
+  @ApiParam({
+    name: 'bookCode',
+    description: 'A USFM book code; the list is in canonical order.',
+    enum: BIBLE_BOOK_CODES,
+    enumName: 'BibleBookCode',
+  })
   async putChapter(
     @Param('translationId', ParseUUIDPipe) translationId: string,
     @Param('bookCode') bookCode: string,
@@ -99,6 +114,9 @@ export class BibleTranslationsController {
 
   @Get(':translationId/content')
   @RequirePermission('read', 'BibleTranslation')
+  // A whole translation is several megabytes to read and send. A desktop
+  // downloads one only when its content hash is new.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOkResponse({ type: BibleContentResponseDto })
   findContent(
     @Param('translationId', ParseUUIDPipe) translationId: string,

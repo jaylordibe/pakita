@@ -26,6 +26,22 @@ body {
   text-shadow: 0 0.04em 0.12em rgba(0, 0, 0, 0.6);
 }
 
-.stage.is-dark .slide {
+.caption {
+  position: absolute;
+  bottom: 4vh;
+  left: 5vw;
+  right: 5vw;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  text-align: center;
+}
+
+.caption:empty {
+  display: none;
+}
+
+.stage.is-dark .slide,
+.stage.is-dark .caption {
   visibility: hidden;
 }

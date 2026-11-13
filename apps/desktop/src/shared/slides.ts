@@ -7,6 +7,8 @@ export interface Slide {
   /** The section it comes from, e.g. "Chorus" — shown to the operator only. */
   readonly sectionLabel: string;
   readonly text: string;
+  /** Shown small beneath the text, e.g. a Bible reference and attribution. */
+  readonly caption?: string;
 }
 
 /**
@@ -49,4 +51,44 @@ export function buildSongSlides(
     }
   }
   return slides;
+}
+
+export interface PassageVerse {
+  readonly chapter: number;
+  readonly verse: number;
+  readonly text: string;
+}
+
+/** "John 3:16", "John 3:16–18" or "John 3:16–4:2". */
+export function formatReference(
+  bookName: string,
+  verses: readonly PassageVerse[],
+): string {
+  const first = verses[0];
+  const last = verses.at(-1);
+  if (!first || !last) return bookName;
+  const start = `${bookName} ${first.chapter}:${first.verse}`;
+  if (first === last) return start;
+  return first.chapter === last.chapter
+    ? `${start}–${last.verse}`
+    : `${start}–${last.chapter}:${last.verse}`;
+}
+
+/**
+ * One slide per verse, numbered, each captioned with its reference and the
+ * translation's attribution (which its licence may require on screen).
+ */
+export function buildPassageSlides(
+  bookName: string,
+  attribution: string,
+  verses: readonly PassageVerse[],
+): Slide[] {
+  return verses.map((verse) => {
+    const reference = formatReference(bookName, [verse]);
+    return {
+      sectionLabel: reference,
+      text: `${verse.verse} ${verse.text}`,
+      caption: `${reference} · ${attribution}`,
+    };
+  });
 }

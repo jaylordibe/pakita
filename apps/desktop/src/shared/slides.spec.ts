@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSongSlides, type Song, splitIntoSlides } from './slides';
+import {
+  buildPassageSlides,
+  buildSongSlides,
+  formatReference,
+  type Song,
+  splitIntoSlides,
+} from './slides';
 
 const song: Song = {
   id: 'song',
@@ -85,5 +91,39 @@ describe('buildSongSlides', () => {
         ],
       }),
     ).toBeNull();
+  });
+});
+
+describe('formatReference', () => {
+  const verse = (chapter: number, number: number) => ({
+    chapter,
+    verse: number,
+    text: 'x',
+  });
+
+  it('names one verse, a range in a chapter, and a range across chapters', () => {
+    expect(formatReference('John', [verse(3, 16)])).toBe('John 3:16');
+    expect(formatReference('John', [verse(3, 16), verse(3, 18)])).toBe(
+      'John 3:16–18',
+    );
+    expect(formatReference('John', [verse(3, 36), verse(4, 2)])).toBe(
+      'John 3:36–4:2',
+    );
+  });
+});
+
+describe('buildPassageSlides', () => {
+  it('makes one numbered, captioned slide per verse', () => {
+    expect(
+      buildPassageSlides('John', 'WEB (public domain)', [
+        { chapter: 3, verse: 16, text: 'For God so loved the world,' },
+      ]),
+    ).toEqual([
+      {
+        sectionLabel: 'John 3:16',
+        text: '16 For God so loved the world,',
+        caption: 'John 3:16 · WEB (public domain)',
+      },
+    ]);
   });
 });

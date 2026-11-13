@@ -1,8 +1,19 @@
 import { Worker } from 'node:worker_threads';
 
 import type { DatabaseHealth } from '../../shared/ipc-contract';
+import type { BibleContent } from '../api/api-schemas';
+import type {
+  BibleSearchResult as BibleSearchHit,
+  StoredBibleBook,
+  StoredBibleTranslation,
+  StoredBibleVerse,
+} from './bible-store';
 import type { SongSummary, SyncState } from './song-store';
 import {
+  BibleBooksResult,
+  BiblePassageResult,
+  BibleSearchResult,
+  BibleTranslationsResult,
   DatabaseHealthResult,
   type DatabaseWorkerRequestInput,
   DatabaseWorkerResponse,
@@ -108,6 +119,52 @@ export class DatabaseClient {
   /** The song as the server sent it (validate before use), or null. */
   async getSong(workspaceId: string, songId: string): Promise<unknown> {
     return this.request({ type: 'getSong', workspaceId, songId });
+  }
+
+  async listBibleTranslations(): Promise<StoredBibleTranslation[]> {
+    return BibleTranslationsResult.parse(
+      await this.request({ type: 'listBibleTranslations' }),
+    );
+  }
+
+  async replaceBibleTranslation(content: BibleContent): Promise<void> {
+    await this.request({ type: 'replaceBibleTranslation', content });
+  }
+
+  async removeBibleTranslation(translationId: string): Promise<void> {
+    await this.request({ type: 'removeBibleTranslation', translationId });
+  }
+
+  async listBibleBooks(translationId: string): Promise<StoredBibleBook[]> {
+    return BibleBooksResult.parse(
+      await this.request({ type: 'listBibleBooks', translationId }),
+    );
+  }
+
+  async getBiblePassage(
+    translationId: string,
+    bookCode: string,
+    start: { chapter: number; verse: number },
+    end: { chapter: number; verse: number },
+  ): Promise<StoredBibleVerse[]> {
+    return BiblePassageResult.parse(
+      await this.request({
+        type: 'getBiblePassage',
+        translationId,
+        bookCode,
+        start,
+        end,
+      }),
+    );
+  }
+
+  async searchBible(
+    translationId: string,
+    search: string,
+  ): Promise<BibleSearchHit[]> {
+    return BibleSearchResult.parse(
+      await this.request({ type: 'searchBible', translationId, search }),
+    );
   }
 
   /**

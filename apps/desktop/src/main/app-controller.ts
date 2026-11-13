@@ -1,15 +1,29 @@
-import { app, type BrowserWindow, net, safeStorage, screen } from 'electron';
+import {
+  app,
+  type BrowserWindow,
+  dialog,
+  net,
+  safeStorage,
+  screen,
+} from 'electron';
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import {
   type AccountSummary,
   type AppState,
+  type BibleBook,
+  type BibleImportPreview,
+  type BibleSearchHit,
+  type BibleTranslation,
+  type BibleTranslationInput,
+  type BibleVerse,
   type DatabaseHealth,
   type DisplayInfo,
   IpcEvent,
   type LiveState,
+  type PassageRequest,
   type ServerConnection,
   type Song,
   type SongInput,
@@ -17,9 +31,16 @@ import {
   type SyncStatus,
   type WorkspaceSummary,
 } from '../shared/ipc-contract';
-import { buildSongSlides } from '../shared/slides';
-import { ApiClient } from './api/api-client';
 import {
+  buildPassageSlides,
+  buildSongSlides,
+  formatReference,
+} from '../shared/slides';
+import { ApiClient, ApiError } from './api/api-client';
+import {
+  bibleContentSchema,
+  bibleTranslationListSchema,
+  bibleTranslationSchema,
   serverInfoSchema,
   songSchema,
   syncChangesSchema,
@@ -29,15 +50,33 @@ import { parseServerAddress } from './api/server-address';
 import { CredentialStore, type StoredAccount } from './auth/credential-store';
 import { Session, SignInRequiredError } from './auth/session';
 import { obtainTurnstileToken } from './auth/turnstile-window';
+import {
+  readUsfmFolder,
+  type TranslationUploader,
+  uploadTranslation,
+  type UsfmFolder,
+} from './bible/bible-import';
 import { checkCompatibility } from './compatibility';
 import { DatabaseClient } from './database/database-client';
 import { LiveSession } from './presentation/live-session';
 import { Projector } from './presentation/projector';
 import { AppSettingsStore } from './storage/app-settings';
+import { syncBibleTranslations } from './sync/bible-sync';
 import { SyncEngine } from './sync/sync-engine';
 
 /** How often a signed-in laptop checks for changes in the background. */
 const BACKGROUND_SYNC_INTERVAL_MILLISECONDS = 2 * 60_000;
+/** A whole translation is a few megabytes; allow a slow church connection. */
+const BIBLE_DOWNLOAD_TIMEOUT_MILLISECONDS = 5 * 60_000;
+/** Ten times a complete Bible with every verse at a typical length. */
+const MAX_BIBLE_DOWNLOAD_BYTES = 64 * 1024 * 1024;
+/** Publishing hashes the whole translation on the server. */
+const PUBLISH_TIMEOUT_MILLISECONDS = 2 * 60_000;
+/** A chapter refused for rate limiting is retried this often, this late. */
+const RATE_LIMIT_RETRIES = 5;
+const RATE_LIMIT_DELAY_MILLISECONDS = 15_000;
+/** Verses in a chapter are at most this many (Psalm 119 has 176). */
+const MAX_CHAPTER_VERSE = 200;
 
 export interface AppControllerOptions {
   readonly userDataDirectory: string;
@@ -64,6 +103,11 @@ export class AppController {
   private readonly live = new LiveSession();
   private readonly projector: Projector;
   private backgroundSyncTimer: NodeJS.Timeout | null = null;
+  /** The USFM folder read by `chooseBibleImportFolder`, awaiting import. */
+  private pendingBibleImport: UsfmFolder | null = null;
+  private isImportingBible = false;
+  /** Bible downloads that failed verification (see bible-sync). */
+  private readonly rejectedBibleContent = new Set<string>();
   /** Settles once the remembered session (and its token) is loaded. */
   private sessionReady: Promise<void> = Promise.resolve();
 
@@ -299,6 +343,106 @@ export class AppController {
     return song;
   }
 
+  // ── Bible (offline) and importing (online) ────────────────────────────
+
+  async listBibleTranslations(): Promise<BibleTranslation[]> {
+    if (!this.database) return [];
+    return (await this.database.listBibleTranslations()).map(
+      ({ id, code, name, languageCode, attribution, verseCount }) => ({
+        id,
+        code,
+        name,
+        languageCode,
+        attribution,
+        verseCount,
+      }),
+    );
+  }
+
+  async listBibleBooks(translationId: string): Promise<BibleBook[]> {
+    if (!this.database) return [];
+    return (await this.database.listBibleBooks(translationId)).map(
+      ({ code, name, chapterCount }) => ({ code, name, chapterCount }),
+    );
+  }
+
+  async getBibleChapter(
+    translationId: string,
+    bookCode: string,
+    chapter: number,
+  ): Promise<BibleVerse[]> {
+    if (!this.database) return [];
+    return this.database.getBiblePassage(
+      translationId,
+      bookCode,
+      { chapter, verse: 1 },
+      { chapter, verse: MAX_CHAPTER_VERSE },
+    );
+  }
+
+  async searchBible(
+    translationId: string,
+    search: string,
+  ): Promise<BibleSearchHit[]> {
+    if (!this.database) return [];
+    return this.database.searchBible(translationId, search);
+  }
+
+  /**
+   * Asks the administrator for a folder of USFM files and reads it, so they
+   * can check what was found before anything is sent to the server.
+   */
+  async chooseBibleImportFolder(): Promise<BibleImportPreview | null> {
+    await this.sessionReady;
+    this.requireSession();
+    const window = this.options.getOperatorWindow();
+    const options = {
+      title: 'Choose the folder holding the translation’s USFM files',
+      properties: ['openDirectory' as const],
+    };
+    const choice = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options);
+    const directory = choice.filePaths[0];
+    if (choice.canceled || !directory) return null;
+    const folder = await readUsfmFolder(directory);
+    this.pendingBibleImport = folder;
+    return {
+      folderName: basename(directory),
+      bookCount: folder.books.length,
+      verseCount: folder.verseCount,
+      firstBook: folder.books[0]!.name,
+      lastBook: folder.books.at(-1)!.name,
+      skippedCodes: folder.skippedCodes,
+    };
+  }
+
+  /** Imports the chosen folder as a new translation, publishes it, then syncs. */
+  async importBible(input: BibleTranslationInput): Promise<void> {
+    await this.sessionReady;
+    const session = this.requireSession();
+    const folder = this.pendingBibleImport;
+    if (!folder) {
+      throw new Error('Choose the translation’s folder first.');
+    }
+    if (this.isImportingBible) {
+      throw new Error('An import is already running.');
+    }
+    this.isImportingBible = true;
+    try {
+      await uploadTranslation(
+        this.translationUploader(session),
+        input,
+        folder,
+        (progress) => this.send(IpcEvent.bibleImportProgress, progress),
+      );
+      this.pendingBibleImport = null;
+    } finally {
+      this.isImportingBible = false;
+    }
+    await this.syncNow();
+  }
+
   // ── Displays and presentation (offline) ───────────────────────────────
 
   listDisplays(): DisplayInfo[] {
@@ -348,6 +492,39 @@ export class AppController {
       throw new Error('That arrangement has no slides.');
     }
     this.live.start(song.title, slides);
+    this.projector.open();
+    return this.broadcastLiveState();
+  }
+
+  /** Presents a passage from the laptop's copy of a translation. */
+  async startPassage(passage: PassageRequest): Promise<LiveState> {
+    if (!this.database) {
+      throw new Error('There is no Bible on this laptop yet.');
+    }
+    const translation = (await this.database.listBibleTranslations()).find(
+      (candidate) => candidate.id === passage.translationId,
+    );
+    const book = translation
+      ? (await this.database.listBibleBooks(translation.id)).find(
+          (candidate) => candidate.code === passage.bookCode,
+        )
+      : undefined;
+    if (!translation || !book) {
+      throw new Error('That translation is no longer on this laptop.');
+    }
+    const verses = await this.database.getBiblePassage(
+      translation.id,
+      book.code,
+      passage.start,
+      passage.end,
+    );
+    if (verses.length === 0) {
+      throw new Error('That passage has no verses in this translation.');
+    }
+    this.live.start(
+      `${formatReference(book.name, verses)} (${translation.code})`,
+      buildPassageSlides(book.name, translation.attribution, verses),
+    );
     this.projector.open();
     return this.broadcastLiveState();
   }
@@ -425,6 +602,29 @@ export class AppController {
             schema: syncChangesSchema,
           }),
         database,
+        // Parsing and checking a whole translation takes the main process a
+        // moment; never during a presentation. The next run catches up.
+        syncBibleTranslations: async () => {
+          if (this.live.isLive) return;
+          await syncBibleTranslations({
+            listTranslations: () =>
+              session.request({
+                method: 'GET',
+                path: '/api/bible-translations',
+                schema: bibleTranslationListSchema,
+              }),
+            downloadContent: (translationId) =>
+              session.request({
+                method: 'GET',
+                path: `/api/bible-translations/${translationId}/content`,
+                schema: bibleContentSchema,
+                timeoutMilliseconds: BIBLE_DOWNLOAD_TIMEOUT_MILLISECONDS,
+                maxResponseBytes: MAX_BIBLE_DOWNLOAD_BYTES,
+              }),
+            database,
+            rejectedContent: this.rejectedBibleContent,
+          });
+        },
         now: () => new Date(),
       },
       (status) => this.send(IpcEvent.syncStatus, status),
@@ -433,6 +633,56 @@ export class AppController {
       this.startBackgroundSync();
       void this.syncNow();
     }
+  }
+
+  private translationUploader(session: Session): TranslationUploader {
+    const base = '/api/bible-translations';
+    return {
+      deleteLeftoverDraft: async (code) => {
+        const translations = await session.request({
+          method: 'GET',
+          path: base,
+          schema: bibleTranslationListSchema,
+        });
+        const leftover = translations.find(
+          (translation) =>
+            !translation.isPublished &&
+            translation.code === code.trim().toUpperCase(),
+        );
+        if (leftover) {
+          await session.request({
+            method: 'DELETE',
+            path: `${base}/${leftover.id}`,
+          });
+        }
+      },
+      createDraft: async (input) =>
+        (
+          await session.request({
+            method: 'POST',
+            path: base,
+            schema: bibleTranslationSchema,
+            body: { ...input, sourceUrl: input.sourceUrl ?? undefined },
+          })
+        ).id,
+      putChapter: (translationId, bookCode, chapter, body) =>
+        retryWhenRateLimited(() =>
+          session.request({
+            method: 'PUT',
+            path: `${base}/${translationId}/books/${bookCode}/chapters/${chapter}`,
+            body,
+          }),
+        ),
+      publish: async (translationId) => {
+        await session.request({
+          method: 'POST',
+          path: `${base}/${translationId}/publish`,
+          timeoutMilliseconds: PUBLISH_TIMEOUT_MILLISECONDS,
+        });
+      },
+      deleteDraft: (translationId) =>
+        session.request({ method: 'DELETE', path: `${base}/${translationId}` }),
+    };
   }
 
   // One folder per (server, account): two accounts on one laptop, or one
@@ -506,5 +756,21 @@ export class AppController {
       throw new Error('Choose a workspace first.');
     }
     return workspaceId;
+  }
+}
+
+async function retryWhenRateLimited<Result>(
+  send: () => Promise<Result>,
+): Promise<Result> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await send();
+    } catch (error) {
+      const isRateLimited = error instanceof ApiError && error.status === 429;
+      if (!isRateLimited || attempt >= RATE_LIMIT_RETRIES) throw error;
+      await new Promise((resolve) =>
+        setTimeout(resolve, RATE_LIMIT_DELAY_MILLISECONDS),
+      );
+    }
   }
 }

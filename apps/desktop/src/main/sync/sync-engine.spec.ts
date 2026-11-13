@@ -77,11 +77,13 @@ describe('SyncEngine', () => {
 
   const engineFor = (
     fetchChanges: ReturnType<typeof fakeServer>['fetchChanges'],
+    syncBibleTranslations: () => Promise<void> = async () => undefined,
   ) =>
     new SyncEngine(
       {
         fetchChanges,
         database: database() as never,
+        syncBibleTranslations,
         now: () => new Date('2026-11-13T10:00:00.000Z'),
       },
       (status) => statuses.push(status),
@@ -92,6 +94,19 @@ describe('SyncEngine', () => {
     migrateDatabase(sqlite);
     store = new SongStore(sqlite);
     statuses = [];
+  });
+
+  it('records the songs as synchronised when only the Bible fails', async () => {
+    const { fetchChanges } = fakeServer('epoch-1', [song('song-1', 1, 'One')]);
+    const engine = engineFor(fetchChanges, async () => {
+      throw new Error('checksum mismatch');
+    });
+    await expect(engine.syncWorkspace('workspace')).resolves.toEqual({
+      state: 'idle',
+      lastSyncedAt: '2026-11-13T10:00:00.000Z',
+      message: 'Bible translations were not updated: checksum mismatch',
+    });
+    expect(store.listSongs('workspace', '', false)).toHaveLength(1);
   });
 
   it('pulls every page and then only what changed since', async () => {

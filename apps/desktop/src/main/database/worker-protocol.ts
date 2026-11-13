@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { bibleContentSchema } from '../api/api-schemas';
+
 // Messages between the main process and the database worker thread. Both
 // sides validate what they receive, so a malformed message is an error, not
 // undefined behaviour. Song payloads were validated by the main process
@@ -7,6 +9,10 @@ import { z } from 'zod';
 
 const requestId = z.number().int().nonnegative();
 const workspaceId = z.string().min(1);
+const translationId = z.string().min(1);
+const bookCode = z.string().regex(/^[A-Z0-9]{3}$/);
+const positive = z.number().int().positive();
+const versePosition = z.object({ chapter: positive, verse: positive });
 
 export const syncedSongChangeSchema = z.object({
   id: z.string().min(1),
@@ -54,6 +60,32 @@ export const DatabaseWorkerRequest = z.discriminatedUnion('type', [
     workspaceId,
     songId: z.string().min(1),
   }),
+  z.object({ requestId, type: z.literal('listBibleTranslations') }),
+  z.object({
+    requestId,
+    type: z.literal('replaceBibleTranslation'),
+    content: bibleContentSchema,
+  }),
+  z.object({
+    requestId,
+    type: z.literal('removeBibleTranslation'),
+    translationId,
+  }),
+  z.object({ requestId, type: z.literal('listBibleBooks'), translationId }),
+  z.object({
+    requestId,
+    type: z.literal('getBiblePassage'),
+    translationId,
+    bookCode,
+    start: versePosition,
+    end: versePosition,
+  }),
+  z.object({
+    requestId,
+    type: z.literal('searchBible'),
+    translationId,
+    search: z.string().max(200),
+  }),
 ]);
 export type DatabaseWorkerRequest = z.infer<typeof DatabaseWorkerRequest>;
 export type DatabaseWorkerRequestInput = z.input<typeof DatabaseWorkerRequest>;
@@ -92,3 +124,37 @@ export const SongSummaryResult = z.array(
 );
 
 export const DatabaseWorkerData = z.object({ databasePath: z.string().min(1) });
+
+export const BibleTranslationsResult = z.array(
+  z.object({
+    id: z.string(),
+    code: z.string(),
+    name: z.string(),
+    languageCode: z.string(),
+    attribution: z.string(),
+    contentHash: z.string(),
+    verseCount: z.number().int().nonnegative(),
+  }),
+);
+
+export const BibleBooksResult = z.array(
+  z.object({
+    code: z.string(),
+    name: z.string(),
+    position: z.number().int().nonnegative(),
+    chapterCount: z.number().int().positive(),
+  }),
+);
+
+const storedVerse = z.object({
+  bookCode: z.string(),
+  chapter: z.number().int().positive(),
+  verse: z.number().int().positive(),
+  text: z.string(),
+});
+
+export const BiblePassageResult = z.array(storedVerse);
+
+export const BibleSearchResult = z.array(
+  storedVerse.extend({ bookName: z.string() }),
+);

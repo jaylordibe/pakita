@@ -285,4 +285,36 @@ describe('Bible translations (e2e)', () => {
       .get(`/api/bible-translations/${draft.id}/content`)
       .expect(404);
   });
+
+  it('never lets a chapter write land after publication froze the hash', async () => {
+    const draft = await createDraft();
+    await importSample(draft.id);
+    const [published, written] = await Promise.all([
+      as(admin).post(`/api/bible-translations/${draft.id}/publish`),
+      as(admin).put(chapterUrl(draft.id, 'GEN', 2), {
+        bookName: 'Genesis',
+        verses: [{ number: 1, text: 'Thus the heavens were finished.' }],
+      }),
+    ]);
+    expect(published.status).toBe(200);
+    // Either order is fine; a write after publication is refused.
+    expect([204, 409]).toContain(written.status);
+    const content = (
+      await as(member)
+        .get(`/api/bible-translations/${draft.id}/content`)
+        .expect(200)
+    ).body as ContentBody;
+    expect(bibleContentHash(content.verses)).toBe(
+      (published.body as TranslationBody).contentHash,
+    );
+  });
+
+  it('refuses a language tag longer than 40 characters', async () => {
+    await as(admin)
+      .post('/api/bible-translations', {
+        ...WEB,
+        languageCode: `en-${'abcdefgh-'.repeat(5)}x1`,
+      })
+      .expect(400);
+  });
 });

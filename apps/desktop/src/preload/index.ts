@@ -56,6 +56,19 @@ const pakita: PakitaApi = {
     update: (songId, input) =>
       invoke(IpcChannel.songsUpdate, { songId, input }),
   },
+  bible: {
+    listTranslations: () => invoke(IpcChannel.bibleListTranslations),
+    listBooks: (translationId) =>
+      invoke(IpcChannel.bibleListBooks, translationId),
+    getChapter: (translationId, bookCode, chapter) =>
+      invoke(IpcChannel.bibleGetChapter, { translationId, bookCode, chapter }),
+    search: (translationId, search) =>
+      invoke(IpcChannel.bibleSearch, { translationId, search }),
+    chooseImportFolder: () => invoke(IpcChannel.bibleChooseImportFolder),
+    import: (input) => invoke(IpcChannel.bibleImport, input),
+    onImportProgress: (listener) =>
+      subscribe(IpcEvent.bibleImportProgress, listener),
+  },
   displays: {
     list: () => invoke(IpcChannel.displaysList),
     choose: (displayId) => invoke(IpcChannel.displaysChoose, displayId),
@@ -64,6 +77,7 @@ const pakita: PakitaApi = {
   live: {
     start: (songId, arrangementId) =>
       invoke(IpcChannel.liveStart, { songId, arrangementId }),
+    startPassage: (passage) => invoke(IpcChannel.liveStartPassage, passage),
     next: () => invoke(IpcChannel.liveNext),
     previous: () => invoke(IpcChannel.livePrevious),
     goTo: (index) => invoke(IpcChannel.liveGoTo, index),

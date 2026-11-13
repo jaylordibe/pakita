@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import { ThrottlerGuard, type ThrottlerRequest } from '@nestjs/throttler';
 import { IS_PUBLIC_KEY } from '../../../common/decorators/public.decorator';
 import { UserAwareThrottlerGuard } from './user-aware-throttler.guard';
 
@@ -234,5 +235,58 @@ describe('UserAwareThrottlerGuard', () => {
     await expect(
       trackerFor(requestWith(undefined, '::ffff:203.0.113.7')),
     ).resolves.toBe('ip:203.0.113.7');
+  });
+
+  describe('a route that raises its limit', () => {
+    const limitsSeen: number[] = [];
+    beforeEach(() => {
+      limitsSeen.length = 0;
+      jest
+        .spyOn(ThrottlerGuard.prototype as never, 'handleRequest')
+        .mockImplementation(((props: ThrottlerRequest) => {
+          limitsSeen.push(props.limit);
+          return Promise.resolve(true);
+        }) as never);
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    const handle = (request: Partial<Request>, routeLimit: number) => {
+      const context = {
+        ...contextFor('authenticated'),
+        switchToHttp: () => ({
+          getRequest: () => request,
+          getResponse: () => ({}),
+        }),
+      } as unknown as ExecutionContext;
+      return (
+        guard as unknown as {
+          handleRequest: (props: ThrottlerRequest) => Promise<boolean>;
+        }
+      ).handleRequest({
+        context,
+        limit: routeLimit,
+        ttl: 60_000,
+        throttler: { name: 'default', limit: 100, ttl: 60_000 },
+        blockDuration: 60_000,
+        getTracker: () => Promise.resolve('unused'),
+        generateKey: () => 'unused',
+      });
+    };
+
+    it('grants the raise to an authenticated caller', async () => {
+      await handle(requestWith(`Bearer ${signValidToken('admin')}`), 1_500);
+      expect(limitsSeen).toEqual([1_500]);
+    });
+
+    it('holds an anonymous or invalid-token caller to the global limit', async () => {
+      await handle(requestWith(), 1_500);
+      await handle(requestWith('Bearer not-a-token'), 1_500);
+      expect(limitsSeen).toEqual([100, 100]);
+    });
+
+    it('leaves a lowered limit alone', async () => {
+      await handle(requestWith(), 5);
+      expect(limitsSeen).toEqual([5]);
+    });
   });
 });

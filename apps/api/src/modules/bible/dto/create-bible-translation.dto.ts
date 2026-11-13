@@ -30,6 +30,7 @@ export class CreateBibleTranslationDto {
 
   /** BCP 47 language tag, e.g. "en", "tl", "pt-BR". */
   @IsString()
+  @MaxLength(40)
   @Matches(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/, {
     message: 'languageCode must be a BCP 47 tag such as "en" or "pt-BR"',
   })

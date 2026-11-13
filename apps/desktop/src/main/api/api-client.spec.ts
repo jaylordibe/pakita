@@ -52,6 +52,26 @@ describe('ApiClient', () => {
     expect(init.body).toBe('{"name":"x"}');
   });
 
+  it('refuses a body larger than the request allows, declared or not', async () => {
+    const big = JSON.stringify({ isOk: true, padding: 'x'.repeat(200) });
+    const request = {
+      method: 'GET' as const,
+      path: '/api/thing',
+      schema: pingSchema.passthrough(),
+      maxResponseBytes: 100,
+    };
+    const declared = clientAnswering(
+      new Response(big, { headers: { 'Content-Length': String(big.length) } }),
+    );
+    await expect(declared.client.request(request)).rejects.toBeInstanceOf(
+      ApiError,
+    );
+    const undeclared = clientAnswering(new Response(big));
+    await expect(undeclared.client.request(request)).rejects.toThrow(
+      'could not read',
+    );
+  });
+
   it('turns the error envelope into an ApiError with its errorCode', async () => {
     const { client } = clientAnswering(
       json(401, {

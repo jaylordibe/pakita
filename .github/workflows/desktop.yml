@@ -58,8 +58,8 @@ jobs:
       - name: API types are current
         run: |
           pnpm generate:api
-          git diff --exit-code -- src/shared/api/openapi.ts || {
-            echo "::error::apps/desktop/src/shared/api/openapi.ts is stale: run 'pnpm --filter @pakita/desktop generate:api' and commit it."
+          git diff --exit-code -- src/shared/api/openapi.ts src/shared/api/enums.ts || {
+            echo "::error::apps/desktop/src/shared/api/openapi.ts or enums.ts is stale: run 'pnpm --filter @pakita/desktop generate:api' and commit it."
             exit 1
           }
 
