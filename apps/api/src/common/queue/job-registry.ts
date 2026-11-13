@@ -1,0 +1,151 @@
+import { QueueName } from './queue-registry';
+import type { JobRetryPolicy } from './queue-registry';
+
+// ── THE job registry ──────────────────────────────────────────────────────────
+// Every queued job type in the app is DECLARED here. The registry binds a job
+// name to the queue that carries it and the payload version its workers
+// understand, so:
+//   - a job can never be enqueued onto a queue nobody processes;
+//   - a producer and a worker on different releases disagree LOUDLY (the
+//     processor rejects an unknown payload version) instead of silently
+//     misreading each other's data during a rolling deploy.
+//
+// To add a job:
+//   1. Add a `JobName` member. The value is `{domain}.{operation}.v{version}`
+//      — bump the `v` suffix whenever the payload shape changes incompatibly,
+//      and keep the old name registered until every deployed worker has moved.
+//   2. Add its `JOB_REGISTRATIONS` entry (`Record<JobName, …>` makes a missing
+//      one a compile error).
+//   3. Write a payload DTO extending `BaseJobPayloadDto`.
+//   4. Write a `QueueJobHandler` for it. `QueueJobHandlerRegistry` fails at
+//      BOOT if a registered job has no handler, so a half-wired job can never
+//      reach production.
+export enum JobName {
+  MAINTENANCE_QUEUE_HEARTBEAT_V1 = 'maintenance.queue-heartbeat.v1',
+  AUTH_REFRESH_TOKEN_RETENTION_V1 = 'auth.refresh-token-retention.v1',
+  MCP_OAUTH_PAYLOAD_RETENTION_V1 = 'mcp-oauth.payload-retention.v1',
+  FILES_CLEANUP_V1 = 'files.cleanup.v1',
+  USER_EMAIL_VERIFICATION_V1 = 'user.email-verification.v1',
+  USER_PASSWORD_RESET_V1 = 'user.password-reset.v1',
+  USER_PASSWORD_CHANGED_NOTICE_V1 = 'user.password-changed-notice.v1',
+  USER_EMAIL_CHANGED_NOTICE_V1 = 'user.email-changed-notice.v1',
+  USER_SIGN_UP_ACCOUNT_EXISTS_V1 = 'user.sign-up-account-exists.v1',
+  WORKSPACE_INVITATION_EMAIL_V1 = 'workspace.invitation-email.v1',
+}
+
+export interface JobRegistration {
+  readonly queueName: QueueName;
+  // The payload version this release's workers accept. A job whose payload
+  // carries a different version is failed permanently rather than retried.
+  readonly payloadVersion: number;
+  readonly description: string;
+  // Narrower than the queue's policy, for a job whose failure mode differs from
+  // its neighbours' (e.g. a third-party call worth more attempts, or a job that
+  // should never be retried at all).
+  readonly retryPolicy?: JobRetryPolicy;
+}
+
+export const JOB_REGISTRATIONS: Record<JobName, JobRegistration> = {
+  [JobName.MAINTENANCE_QUEUE_HEARTBEAT_V1]: {
+    queueName: QueueName.MAINTENANCE,
+    payloadVersion: 1,
+    description:
+      'Writes a short-lived Redis key proving the full producer → Redis → worker loop is alive. Backs the worker health probe; carries no domain meaning.',
+    // A heartbeat that fails is superseded by the next one a few minutes later,
+    // so retrying a stale one is pure noise.
+    retryPolicy: {
+      attempts: 1,
+      backoffStrategy: 'fixed',
+      initialBackoffMilliseconds: 0,
+    },
+  },
+  [JobName.AUTH_REFRESH_TOKEN_RETENTION_V1]: {
+    queueName: QueueName.MAINTENANCE,
+    payloadVersion: 1,
+    description:
+      'Deletes refresh tokens past their expiry. Data minimisation: an expired row still holds a user id, an IP and a user-agent. Idempotent — the delete is bounded by `expiresAt < now`.',
+    // Fewer attempts than the queue default and a short backoff: the sweep runs
+    // nightly, so a failure that outlives three quick retries is better left to
+    // tomorrow's tick than retried for the next twenty minutes.
+    retryPolicy: {
+      attempts: 3,
+      backoffStrategy: 'exponential',
+      initialBackoffMilliseconds: 60_000,
+    },
+  },
+  [JobName.MCP_OAUTH_PAYLOAD_RETENTION_V1]: {
+    queueName: QueueName.MAINTENANCE,
+    payloadVersion: 1,
+    description:
+      'Deletes MCP OAuth codes, tokens, grants, interactions and sessions past their expiry. Data minimisation: an expired row still names a user and a client. Idempotent — the delete is bounded by `expires_at < now`.',
+    // Same reasoning as the refresh-token sweep: nightly, so a failure past
+    // three quick retries waits for the next tick.
+    retryPolicy: {
+      attempts: 3,
+      backoffStrategy: 'exponential',
+      initialBackoffMilliseconds: 60_000,
+    },
+  },
+  [JobName.FILES_CLEANUP_V1]: {
+    queueName: QueueName.MAINTENANCE,
+    payloadVersion: 1,
+    description:
+      'Deletes stored files nothing uses: expired uploads, uploads a crashed request left behind, and files a resource released. Object first, then row; a failed object delete stays queued for the next run. Idempotent — every step is conditional on the row still being `deleting`.',
+    // A failed OBJECT delete is retried by the next tick, not by this policy,
+    // which only covers the database being briefly unreachable.
+    retryPolicy: {
+      attempts: 3,
+      backoffStrategy: 'exponential',
+      initialBackoffMilliseconds: 30_000,
+    },
+  },
+
+  [JobName.USER_EMAIL_VERIFICATION_V1]: {
+    queueName: QueueName.NOTIFICATIONS,
+    payloadVersion: 1,
+    description:
+      "Emails a verification link to the user's current address. Skipped when the address is already verified.",
+  },
+  [JobName.USER_PASSWORD_RESET_V1]: {
+    queueName: QueueName.NOTIFICATIONS,
+    payloadVersion: 1,
+    description:
+      'Mints a single-use password-reset token, stores its hash, and emails the reset link. A redelivery mints a fresh token, which supersedes the previous one.',
+  },
+  [JobName.USER_SIGN_UP_ACCOUNT_EXISTS_V1]: {
+    queueName: QueueName.NOTIFICATIONS,
+    payloadVersion: 1,
+    description:
+      'Tells an address that already has an account that someone tried to register it, in place of an answer that would say so.',
+  },
+  [JobName.USER_PASSWORD_CHANGED_NOTICE_V1]: {
+    queueName: QueueName.NOTIFICATIONS,
+    payloadVersion: 1,
+    description: 'Tells the user their password was changed.',
+  },
+  [JobName.USER_EMAIL_CHANGED_NOTICE_V1]: {
+    queueName: QueueName.NOTIFICATIONS,
+    payloadVersion: 1,
+    description:
+      "Tells a verified address that the account's email was changed away from it. The address is read from the `user.email_changed` audit row the payload points at, so it never sits in Redis.",
+  },
+  [JobName.WORKSPACE_INVITATION_EMAIL_V1]: {
+    queueName: QueueName.NOTIFICATIONS,
+    payloadVersion: 1,
+    description:
+      'Emails a workspace invitation link. Skipped when the invitation is no longer pending.',
+  },
+};
+
+export const REGISTERED_JOB_NAMES: readonly JobName[] = Object.values(JobName);
+
+export function resolveJobRegistration(jobName: JobName): JobRegistration {
+  return JOB_REGISTRATIONS[jobName];
+}
+
+// Narrows an arbitrary string (what BullMQ hands a processor as `job.name`) to
+// a registered job name. Anything else is a job this release does not know how
+// to run — an older producer's name, or a queue namespace collision.
+export function isRegisteredJobName(jobName: string): jobName is JobName {
+  return Object.prototype.hasOwnProperty.call(JOB_REGISTRATIONS, jobName);
+}

@@ -1,0 +1,113 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ApiPaginatedResponse } from '../../common/decorators/api-paginated-response.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { MetaQueryDto } from '../../common/dto/meta-query.dto';
+import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
+import { AppVersionResponseDto } from './dto/app-version-response.dto';
+import { CreateAppVersionDto } from './dto/create-app-version.dto';
+import { LatestAppVersionQueryDto } from './dto/latest-app-version-query.dto';
+import { UpdateAppVersionDto } from './dto/update-app-version.dto';
+import { AppVersionsService } from './app-versions.service';
+
+// Reads are `@Public()` because apps typically hit a version-check endpoint
+// at launch, before any user has authenticated. Writes require admin.
+@ApiTags('App Versions')
+@ApiBearerAuth()
+@Controller('app-versions')
+export class AppVersionsController {
+  constructor(private readonly appVersionsService: AppVersionsService) {}
+
+  @Post()
+  @RequirePermission('create', 'AppVersion', { isAdministrative: true })
+  @ApiCreatedResponse({ type: AppVersionResponseDto })
+  async create(
+    @Body() dto: CreateAppVersionDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<AppVersionResponseDto> {
+    const row = await this.appVersionsService.create(dto, currentUser.id);
+    return new AppVersionResponseDto(row);
+  }
+
+  @Get()
+  @Public()
+  @ApiPaginatedResponse(AppVersionResponseDto)
+  async findPaginated(
+    @Query() query: MetaQueryDto,
+  ): Promise<PaginatedResponseDto<AppVersionResponseDto>> {
+    const { data, meta } = await this.appVersionsService.findPaginated(query);
+    return {
+      data: data.map((row) => new AppVersionResponseDto(row)),
+      meta,
+    };
+  }
+
+  // Must be before @Get(':id') — NestJS matches routes in declaration order.
+  // Clients hit `/latest?platform=mobile&os=ios` at app launch to decide
+  // whether to prompt an update. `os` is omitted only by `web`, which ships a
+  // single distribution; every other platform resolves its own release train.
+  @Get('latest')
+  @Public()
+  @ApiOkResponse({ type: AppVersionResponseDto })
+  async findLatest(
+    @Query() query: LatestAppVersionQueryDto,
+  ): Promise<AppVersionResponseDto> {
+    const row = await this.appVersionsService.findLatest(
+      query.platform,
+      query.os ?? null,
+    );
+    return new AppVersionResponseDto(row);
+  }
+
+  @Get(':id')
+  @Public()
+  @ApiOkResponse({ type: AppVersionResponseDto })
+  async findById(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<AppVersionResponseDto> {
+    const row = await this.appVersionsService.findById(id);
+    return new AppVersionResponseDto(row);
+  }
+
+  @Patch(':id')
+  @RequirePermission('update', 'AppVersion', { isAdministrative: true })
+  @ApiOkResponse({ type: AppVersionResponseDto })
+  async update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateAppVersionDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<AppVersionResponseDto> {
+    const row = await this.appVersionsService.update(id, dto, currentUser.id);
+    return new AppVersionResponseDto(row);
+  }
+
+  @Delete(':id')
+  @RequirePermission('delete', 'AppVersion', { isAdministrative: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<void> {
+    await this.appVersionsService.remove(id, currentUser.id);
+  }
+}

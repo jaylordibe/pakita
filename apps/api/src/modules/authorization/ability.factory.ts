@@ -1,0 +1,177 @@
+import { Injectable } from '@nestjs/common';
+import { AbilityBuilder } from '@casl/ability';
+import { createPrismaAbility } from '@casl/prisma';
+import type { AppAbility } from '../../common/authorization/app-ability';
+import {
+  AUTHENTICATED_USER_PERMISSIONS,
+  type AuthorizationAction,
+  type AuthorizationSubject,
+} from '../../common/authorization/permission-catalog';
+import {
+  resolveOwnerKey,
+  resolveTenantKey,
+} from '../../common/authorization/subject-key';
+import { PermissionOwnership } from '../../common/enums/permission-ownership.enum';
+import { WorkspaceMembershipStatus } from '../../common/enums/workspace-membership-status.enum';
+import { RoleScope } from '../../common/enums/role-scope.enum';
+
+// A permission as it reaches the factory: the identity columns only. The
+// description and the row id are irrelevant to a CASL rule, so they never
+// enter the Redis cache either.
+export interface PermissionGrant {
+  readonly action: AuthorizationAction;
+  readonly subject: AuthorizationSubject;
+  readonly scope: RoleScope;
+  readonly ownership: PermissionOwnership;
+}
+
+// One ACTIVE membership, with enough context to authorize AND to debug.
+//
+// `roleId` / `roleName` / `status` are not read when compiling rules — the
+// permissions alone decide that — but they are what makes a cached grant set
+// answerable to "why can this person do that?" without a second query. An
+// authorization cache you cannot read is one nobody trusts, and one nobody
+// trusts gets bypassed.
+export interface WorkspaceMembershipGrant {
+  readonly membershipId: string;
+  readonly workspaceId: string;
+  readonly roleId: string;
+  readonly roleName: string;
+  readonly status: WorkspaceMembershipStatus;
+  readonly permissions: readonly PermissionGrant[];
+}
+
+// Everything the factory needs, already loaded. Kept as plain data so it can
+// round-trip through JSON in the Redis grants cache.
+export interface AuthorizationGrants {
+  readonly platformPermissions: readonly PermissionGrant[];
+  readonly workspaceMemberships: readonly WorkspaceMembershipGrant[];
+}
+
+@Injectable()
+export class AbilityFactory {
+  // Compiles a user's grants into one CASL ability.
+  //
+  // This is the "where" half of the model: a permission row records only WHAT
+  // (action + subject), and the condition is derived here from the row's scope
+  // and ownership plus the request context (`userId`, or the workspace a
+  // membership is for). That is why `permissions` has no condition column.
+  //
+  // Pure and synchronous — loading lives in PermissionLoaderService.
+  createForUser(userId: string, grants: AuthorizationGrants): AppAbility {
+    const { can, build } = new AbilityBuilder<AppAbility>(createPrismaAbility);
+
+    // ── What every authenticated caller can do, with no role at all ──────
+    //
+    // Injected FIRST and unconditionally, so an account with no platform role
+    // and zero workspace memberships is still a complete, working account.
+    // Modelling this as a role granted at signup would cost a `user_roles` row
+    // per user and a special case in the revoke path to stop anyone breaking an
+    // account by taking it away.
+    // Every entry is ownership-scoped to `userId` or a read of the shared
+    // role/permission vocabulary; nothing here reaches into a tenant.
+    for (const permission of AUTHENTICATED_USER_PERMISSIONS) {
+      // Guarded like the other two loops even though this list is a compile-time
+      // constant, so the invariant lives in the code that compiles the rule
+      // rather than only in `permission-catalog.spec.ts` — a clone can delete a
+      // test, and the failure mode here is a tenant-reaching unconditional rule
+      // granted to every account on the platform.
+      if (permission.scope !== RoleScope.PLATFORM) continue;
+      this.grant(can, permission, userId);
+    }
+
+    for (const permission of grants.platformPermissions) {
+      // ── THE scope guard ──────────────────────────────────────────────
+      //
+      // This loop branches on where a grant ARRIVED from, not on what the
+      // permission claims to be, and the `else` below emits an UNCONDITIONAL
+      // rule. Workspace permissions are always `ANY`, so a workspace permission
+      // reaching this loop — a workspace role assigned through `user_roles` —
+      // would compile to platform-wide authority with no tenant bound. That is
+      // the single most dangerous shape this file can produce.
+      //
+      // Skipping rather than throwing is deliberate: a mis-scoped grant is a
+      // data fault, and failing the whole request would turn one bad row into
+      // an outage for that account. Dropping the rule fails closed.
+      if (permission.scope !== RoleScope.PLATFORM) continue;
+      this.grant(can, permission, userId);
+    }
+
+    // Only ACTIVE memberships confer authority — a suspended owner still holds
+    // rank 100 on paper and must hold nothing in fact.
+    //
+    // `PermissionLoaderService` already filters on status in the query, so this
+    // is defence in depth rather than the primary control. It is worth the two
+    // lines because grants also arrive here deserialized from Redis, and a
+    // cache is untrusted input: this is the last point at which a grant set can
+    // be checked before it becomes a permission.
+    for (const membership of grants.workspaceMemberships) {
+      if (membership.status !== WorkspaceMembershipStatus.ACTIVE) continue;
+
+      // A tenant rule whose tenant is `undefined` is not a narrow rule, it is
+      // NO rule: `{ workspaceId: undefined }` reaches Prisma as "no filter", and
+      // `accessibleBy` then yields `{ OR: [{}] }` — which the empty-`OR` guard
+      // in AbilityScopedQueryService does not catch, because the array is not
+      // empty. Every row of the table would come back to a single-tenant
+      // caller. Grants arrive here deserialized from Redis, so the field is not
+      // guaranteed present just because the type says it is.
+      if (
+        typeof membership.workspaceId !== 'string' ||
+        !membership.workspaceId
+      ) {
+        continue;
+      }
+
+      for (const permission of membership.permissions) {
+        // The mirror of the guard above, closing the other direction: a
+        // PLATFORM permission attached to a membership. Less dangerous —
+        // `resolveTenantKey` already throws for `all`, `User`, `Role`,
+        // `AuditLog` and `QueueJob`, so most of it fails closed on its own —
+        // but "most" is not a guarantee, and a throw here would take out every
+        // request for that account rather than dropping one rule.
+        if (permission.scope !== RoleScope.WORKSPACE) continue;
+
+        // Workspace-scoped authority is bounded by the tenant, always. The
+        // `Workspace` record itself is keyed by `id`; everything owned by a
+        // workspace is keyed by `workspaceId`.
+        can(permission.action, permission.subject, {
+          [resolveTenantKey(permission.subject)]: membership.workspaceId,
+        });
+      }
+    }
+
+    return build();
+  }
+
+  /**
+   * Compiles one PLATFORM-scope permission into a rule.
+   *
+   * `ownership` is matched against `OWN` and `ANY` **explicitly**, and anything
+   * else is dropped. The obvious `if (OWN) … else unconditional` reads the same
+   * for valid input and is wrong for invalid input: it treats an absent or
+   * unrecognised ownership as the WIDEST possible grant. Grants reach this
+   * method deserialized from Redis, where the type annotation guarantees
+   * nothing, so the default has to be "no rule" rather than "all rows".
+   */
+  private grant(
+    can: AbilityBuilder<AppAbility>['can'],
+    permission: PermissionGrant,
+    userId: string,
+  ): void {
+    if (permission.ownership === PermissionOwnership.OWN) {
+      // "…but only the rows you own." `User` is keyed by `id`, its children by
+      // `userId`; `resolveOwnerKey` throws rather than silently widening to an
+      // unconditional rule.
+      can(permission.action, permission.subject, {
+        [resolveOwnerKey(permission.subject)]: userId,
+      });
+      return;
+    }
+    if (permission.ownership === PermissionOwnership.ANY) {
+      // Platform staff: unrestricted over the subject. `manage all` lands here
+      // and, because CASL OR-composes rules, supersedes every narrower rule the
+      // user also holds.
+      can(permission.action, permission.subject);
+    }
+  }
+}

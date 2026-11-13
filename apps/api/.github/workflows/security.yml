@@ -1,0 +1,197 @@
+name: Security
+
+# Dependency + filesystem vulnerability scanning. Kept SEPARATE from the fast
+# merge gate (test.yml) on purpose: a slow or noisy scan must never block the
+# deterministic test signal.
+#
+# Each trigger below covers something the others cannot, so none is redundant:
+#   - pull_request  — pre-merge, where a HIGH advisory is still cheap to act on.
+#   - schedule      — the weekly sweep. Advisories are disclosed against
+#                     dependencies nobody is currently touching; a PR-only audit
+#                     would not surface one until somebody happened to open a
+#                     pull request, which is not a security cadence.
+#   - workflow_call — the publish path. The publish workflow gates only on
+#                     the workflows it explicitly calls, so scanning that lives
+#                     outside test.yml sits outside the publish gate unless it is
+#                     called too, and a push straight to a release branch would
+#                     publish with no dependency scan at all. Do not remove this
+#                     trigger without removing the caller in publish-image.yml.
+#   - workflow_dispatch — the on-demand button in the Actions tab.
+#
+# The IMAGE scan lives in test.yml's `docker` job, which needs the image that
+# job builds. The two are complementary: this workflow reads package.json and
+# yarn.lock plus the whole working tree — so it sees secrets and Dockerfile
+# misconfigurations in files that never reach the runtime image — while that one
+# reads the base image's OS packages and the installed node_modules tree.
+on:
+  pull_request:
+    branches:
+      - main
+      - staging
+      - develop
+  schedule:
+    # Weekly, Monday 03:00 UTC (GitHub Actions cron is UTC-only).
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+  # Makes this workflow callable as
+  # `jobs.<name>.uses: ./.github/workflows/security.yml`.
+  workflow_call:
+
+# Cancel in-flight runs for the same ref; the newer commit wins.
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: read-only access to the repo.
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: yarn
+
+      # `yarn audit` reads package.json + yarn.lock and needs no node_modules,
+      # so this step is here for its OTHER effect: `--frozen-lockfile` fails
+      # when the lockfile and manifest have drifted apart. That is a real
+      # finding for a security job — an out-of-sync lockfile means the versions
+      # being audited are not the versions that would be installed.
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --silent
+        env:
+          # Suppress Node's "DEP0169 url.parse" warning emitted by
+          # yarn 1.x itself — yarn-internal, no upstream fix available.
+          NODE_OPTIONS: --no-deprecation
+
+      # Informational: lists everything moderate and above. Never fails, so
+      # low/moderate transitive findings stay visible without red-lighting
+      # every PR.
+      #
+      # NO known moderates as of 2026-08-24. The three that stood here — uuid,
+      # valibot, @hono/node-server — were cleared rather than re-dated, and two
+      # of their stated blockers had simply stopped being true:
+      #   - valibot / @hono/node-server  both sat behind `prisma > @prisma/dev`.
+      #                An in-range `prisma` bump to 7.9.1 moved valibot to the
+      #                patched 1.4.2 and dropped @hono/node-server out of the
+      #                tree entirely, retiring our `resolutions` pin for it too.
+      #   - uuid       the note claimed uuid 11+ was ESM-only and so unusable on
+      #                the CJS `require` chain its consumers use. It is not:
+      #                11.1.1 ships a `require` condition, and the ONLY API any
+      #                consumer in this tree touches is `v4`. An in-range
+      #                `resend` bump dropped `svix` (and its uuid) outright; the
+      #                surviving `@google-cloud/storage > gaxios` path pins uuid
+      #                ^9.0.1 with no in-range fix, so it takes a `resolutions`
+      #                entry at ^11.1.1.
+      #
+      # Runtime-path moderates are NOT accepted as "known" — `qs` reached
+      # production via `platform-express > express` and was fixed by refreshing
+      # the lockfile, not documented as known. The uuid entry had breached that
+      # rule while appearing to honour it: it was filed as a `resend > svix`
+      # dev/CLI path, but `resend` AND `@google-cloud/storage` are both runtime
+      # `dependencies`. So a note here must name the path AND check it against
+      # package.json `dependencies` — "dev/CLI only" is a claim to verify, not
+      # an assumption, and an unfixable-looking blocker is one to re-test rather
+      # than carry forward.
+      - name: Dependency audit (informational)
+        run: yarn audit --level moderate || true
+
+      # Blocks on any high/critical advisory, EXCEPT ones explicitly accepted
+      # (with rationale + review date) in .github/scripts/audit-gate.mjs.
+      #
+      # A raw `yarn audit --level high || test $? -lt 8` bitmask check would
+      # isolate high+ correctly — yarn 1.x's exit code is a bitmask of ALL
+      # severities (1=info, 2=low, 4=moderate, 8=high, 16=critical) — but it is
+      # all-or-nothing: yarn 1.x cannot accept a *single* advisory, so one
+      # genuinely-unfixable high finding would either red-light the job forever
+      # or force deleting the whole gate. The script threads that needle: hard
+      # on everything unaccepted, and it nags when an acceptance goes stale or
+      # past its review date. It also refuses to treat an unparseable report as
+      # a clean result: the `|| true` below means a crashed audit would
+      # otherwise leave an empty file that reads as "no findings".
+      #
+      # When a NEW high trips this, reach for an upgrade BEFORE a `resolutions`
+      # override, and only allowlist as a last resort — advisories are often
+      # satisfied by a version the parent's declared range ALREADY permits, i.e.
+      # the lockfile is stale rather than the upstream constraint being real.
+      # Diagnose with:
+      #
+      #   yarn audit --level high --json       → module, vulnerable_versions, path
+      #   npm view <parent> dependencies.<pkg> → does its range allow the fix?
+      #
+      # Escalation ladder: in-range `yarn upgrade <parent>` → `resolutions`
+      # override (only when a parent pins a vulnerable range, and note when it
+      # can be removed) → documented allowlist entry (only when NO compatible
+      # patched version exists at all, e.g. an ESM-only fix on a CJS chain).
+      #
+      # Highs currently cleared by a `resolutions` override rather than a
+      # parent bump (verified 2026-08-24):
+      #   - deepmerge-ts  `prisma > @prisma/config > deepmerge-ts`
+      #                [GHSA-ggr8-5vv4-36mx / CVE-2026-40345 — stack exhaustion
+      #                merging recursive object graphs]. Patched only in
+      #                >=8.0.0, and @prisma/config still pins an EXACT 7.1.5 at
+      #                7.9.1 — the version this repo now resolves — so rung 1
+      #                does not exist here and the lockfile is not merely stale.
+      #                Our `resolutions` entry forces ^8.0.2. Safe because
+      #                @prisma/config calls plain `deepmerge` (one dynamic
+      #                import in its config loader), while v8's breaking changes
+      #                are confined to `deepmergeInto` mutation semantics and
+      #                custom-merge type renames — neither on that path.
+      #                Remove the entry once @prisma/config depends on 8.x.
+      - name: Dependency audit (blocks on high+)
+        run: |
+          yarn audit --level high --json > yarn-audit.json || true
+          node .github/scripts/audit-gate.mjs yarn-audit.json
+
+  trivy-fs:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Scans the WORKING TREE, which is what makes this different from the
+      # image scan in test.yml's `docker` job. That one sees only what the
+      # Dockerfile copied in; this one sees everything committed — so a secret
+      # or a misconfiguration in a file that never reaches the runtime image
+      # (compose files, scripts, docs, CI config) is still caught. `misconfig`
+      # additionally lints the Dockerfile itself, which an image scan cannot do
+      # because by then the Dockerfile is not part of the artifact.
+      #
+      # Fails on HIGH/CRITICAL; `ignore-unfixed` skips CVEs with no published
+      # patch so the build doesn't red-light on findings nobody can act on.
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          trivyignores: .trivyignore
+          scanners: vuln,secret,misconfig
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          # Build output and installed dependencies: noise that the image scan
+          # and the dependency audit already cover from their own angles.
+          #
+          # Reproduce locally on a clean export of HEAD, never on `.`: the
+          # working tree holds gitignored files CI never sees, a developer's
+          # `.env` and its real keys among them. Do not add `.env` to a skip
+          # list instead; that would also hide one committed by mistake.
+          #   dir=$(mktemp -d) && git archive HEAD | tar -x -C "$dir" &&
+          #   trivy fs "$dir" --scanners vuln,secret,misconfig \
+          #     --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+          #     --ignorefile "$dir/.trivyignore"
+          skip-dirs: node_modules,dist,coverage

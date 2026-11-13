@@ -1,0 +1,285 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type {
+  AuthorizationAction,
+  AuthorizationSubject,
+} from '../../common/authorization/permission-catalog';
+import { WorkspaceMembershipStatus } from '../../common/enums/workspace-membership-status.enum';
+import type { PermissionOwnership } from '../../common/enums/permission-ownership.enum';
+import type { RoleScope } from '../../common/enums/role-scope.enum';
+import { RedisService } from '../../common/redis/redis.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import type {
+  AuthorizationGrants,
+  WorkspaceMembershipGrant,
+  PermissionGrant,
+} from './ability.factory';
+
+// Namespaces every cached grant set by the shape it was written in.
+//
+// Bump it in YOUR project whenever `AuthorizationGrants` changes shape. During
+// a rolling deploy both versions of the code are live at once, so without this
+// the new build reads an entry the old build wrote, deserializes it into a
+// shape whose fields are now `undefined`, and silently mis-authorizes for the
+// rest of that key's TTL.
+//
+// It stays at v1 here on purpose. This is a template: a clone starts from an
+// empty Redis, so there is no earlier shape for anything to be incompatible
+// with, and shipping a "v2" would encode a migration history that never
+// happened for the person cloning it.
+const GRANTS_CACHE_VERSION = 'v1';
+const GRANTS_KEY_PREFIX = `authz:${GRANTS_CACHE_VERSION}:grants`;
+
+// A monotonically increasing counter embedded in every cache key. Bumping it
+// invalidates every cached grant on the platform with one atomic INCR — the
+// right tool when a *role definition* changes and every holder of that role
+// is affected. Stale keys are never deleted; they simply age out via TTL.
+export const AUTHORIZATION_EPOCH_KEY = 'authz:epoch';
+
+// Workspace-scoped grants come from a LIVE workspace, and from an ACTIVE
+// membership. Both halves are load-bearing and neither is redundant.
+//
+// LIVE WORKSPACE: soft-deleting a workspace deliberately leaves its membership
+// rows in place, so that restoring it brings the roster back too. Without this
+// filter every member would keep workspace-scoped authority over a workspace
+// nobody can see any more — and since `workspace_memberships` carries no
+// `deletedAt` of its own, those grants still resolve to real rows: the roster,
+// including names and emails, would stay readable after the workspace was gone.
+//
+// ACTIVE MEMBERSHIP: `SUSPENDED` and `LEFT` rows both still name a role, and a
+// suspended owner still has rank 100 recorded against them. Status
+// is the ONLY thing standing between "we withdrew this person's access" and
+// "they kept it", and it has to be applied here because a guard runs before any
+// row is loaded and cannot see a status at all.
+//
+// Both must be written explicitly. `prisma.scoped` rewrites TOP-LEVEL reads
+// only, so a nested collection is never filtered by the soft-delete extension.
+const ACTIVE_MEMBERSHIP_OF_LIVE_WORKSPACE = {
+  status: WorkspaceMembershipStatus.ACTIVE,
+  workspace: { deletedAt: null },
+} as const;
+
+// Shape of the one nested query below. Declared so the mapping code stays
+// typed without leaking Prisma's generated payload types outward.
+interface RolePermissionRow {
+  permission: {
+    action: string;
+    subject: string;
+    scope: string;
+    ownership: string;
+  };
+}
+
+@Injectable()
+export class PermissionLoaderService {
+  private readonly logger = new Logger(PermissionLoaderService.name);
+  private readonly grantsCacheTtlSeconds: number;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+    configService: ConfigService,
+  ) {
+    this.grantsCacheTtlSeconds = configService.getOrThrow<number>(
+      'authorization.grantsCacheTtlSeconds',
+    );
+  }
+
+  // Grants for one user: their PLATFORM roles' permissions, plus the
+  // permissions of each workspace role they hold, tagged with the workspace.
+  //
+  // Redis is a cache, never an authority. Any failure — outage, corrupt JSON,
+  // parse error — falls through to the database. There is no path here where a
+  // Redis problem grants access it shouldn't; the worst case is a slow request.
+  // (Contrast JwtStrategy's logout blocklist, which fails *open* by design.)
+  async loadGrants(userId: string): Promise<AuthorizationGrants> {
+    const epoch = await this.readEpoch();
+    // Epoch unknown: bypass the cache entirely rather than guess. Reading or
+    // writing under a guessed epoch is worse than not caching, because a wrong
+    // epoch names a namespace that still holds LIVE entries — see `readEpoch`.
+    if (epoch === null) {
+      return this.loadGrantsFromDatabase(userId);
+    }
+
+    const cacheKey = this.buildCacheKey(epoch, userId);
+    const cached = await this.readCachedGrants(cacheKey);
+    if (cached) return cached;
+
+    const grants = await this.loadGrantsFromDatabase(userId);
+    await this.writeCachedGrants(cacheKey, grants);
+    return grants;
+  }
+
+  // Called whenever a user's own role set changes: a platform role assigned or
+  // revoked, or a workspace membership added, changed, or removed. Deletes the
+  // one exact key — no SCAN, no wildcard.
+  async invalidateUser(userId: string): Promise<void> {
+    try {
+      const epoch = await this.readEpoch();
+      if (epoch === null) {
+        // Deleting under a guessed epoch would report success while leaving the
+        // real key untouched — a revoked role staying effective for the full
+        // TTL, with nothing logged. Fail loudly instead.
+        throw new Error('authorization epoch is unreadable');
+      }
+      await this.redis.client.del(this.buildCacheKey(epoch, userId));
+    } catch (error) {
+      // A failed invalidation means the user keeps stale grants until the TTL
+      // expires. Log loudly: this is the one place the backstop matters.
+      this.logger.error(
+        `Failed to invalidate authorization cache for user ${userId}; ` +
+          `stale grants persist for up to ${this.grantsCacheTtlSeconds}s: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
+
+  // Called when a ROLE's definition changes (its permission set was edited),
+  // which affects every holder of that role. One atomic INCR retires every
+  // cached grant on the platform.
+  async invalidateAllUsers(): Promise<void> {
+    try {
+      await this.redis.client.incr(AUTHORIZATION_EPOCH_KEY);
+    } catch (error) {
+      this.logger.error(
+        'Failed to bump the authorization epoch; stale grants persist for up to ' +
+          `${this.grantsCacheTtlSeconds}s: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
+
+  private buildCacheKey(epoch: string, userId: string): string {
+    return `${GRANTS_KEY_PREFIX}:${epoch}:${userId}`;
+  }
+
+  /**
+   * The current epoch, or `null` when Redis could not answer.
+   *
+   * `null` rather than a default, because there is no safe default. Falling
+   * back to `'0'` looks harmless — it is only a cache key — but `'0'` is a REAL
+   * namespace that still holds live entries (stale keys are never deleted, they
+   * age out), and `writeCachedGrants` would repopulate it. A single failed GET
+   * during a failover would then serve pre-`invalidateAllUsers` grants, and
+   * worse, make `invalidateUser` delete `…:0:<userId>` while the live key at
+   * epoch N survived — a revoked role staying effective with nothing logged,
+   * because the DEL itself succeeded.
+   */
+  private async readEpoch(): Promise<string | null> {
+    try {
+      return (await this.redis.client.get(AUTHORIZATION_EPOCH_KEY)) ?? '0';
+    } catch {
+      return null;
+    }
+  }
+
+  private async readCachedGrants(
+    cacheKey: string,
+  ): Promise<AuthorizationGrants | null> {
+    try {
+      const raw = await this.redis.client.get(cacheKey);
+      return raw ? (JSON.parse(raw) as AuthorizationGrants) : null;
+    } catch (error) {
+      this.logger.warn(
+        `Authorization grants cache read failed (falling back to the database): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  private async writeCachedGrants(
+    cacheKey: string,
+    grants: AuthorizationGrants,
+  ): Promise<void> {
+    try {
+      await this.redis.client.set(
+        cacheKey,
+        JSON.stringify(grants),
+        'EX',
+        this.grantsCacheTtlSeconds,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Authorization grants cache write failed (request still served): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  // One round trip. Prisma resolves both nested collections in a single
+  // engine call, so this is not an N+1 despite the four levels of nesting.
+  private async loadGrantsFromDatabase(
+    userId: string,
+  ): Promise<AuthorizationGrants> {
+    const userWithRoles = await this.prisma.scoped.user.findUnique({
+      where: { id: userId },
+      select: {
+        userRoles: {
+          select: {
+            role: { select: { permissions: { select: PERMISSION_SELECT } } },
+          },
+        },
+        memberships: {
+          where: ACTIVE_MEMBERSHIP_OF_LIVE_WORKSPACE,
+          select: {
+            id: true,
+            workspaceId: true,
+            status: true,
+            roleId: true,
+            role: {
+              select: {
+                name: true,
+                permissions: { select: PERMISSION_SELECT },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!userWithRoles) {
+      // Soft-deleted or absent. JwtStrategy already rejects these, so this is
+      // defence in depth: an empty grant set authorizes nothing.
+      return { platformPermissions: [], workspaceMemberships: [] };
+    }
+
+    const platformPermissions = userWithRoles.userRoles.flatMap((userRole) =>
+      userRole.role.permissions.map(toPermissionGrant),
+    );
+
+    const workspaceMemberships: WorkspaceMembershipGrant[] =
+      userWithRoles.memberships.map((membership) => ({
+        membershipId: membership.id,
+        workspaceId: membership.workspaceId,
+        roleId: membership.roleId,
+        roleName: membership.role.name,
+        // Plain `String` column; cast at the single database→application
+        // boundary the grants pass through, alongside the permission casts.
+        status: membership.status as WorkspaceMembershipStatus,
+        permissions: membership.role.permissions.map(toPermissionGrant),
+      }));
+
+    return { platformPermissions, workspaceMemberships };
+  }
+}
+
+const PERMISSION_SELECT = {
+  permission: {
+    select: { action: true, subject: true, scope: true, ownership: true },
+  },
+} as const;
+
+// The DB columns are plain `String` (this codebase declares no Postgres enums),
+// so the enum types are asserted here, at the single database→application
+// boundary the grants pass through.
+function toPermissionGrant(row: RolePermissionRow): PermissionGrant {
+  return {
+    action: row.permission.action as AuthorizationAction,
+    subject: row.permission.subject as AuthorizationSubject,
+    scope: row.permission.scope as RoleScope,
+    ownership: row.permission.ownership as PermissionOwnership,
+  };
+}

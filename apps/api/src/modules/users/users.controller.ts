@@ -1,0 +1,429 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import type { Request } from 'express';
+import { ApiPaginatedResponse } from '../../common/decorators/api-paginated-response.decorator';
+import { AuthenticatedOnly } from '../../common/decorators/authenticated-only.decorator';
+import { CurrentAbility } from '../../common/decorators/current-ability.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import { MetaQueryDto } from '../../common/dto/meta-query.dto';
+import { OperationAcknowledgementDto } from '../../common/dto/operation-acknowledgement.dto';
+import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
+import { Public } from '../../common/decorators/public.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { RequireTurnstile } from '../../common/decorators/require-turnstile.decorator';
+import { CreateUserDto } from './dto/create-user.dto';
+import { GdprEraseDto } from './dto/gdpr-erase.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { RequestPhoneVerificationDto } from './dto/request-phone-verification.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SetProfileImageDto } from './dto/set-profile-image.dto';
+import { UpdateAuthUserEmailDto } from './dto/update-auth-user-email.dto';
+import { UpdateAuthUserInfoDto } from './dto/update-auth-user-info.dto';
+import { UpdateAuthUserPasswordDto } from './dto/update-auth-user-password.dto';
+import { UpdateAuthUserPhoneDto } from './dto/update-auth-user-phone.dto';
+import { UpdateAuthUsernameDto } from './dto/update-auth-username.dto';
+import { UpdatePasswordDto } from './dto/update-password.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import type { AppAbility } from '../../common/authorization/app-ability';
+import { UserPermissionsResponseDto } from './dto/user-permissions-response.dto';
+import { UserResponseDto } from './dto/user-response.dto';
+import { VerifyAuthUserPhoneDto } from './dto/verify-auth-user-phone.dto';
+import { UsersService } from './users.service';
+import { LoginResponseDto } from '../auth/dto/login-response.dto';
+import { readRefreshTokenContext } from '../auth/refresh-token-context';
+
+@ApiTags('Users')
+@ApiBearerAuth()
+@Controller('users')
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
+  @Post('request-password-reset')
+  @Public()
+  @RequireTurnstile()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOkResponse({ type: OperationAcknowledgementDto })
+  async requestPasswordReset(
+    @Body() dto: RequestPasswordResetDto,
+  ): Promise<{ isOk: true }> {
+    await this.usersService.requestPasswordReset(dto.email);
+    // Same answer whether or not the address is registered.
+    return { isOk: true };
+  }
+
+  @Post('reset-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOkResponse({ type: OperationAcknowledgementDto })
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<{ isOk: true }> {
+    await this.usersService.resetPassword(dto);
+    return { isOk: true };
+  }
+
+  // Email verification lives on POST /auth/verify-email (link-based) and
+  // POST /auth/resend-verification (public — unverified users cannot log in,
+  // so requiring auth would make the endpoint unreachable).
+
+  // `@AuthenticatedOnly()`: the caller is asking what THEY may do. There is no
+  // subject to check a permission against — gating this behind a permission
+  // would mean inventing one that every role must hold, which gates nothing.
+  @Get('me/permissions')
+  @AuthenticatedOnly()
+  @ApiOkResponse({ type: UserPermissionsResponseDto })
+  async getAuthUserPermissions(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @CurrentAbility() ability: AppAbility,
+  ): Promise<UserPermissionsResponseDto> {
+    return this.usersService.getOwnPermissions(currentUser.id, ability);
+  }
+
+  @Get('me')
+  @RequirePermission('read', 'User')
+  @ApiOkResponse({ type: UserResponseDto })
+  async getAuthUser(
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.findById(currentUser.id);
+    return this.usersService.toResponse(user);
+  }
+
+  @Patch('me')
+  @RequirePermission('update', 'User')
+  @ApiOkResponse({ type: UserResponseDto })
+  async updateAuthUserInfo(
+    @Body() dto: UpdateAuthUserInfoDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.updateInfo(
+      currentUser.id,
+      dto,
+      currentUser.id,
+    );
+    return this.usersService.toResponse(user);
+  }
+
+  // The picture saves on its own, never with the profile form. Each change
+  // releases the picture it replaces, which the cleanup job deletes from
+  // storage, so it gets the same ceiling as the upload before it (`POST
+  // /files`) — per user (UserAwareThrottlerGuard).
+  @Put('me/profile-image')
+  @RequirePermission('update', 'User')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOkResponse({ type: UserResponseDto })
+  async setAuthUserProfileImage(
+    @Body() dto: SetProfileImageDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.setProfileImage(
+      currentUser.id,
+      dto.fileId,
+      currentUser.id,
+    );
+    return this.usersService.toResponse(user);
+  }
+
+  // Answers the person with no picture, whether or not they had one.
+  @Delete('me/profile-image')
+  @RequirePermission('update', 'User')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOkResponse({ type: UserResponseDto })
+  async removeAuthUserProfileImage(
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.setProfileImage(
+      currentUser.id,
+      null,
+      currentUser.id,
+    );
+    return this.usersService.toResponse(user);
+  }
+
+  @Delete('me')
+  @RequirePermission('delete', 'User')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteAuthUser(
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<void> {
+    await this.usersService.softDelete(currentUser.id, currentUser.id);
+  }
+
+  // Right-to-be-forgotten / GDPR erase. Distinct from DELETE /me (which is
+  // "close my account"): this also anonymizes every PII column so the row
+  // can stay for FK integrity without carrying identifying data. Requires
+  // re-auth via currentPassword to prevent stolen-token erasure.
+  @Post('me/gdpr-erase')
+  @RequirePermission('delete', 'User')
+  // Checks currentPassword: with a stolen access token this is a password
+  // oracle, so it gets the same 5/60s ceiling as reset-password — per user,
+  // which is what binds a stolen token (UserAwareThrottlerGuard).
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async gdprErase(
+    @Body() dto: GdprEraseDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<void> {
+    await this.usersService.gdprErase(currentUser.id, dto.currentPassword);
+  }
+
+  // Minimal GDPR "right to access" — returns the user's full row as JSON.
+  // Extend this as new tables are added (bookings, messages, etc.) so the
+  // dump stays complete.
+  @Get('me/export')
+  @RequirePermission('read', 'User')
+  @ApiOkResponse({ type: UserResponseDto })
+  async exportAuthUser(
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.findById(currentUser.id);
+    return this.usersService.toResponse(user);
+  }
+
+  @Patch('me/username')
+  @RequirePermission('update', 'User')
+  @ApiOkResponse({ type: UserResponseDto })
+  async updateAuthUsername(
+    @Body() dto: UpdateAuthUsernameDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.updateUsername(
+      currentUser.id,
+      dto.username,
+      currentUser.id,
+    );
+    return this.usersService.toResponse(user);
+  }
+
+  // Other sessions end; the caller gets a fresh session in the response and
+  // must replace their stored tokens.
+  @Patch('me/email')
+  @RequirePermission('update', 'User')
+  // Checks currentPassword: with a stolen access token this is a password
+  // oracle, so it gets the same 5/60s ceiling as reset-password — per user,
+  // which is what binds a stolen token (UserAwareThrottlerGuard).
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOkResponse({ type: LoginResponseDto })
+  async updateAuthUserEmail(
+    @Body() dto: UpdateAuthUserEmailDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Req() request: Request,
+  ): Promise<LoginResponseDto> {
+    const { user, tokens } = await this.usersService.updateEmail(
+      currentUser.id,
+      dto,
+      readRefreshTokenContext(request),
+    );
+    return { ...tokens, user: await this.usersService.toResponse(user) };
+  }
+
+  // Other sessions end; the caller gets a fresh session in the response and
+  // must replace their stored tokens.
+  @Patch('me/password')
+  @RequirePermission('update', 'User')
+  // Checks currentPassword: with a stolen access token this is a password
+  // oracle, so it gets the same 5/60s ceiling as reset-password — per user,
+  // which is what binds a stolen token (UserAwareThrottlerGuard).
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOkResponse({ type: LoginResponseDto })
+  async updateAuthUserPassword(
+    @Body() dto: UpdateAuthUserPasswordDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Req() request: Request,
+  ): Promise<LoginResponseDto> {
+    const { user, tokens } = await this.usersService.updateOwnPassword(
+      currentUser.id,
+      dto,
+      readRefreshTokenContext(request),
+    );
+    return { ...tokens, user: await this.usersService.toResponse(user) };
+  }
+
+  // Step 1 of the verified-phone flow — re-auth with the current password,
+  // then send a one-time code via SMS to the new number. Throttled at 5/60s
+  // per user (UserAwareThrottlerGuard keys a signed-in caller on its user) to
+  // limit abuse of the SMS provider's send budget.
+  @Post('me/request-phone-verification')
+  @RequirePermission('update', 'User')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOkResponse({ type: OperationAcknowledgementDto })
+  async requestPhoneVerification(
+    @Body() dto: RequestPhoneVerificationDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<{ isOk: true }> {
+    await this.usersService.requestPhoneVerification(
+      currentUser.id,
+      dto.currentPassword,
+      dto.phoneNumber,
+    );
+    return { isOk: true };
+  }
+
+  // Step 2 of the verified-phone flow — verify the OTP and apply the new
+  // number. Stamps `phoneNumberVerifiedAt = now` on success. Throttled at
+  // 5/60s per user — a 6-digit OTP with a 15-min expiry needs the rate limit to
+  // bound brute-force on the verify endpoint.
+  @Patch('me/verify-phone')
+  @RequirePermission('update', 'User')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOkResponse({ type: UserResponseDto })
+  async verifyAuthUserPhone(
+    @Body() dto: VerifyAuthUserPhoneDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.verifyAndUpdatePhoneNumber(
+      currentUser.id,
+      dto,
+      currentUser.id,
+    );
+    return this.usersService.toResponse(user);
+  }
+
+  // Plain phone update — no OTP, no verification. Sets the new number and
+  // clears `phoneNumberVerifiedAt` so the row no longer claims a verified
+  // phone. Use the OTP flow above when you need verification.
+  @Patch('me/phone')
+  @RequirePermission('update', 'User')
+  @ApiOkResponse({ type: UserResponseDto })
+  async updateAuthUserPhone(
+    @Body() dto: UpdateAuthUserPhoneDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.updatePhoneNumber(
+      currentUser.id,
+      dto.phoneNumber,
+      currentUser.id,
+    );
+    return this.usersService.toResponse(user);
+  }
+
+  @Post()
+  @RequirePermission('create', 'User', { isAdministrative: true })
+  // Hashes a password (bcrypt cost 12): bounded so a compromised admin
+  // token cannot pin the CPU, loose enough for routine administration.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiCreatedResponse({ type: UserResponseDto })
+  async create(
+    @Body() dto: CreateUserDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.create(dto, currentUser.id);
+    return this.usersService.toResponse(user);
+  }
+
+  @Get()
+  @RequirePermission('read', 'User', { isAdministrative: true })
+  @ApiPaginatedResponse(UserResponseDto)
+  async findPaginated(
+    @Query() query: MetaQueryDto,
+  ): Promise<PaginatedResponseDto<UserResponseDto>> {
+    const { data, meta } = await this.usersService.findPaginated(query);
+    return {
+      data: await this.usersService.toResponses(data),
+      meta,
+    };
+  }
+
+  @Get(':id')
+  @RequirePermission('read', 'User', { isAdministrative: true })
+  @ApiOkResponse({ type: UserResponseDto })
+  async findById(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.findById(id);
+    return this.usersService.toResponse(user);
+  }
+
+  @Patch(':id')
+  @RequirePermission('update', 'User', { isAdministrative: true })
+  @ApiOkResponse({ type: UserResponseDto })
+  async update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateUserDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.update(id, dto, currentUser.id);
+    return this.usersService.toResponse(user);
+  }
+
+  @Patch(':id/password')
+  @RequirePermission('resetPassword', 'User', { isAdministrative: true })
+  // Hashes a password (bcrypt cost 12): bounded so a compromised admin
+  // token cannot pin the CPU, loose enough for routine administration.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOkResponse({ type: UserResponseDto })
+  async updatePassword(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdatePasswordDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.updatePasswordAsAdmin(
+      id,
+      dto.newPassword,
+      currentUser.id,
+    );
+    return this.usersService.toResponse(user);
+  }
+
+  @Delete(':id')
+  @RequirePermission('delete', 'User', { isAdministrative: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<void> {
+    await this.usersService.remove(id, currentUser.id);
+  }
+
+  // ── Support operations ─────────────────────────────────────────────────
+  // Each carries its OWN permission rather than riding on `update User`, so
+  // support can help an account holder without being able to change their
+  // email.
+
+  @Post(':id/revoke-sessions')
+  @RequirePermission('revokeSession', 'User', { isAdministrative: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeSessions(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<void> {
+    await this.usersService.revokeAllSessions(id, currentUser.id);
+  }
+
+  // Unlike the public `POST /auth/resend-verification`, which must answer
+  // identically for a registered and an unregistered address, this one is
+  // called by staff who can already see the account — so it reports honestly.
+  @Post(':id/resend-verification')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('resendVerification', 'User', { isAdministrative: true })
+  @ApiOkResponse({ type: OperationAcknowledgementDto })
+  async resendVerification(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<OperationAcknowledgementDto> {
+    await this.usersService.resendVerificationForUser(id, currentUser.id);
+    return { isOk: true };
+  }
+}

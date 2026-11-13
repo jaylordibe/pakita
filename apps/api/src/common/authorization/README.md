@@ -1,0 +1,544 @@
+# Authorization contract (RBAC + CASL)
+
+This is the companion to `src/common/errors/README.md`. Read it before touching
+anything under `src/modules/authorization/` or any `@RequirePermission`
+decorator.
+
+---
+
+## The model in one paragraph
+
+A **permission** is a tuple `(action, subject, scope, ownership)` defined once
+in [`permission-catalog.ts`](./permission-catalog.ts). A **role** is a named
+bundle of permissions. A user holds PLATFORM roles through `user_roles`, and
+WORKSPACE roles through `workspace_memberships` — exactly one row per workspace, in
+any capacity. On every request, `PermissionsGuard` loads the caller's grants
+(Redis-cached, DB-backed) and compiles them into a single CASL `Ability`.
+Handlers declare what they need; queries enforce which rows the caller may touch.
+
+Most accounts hold **no platform role at all**. Self-service capability comes
+from `AUTHENTICATED_USER_PERMISSIONS`, which `AbilityFactory` injects for every
+authenticated caller — so a user with zero roles and zero memberships is a
+complete, working account rather than a broken one.
+
+The database is a **projection** of the catalog. The app refuses to boot if they
+disagree.
+
+---
+
+## Two principles
+
+Everything else follows from these. If you are about to violate one, stop.
+
+### 1. The DB stores *what*; the factory injects *where*
+
+A permission row records only an action and a subject. It **never** stores a
+condition. `AbilityFactory` derives the condition from the row's `scope` and
+`ownership` plus request context:
+
+| scope | ownership | CASL rule produced |
+|---|---|---|
+| `platform` | `any` | `can(action, subject)` — unconditional |
+| `platform` | `own` | `can(action, subject, { [ownerKey]: userId })` |
+| `workspace` | (always `any`) | `can(action, subject, { [tenantKey]: workspaceId })` |
+
+`ownerKey` and `tenantKey` come from [`subject-key.ts`](./subject-key.ts).
+
+This is why `permissions` has no `condition` column, and why you never write a
+template language into Postgres.
+
+### 2. The guard proves a rule *exists*; the query proves the row is *reachable*
+
+A guard runs **before** the record is loaded. CASL, by design, ignores rule
+conditions when you check against a subject *type* rather than an *instance*:
+
+```ts
+ability.can('update', 'Workspace')                          // type     → ignores conditions
+ability.can('update', subject('Workspace', loadedRow))      // instance → evaluates them
+```
+
+So **tenant isolation cannot live in a guard.** It lives in the query, via
+`AbilityScopedQueryService`. A row the caller may not reach is never loaded, so
+they get a 404 rather than a 403 — which is also the right answer, since a 403
+confirms the record exists.
+
+---
+
+## ⚠️ The Prisma empty-`OR` landmine
+
+Last verified against Prisma 7.7 + Postgres 16; re-verify the table after a
+Prisma major or minor upgrade. When a caller holds **no** rules for
+a subject, `accessibleBy(...).ofType(M)` returns `{ OR: [] }`. Prisma's handling
+depends on *where that fragment sits*:
+
+| shape | SQL | result |
+|---|---|---|
+| `{ OR: [] }` | `WHERE 1=0` | ✅ matches nothing |
+| `{ id, OR: [] }` (sibling key) | `WHERE 1=0` | ✅ matches nothing |
+| `{ AND: [{ id }, { OR: [] }] }` | `WHERE id = …` | 🚨 **empty OR dropped** |
+| `{ AND: [{ OR: [] }] }` | `WHERE 1=1` | 🚨 **returns every row** |
+
+The obvious merge — `where: { AND: [callerWhere, fragment] }` — is a **total
+authorization bypass** for any principal with no rules on that subject.
+
+The only safe composition spreads the fragment at the top level:
+
+```ts
+{ ...accessibleBy(ability, action).ofType(model), AND: [callerWhere] }
+```
+
+`AbilityScopedQueryService` is the single place this is written. It fails closed
+twice more (rule-existence check, then an explicit empty-`OR` check), and
+`ability-scoped-query.service.spec.ts` asserts the emitted **shape** so a
+refactor breaks the build instead of the tenant boundary. **An ESLint rule
+forbids importing `@casl/prisma` anywhere else.**
+
+For "no grant means empty, not forbidden", the empty-set filter is
+`{ id: { in: [] } }` — it compiles to `WHERE 1=0` *and* survives `AND` nesting.
+
+---
+
+## Declaring authorization on a handler
+
+Every handler carries **exactly one** of these. A handler with none fails the
+boot-time route audit and the application refuses to start.
+
+```ts
+@Public()                                     // anonymous
+@AuthenticatedOnly()                          // valid JWT, no subject to check
+@RequirePermission(action, subject, options)  // typed against the catalog
+```
+
+`@RequirePermission` attaches its own Swagger responses, so a protected route
+cannot be documented as open. Its arguments are typed, so a typo is a **compile
+error**, not a runtime 403.
+
+### `options.isAdministrative`
+
+Marks a route that acts on records the caller does not own.
+
+Without it, the intrinsic `update User (own)` that EVERY authenticated caller
+holds would pass the guard on `PATCH /users/:id` — a rule *does* exist, and the
+guard cannot see its
+condition. With it, the guard demands a granting rule that is **not**
+owner-conditioned. Tenant-conditioned rules still qualify: a `WORKSPACE_ADMIN`
+administers a roster it does not personally own.
+
+### `options.isDeniedAsNotFound`
+
+Answer a caller holding **no** grant on this subject as though the resource does
+not exist — empty page for a list, 404 for a record — rather than 403.
+
+Two reasons. It is *truthful*: a user who belongs to no workspace is not
+forbidden from listing workspaces, they have none. And it is *consistent*:
+without it, a user **with** a workspace gets 404 on someone else's workspace (the
+query filters it out) while a user with **none** gets 403 from the guard — the
+same request answered two ways depending on state the caller cannot see.
+
+A list under `/workspaces/:workspaceId/…` goes further: its service calls
+`AbilityScopedQueryService.assertWorkspaceReachable` first, so a stranger to
+that workspace gets 404 rather than an empty page. An ownable subject
+(`WorkspaceMembership`) cannot use it: every caller holds an own-row rule, so
+its list stays an empty page for a stranger.
+
+### 404 vs 403 — the rule
+
+```
+cannot READ the record        → 404   (never confirm existence across a tenant)
+can read it, cannot act on it → 403   (they already see it; a 404 would be a lie)
+```
+
+See `WorkspacesService.findById` + `assertMayAct` for the canonical shape.
+
+### `PermissionCheckService` — the one narrow exception
+
+`assertCan(ability, action, subjectType, record)` checks an **already-loaded**
+record, for the single case a `where` clause cannot express: derived ownership
+needing a join ("I may edit this booking because I own the workspace that owns
+it") — load the parent, then assert against it. Everything else stays in the
+query, because a filtered read never loads the cross-tenant row and yields the
+404 the rule above requires.
+
+Its other method, `createAbilityForUser(userId)`, exists for work with **no HTTP
+request** (queue handlers, `prisma/scripts/`). Inside a request use
+`@CurrentAbility()`, which the guard has already built — re-deriving it costs a
+Redis round trip for nothing. Reaching for either one to avoid scoping a list
+query is the failure mode this split exists to prevent.
+
+---
+
+## Adding a permission
+
+1. Add a `PermissionDefinition` to `PERMISSION_CATALOG`.
+2. Grant it to the relevant roles in `ROLE_DEFINITION_CATALOG`.
+3. `yarn rbac:sync` (idempotent: inserts, updates descriptions, deletes orphans).
+4. Use it: `@RequirePermission('yourAction', 'YourSubject')`.
+
+`yarn rbac:check` verifies the database matches; CI runs it, and the deploy's
+`migrate` service runs `rbac:sync` after `prisma migrate deploy`. **The app will
+not boot on drift**, so catalog projection is a deploy step, never a manual one.
+
+`yarn prisma:seed` = `rbac:sync` + the bootstrap admin/demo users. It needs
+`SEED_*` env; `rbac:sync` needs only `DATABASE_URL`. Deploys run the latter.
+
+**Never hand-edit `permissions` or seeded `roles` rows.** They are code.
+
+## Adding a workspace-scoped model
+
+1. Add the Prisma model with a `workspaceId` column.
+2. Add its name to `AUTHORIZATION_SUBJECTS`.
+3. Register its tenant key in `SUBJECT_TENANT_KEY` (one line).
+4. Add it to `WhereInputBySubject` in `ability-scoped-query.service.ts`.
+5. Read it through `AbilityScopedQueryService`. Never `prisma.<model>.findUnique`
+   with a raw id.
+
+Steps 2–4 are enforced by the compiler; step 5 by the ESLint rule.
+
+## Adding an owner-scoped model
+
+1. Add the Prisma model with the owning user's id column.
+2. Add its name to `AUTHORIZATION_SUBJECTS` and register the column in
+   `SUBJECT_OWNER_KEY`.
+3. Build list and record visibility through `AbilityScopedQueryService`.
+4. Derive owner and actor fields from the authenticated context — never accept
+   a client-supplied owner id as authoritative.
+
+A model that is both owner- and workspace-scoped registers both keys; see
+[One membership per person per workspace](#one-membership-per-person-per-workspace)
+for how the two rules compose.
+
+## Roles are code — there is no runtime role API
+
+`GET /roles`, `GET /roles/:id` and `GET /permissions` are the only
+role-*definition* endpoints (assignment is `POST`/`DELETE /users/:userId/roles`
+and workspace memberships). There is no `POST`, `PATCH`, or `DELETE` on a role, and their absence is the feature: an operator who
+can add `platform.all.manage` to a role they already hold has made themselves an
+admin with no diff for anyone to review.
+
+Two things also make a runtime role API structurally unworkable here.
+`PermissionCatalogIntegrityService` refuses to boot when the database and the
+catalog disagree, and the seeder reconciles every seeded role's grants back to
+the catalog — so a custom role's permissions would be reverted by the next
+deploy anyway.
+
+`GET /roles?assignableIn=<workspaceId>` narrows the list to workspace-scoped
+roles at or below the caller's rank there. It does not apply the `assignRole`
+authority bound (see the escalation guard), so a caller without `assignRole` may
+still be offered roles the write path refuses. That is ergonomics, not a control — the ceiling is enforced on write regardless — but a
+picker that only offers reachable options is the difference between a boundary
+users understand and one they probe.
+
+---
+
+## The escalation guard
+
+`assignRole`, `suspend`, and `transferOwnership` are permissions distinct from
+`update`, because CASL's `manage` wildcard would otherwise swallow all three —
+and `manage WorkspaceMembership` would let a `WORKSPACE_ADMIN` promote itself to
+owner.
+
+**No WORKSPACE-scoped role holds `manage`, including `WORKSPACE_OWNER`.** The
+owner genuinely holds every verb today, so `manage` would be equivalent *right
+now* — and would silently grant whatever verb is added to the vocabulary next,
+with nobody reviewing that decision. `permission-catalog.spec.ts` asserts it.
+
+On top of the permission, `rank` bounds it:
+
+> You may grant, or act upon, a role **at or below** your own rank — never one
+> above it.
+
+A second bound applies first: a caller without `assignRole WorkspaceMembership`
+(e.g. `WORKSPACE_MANAGER`, who holds `create WorkspaceMembership`) may hand out
+only `WORKSPACE_STAFF` — otherwise at-or-below would let a manager appoint peer
+managers without the permission that governs roles. Both bounds live in
+`WorkspaceRoleAssignmentPolicy` and apply to memberships and invitations alike.
+
+At-or-below is deliberate. A lateral grant is not an escalation (a
+`WORKSPACE_ADMIN` minting a peer admin gains nothing it lacked), and
+strictly-below would make appointing a co-owner impossible — which would in turn
+make the last-owner invariant's advice ("promote another member first")
+unreachable.
+
+`rank` orders roles **for this check only**. It does *not* imply inherited
+permissions. `WORKSPACE_ADMIN` does not contain `WORKSPACE_STAFF`, and
+`PLATFORM_ENGINEER` (rank 90) holds no governance despite outranking both
+support roles — it is deliberately never granted `assignRole User`, so the
+highest *technical* authority on the platform cannot promote itself into the
+highest *governance* authority. Every role's grants are listed explicitly.
+Conflating "outranks" with "inherits" is how RBAC systems rot.
+
+The ceiling is measured against the caller's **ACTIVE** membership. A suspended
+owner still reads rank 100 on paper and must hold nothing in fact.
+
+---
+
+## Caching and invalidation
+
+Grants (not abilities — CASL rules don't round-trip through JSON) are cached in
+Redis under `authz:v1:grants:{epoch}:{userId}`.
+
+| change | invalidation |
+|---|---|
+| platform role assigned or revoked | `DEL` that one key |
+| membership added, role changed, suspended, reactivated, or ended | `DEL` that one key |
+| invitation accepted | `DEL` the acceptor's key |
+| ownership transferred | `DEL` **both** parties' keys |
+| workspace soft-deleted | `DEL` every membership holder's key — every status, not just active, since a cached set written while they were active may still be live |
+| a **role's** permission set changes | `INCR authz:epoch` — retires every cached grant at once |
+
+Version the key (`v1` above) whenever `AuthorizationGrants` changes shape.
+During a rolling deploy both builds are live at once, so without it the new code
+reads an entry the old code wrote, deserializes it into a shape whose fields are
+now `undefined`, and mis-authorizes for the rest of that key's TTL.
+
+TTL (`AUTHORIZATION_GRANTS_CACHE_TTL_SECONDS`, default 300) is a **backstop for
+a missed invalidation**, not the correctness mechanism. Redis being unavailable
+falls through to the database — never to "allow".
+
+Grants are **not** embedded in the JWT: a revoked role takes effect on the next
+request, not when the access token expires.
+
+---
+
+## Client-side ability sync
+
+`GET /users/me/permissions` returns the caller's packed CASL rules:
+
+```ts
+import { createMongoAbility, subject } from '@casl/ability';
+import { unpackRules } from '@casl/ability/extra';
+
+const { rules } = await api.get('/users/me/permissions');
+const ability = createMongoAbility(unpackRules(rules));
+
+ability.can('update', subject('Workspace', workspace));  // same verdict as the server
+```
+
+One catalog, both sides. `test/authorization.e2e-spec.ts` asserts the rebuilt
+client ability agrees with the server decision-for-decision. Client checks are a
+**UI affordance**; the server re-checks everything on every request.
+
+---
+
+## One membership per person per workspace
+
+`WorkspaceMembership` is the **only** relationship between a person and a
+workspace, and every workspace role is a membership holding a different `roleId`.
+`@@unique([workspaceId, userId])` is unconditional, so a person holds exactly one
+role in a given workspace.
+
+That constraint is a real product decision, not an accident. It buys a
+membership model with one table, one lifecycle, and one authorization path; it
+costs the ability to give one person two relationships with the same workspace.
+If your product needs a second relationship (its own clients, for example),
+model it as its own project-specific resource and leave `WorkspaceMembership`
+for authority.
+
+It is the one subject in **both** key maps, and that duality is the design:
+
+```ts
+SUBJECT_OWNER_KEY  = { …, WorkspaceMembership: 'userId'     }  // your own row
+SUBJECT_TENANT_KEY = { …, WorkspaceMembership: 'workspaceId' }  // the whole roster
+```
+
+The rules OR-compose, so one endpoint serves both audiences with no branching:
+`GET /workspaces/:workspaceId/memberships` returns their single row to a member
+without roster access, the whole tenant to a roster reader, and everything to a platform admin. Because the
+subject is ownable *and* tenant-scoped, `PermissionsGuard` checks a stub carrying
+**both** keys — see `buildTenantStub`. Supplying only the tenant key would
+silently deny a member whose rule is conditioned on `userId`.
+
+### Lifecycle
+
+`WorkspaceMembershipStatus` is `active ⇄ suspended → left` (and `left → active`
+on re-join); there is no `invited` state — a pending invitation is a
+`workspace_invitations` row. The row is **never deleted**. `DELETE` ends a membership by moving it to `left`; a
+re-join moves that same row back to `active`. That is what lets the uniqueness
+constraint stay unconditional — soft deletion could not, because SQL treats
+`NULL != NULL`, so `@@unique([workspaceId, userId, deletedAt])` would accept two
+live rows while reporting itself unique.
+
+**Only `ACTIVE` confers authority**, filtered in `PermissionLoaderService`'s
+query and asserted again in `AbilityFactory`. It cannot live in a guard: a guard
+runs before the row is loaded and cannot see a status.
+
+### Adding a role without roster access
+
+The seeded workspace roles all read the roster. A product that needs a member
+who must not enumerate the others (a guest, a client) adds a role to
+`ROLE_DEFINITION_CATALOG` without `READ_WORKSPACE_MEMBERSHIP`: the intrinsic
+`READ_OWN_WORKSPACE_MEMBERSHIP` still returns their own row, and the roster query
+returns nothing else.
+
+To give such members authority over their own domain records, do **not** widen
+the membership role. Add the resource as its own subject:
+
+1. Add the Prisma model with a `userId` column (and `workspaceId` if staff also
+   read it).
+2. Add its name to `AUTHORIZATION_SUBJECTS`.
+3. Register `SUBJECT_OWNER_KEY` (and `SUBJECT_TENANT_KEY` if tenant-scoped).
+4. Define `own`-scoped PLATFORM permissions and add them to
+   `AUTHENTICATED_USER_PERMISSIONS` — or workspace-scoped ones granted to the
+   new role, if the authority should end when the membership does.
+5. Read it through `AbilityScopedQueryService`.
+
+The template ships no such role or module, because inventing one would be
+product surface masquerading as infrastructure.
+
+## Membership history
+
+`WorkspaceMembership` holds exactly one row per (workspace, user) pair, forever.
+That is what makes "one current role per person per workspace" a database
+constraint (`@@unique([workspaceId, userId])`) instead of an application
+convention, and it is worth the trade — but the trade is real and worth stating
+plainly:
+
+**The row is current state. It is not a ledger.** Somebody who leaves and later
+re-joins reuses the row they already have, so `status`, `roleId`, `joinedAt`, and
+`endedAt` are overwritten and the previous tenure is gone from the table.
+`joinedAt` means "when the current tenure began", never "when they first joined".
+
+**`audit_logs` is the history.** Every transition writes an immutable event:
+
+| Event | Written by |
+|---|---|
+| `workspace_membership.added` | `WorkspaceMembershipsService.add`, and `WorkspacesService.create` for the founding owner (`metadata.isFoundingOwner`) |
+| `workspace_invitation.accepted` | `WorkspaceInvitationsService.accept` |
+| `workspace_membership.ended` | `remove` — carries a full row snapshot |
+| `workspace_membership.suspended` / `.reactivated` | `suspend` / `reactivate` — full row snapshot |
+| `workspace_membership.role_changed` | `changeRole` |
+| `workspace_membership.ownership_transferred` | `transferOwnership` — carries `demotedUserIds` |
+
+The two events that overwrite a tenure (`added` and `invitation.accepted`) carry
+`metadata.isRejoin` and `metadata.previousTenure` — the replaced `status`,
+`roleName`, `joinedAt`, and `endedAt`.
+
+**Report on tenure from those events**, not from `joinedAt`.
+
+### …and this history is best-effort, not guaranteed
+
+State this plainly, because the obvious reading of the paragraph above is
+stronger than what the code delivers. `AuditService.record` catches and logs its
+own failures rather than throwing — deliberately, so a failed audit write can
+never fail the operation it describes — and it runs **after** the membership
+transaction has committed, not inside it. So a re-join can overwrite a tenure
+while the event recording it fails to persist. The window is small (the audit
+insert is a single statement against a table with no constraints to violate) but
+it is not closed, and no amount of care at the call sites closes it.
+
+The honest contract is therefore: **membership history is operationally useful
+and is not an authoritative record.** Good enough to answer "what happened to
+this person's membership?" during an investigation. Not good enough to be the
+system of record for anything with a legal or financial consequence.
+
+If a project needs guaranteed tenure — payroll, per-period billing, compliance
+reporting, anything someone can be sued over — the answer is **not** to make
+`AuditService` throw, which would let an audit outage take down membership
+management. It is an append-only membership-period table written **inside the
+same transaction** as the membership mutation, so the row and its history commit
+or fail together. Add that when a concrete requirement demands it, with its query
+patterns known.
+
+This template ships neither that table nor a second history mechanism, on
+purpose: two sources of truth for one question is worse than one imperfect source
+that says so.
+
+One more consequence to plan for: `audit_logs` has **no retention policy** here
+(see `docs/operations.md`). The day somebody adds one, membership history
+acquires the same horizon.
+
+## Invitations
+
+An invited email need not belong to a user yet, which is the entire reason
+`WorkspaceInvitation` is a separate model — `WorkspaceMembership.userId` is NOT
+NULL.
+
+**No membership row is written until acceptance.** When the address already has
+an account, the account id is recorded on the invitation as `invitedUserId` and
+nothing else changes. An earlier design wrote a placeholder `INVITED` membership
+to reserve the slot; because `@@unique([workspaceId, userId])` allows exactly one
+row per pair, that placeholder *overwrote* a former member's `joinedAt` and
+`endedAt` — so sending an invitation silently rewrote somebody's employment
+history. Everything the placeholder was for is held elsewhere: "one outstanding
+invitation per address" by the partial unique index on `workspace_invitations`,
+and "who is pending?" by `GET /workspaces/:id/invitations`.
+
+`POST /workspaces/:id/invitations/:invitationId/resend` rotates the token,
+extends the expiry, and re-mails it. It requires `create WorkspaceInvitation`,
+because resending is the same authority as inviting — same address, same role,
+same workspace. The token is **rotated, never re-sent**: re-mailing the same
+secret would leave every earlier copy live in every inbox it passed through.
+
+`POST /invitations/accept` is `@AuthenticatedOnly()`, not `@Public()`. Someone
+without an account registers through the ordinary `/auth/register` first, which
+keeps **one** registration policy (disposable-email rejection, verification)
+instead of forking a second account-creation path behind a bearer token. The token survives registration.
+
+The caller must be the invitee, or the token alone would be sufficient and a
+forwarded invitation would let anyone join. Which check applies is decided by
+what was true at invite time:
+
+- `invitedUserId` set — identity is the **account id**, not the address. The
+  invitee may have changed their email since, and somebody else may since have
+  registered the old one.
+- `invitedUserId` null — the address **is** the identity, so the caller must
+  have proven control of it (`emailVerifiedAt`). An unverified match is not
+  proof: changing your own email needs only your password, and that change
+  clears `emailVerifiedAt` while the access token issued beforehand keeps
+  working — so a forwarded token plus an email change would otherwise be a
+  complete bypass.
+
+Every failure raises the same error the unknown-token path raises, so a holder
+of somebody else's token learns nothing about whose it is.
+
+An invitation is the inviter's role assignment, deferred, so acceptance checks,
+under the workspace lock, two things the invitation cannot have known when it
+was sent:
+
+- **The inviter may still hand out that role.** The same checks as `create`,
+  applied to the inviter as they are now; a demoted, removed, deactivated or
+  deleted inviter's invitations are refused (`INVITATION_INVALID`).
+- **The invitee's membership now.** Only a former member (`left`) re-joins; a
+  current one, active or suspended, is refused with `RESOURCE_CONFLICT`, so a
+  stale link can never lift a suspension or change anyone's role. Suspending
+  or ending a membership also revokes that person's pending invitations to the
+  workspace, so a link sent before they were removed cannot bring them back.
+
+Acceptance is a
+conditional `UPDATE` out of `pending` inside the transaction that writes the
+membership, so two simultaneous redemptions produce exactly one membership and
+the loser's whole transaction rolls back.
+
+## Scope integrity lives in the factory, not the schema
+
+`AbilityFactory` branches on where a grant **arrived from**, never on what the
+permission claims to be — and the platform branch emits an *unconditional* rule.
+Workspace permissions are always `ANY`, so a workspace role assigned through
+`user_roles` would compile to platform-wide authority with no tenant bound.
+
+Both loops therefore drop any permission whose `scope` does not match the branch:
+
+```ts
+if (permission.scope !== RoleScope.PLATFORM) continue;   // platform loop
+if (permission.scope !== RoleScope.WORKSPACE) continue;   // membership loop
+```
+
+An earlier design carried a constant `scope` column plus a CHECK and a composite
+FK on each assignment table. That guarded the **write** only, and the escalation
+is on the **read** — it also could not see a stale grant set arriving from Redis,
+which this can, because it sits after the cache. `continue` rather than `throw`:
+a mis-scoped grant is a data fault, and failing the build would turn one bad row
+into an outage for that account.
+
+The write path still validates (`UserRolesService.loadPlatformRole`,
+`WorkspaceRoleAssignmentPolicy.loadAssignableRole`), and `ability.factory.spec.ts` asserts both
+directions.
+
+## Deliberate non-goals
+
+**No role hierarchy.** See the escalation guard above.
+
+**No per-user permission overrides.** Permissions flow only through roles.
+
+**No field-level CASL rules.** Response redaction stays with Response DTOs +
+`@Exclude()` + `@ApiHideProperty()` — one mechanism, not two.

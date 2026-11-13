@@ -1,0 +1,333 @@
+name: Test
+
+# Runs on pushes and PRs to the long-lived branches, and is reusable: deploy
+# workflows call it via `uses:` to gate a deploy.
+on:
+  push:
+    branches:
+      - main
+      - staging
+      - develop
+  pull_request:
+    branches:
+      - main
+      - staging
+      - develop
+  # Makes this workflow callable from other workflows as
+  # `jobs.<name>.uses: ./.github/workflows/test.yml`. Needed by the
+  # publish-image workflow, which gates every published image on a passing
+  # test run. No `inputs` or `secrets` are declared, and no
+  # `env:` either — all configuration comes from the committed `.env.test`
+  # (see the note on the `ci` job).
+  workflow_call:
+
+# Cancel in-flight runs for the same ref; the newer commit wins. Keyed on the
+# workflow too: when a deploy workflow calls this one, `github.workflow` is the
+# caller's name, so a push to `staging` running both the direct and the called
+# copy never cancels the deploy's gate.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default. Only read access to the repo. Individual jobs
+# can escalate if they ever need to (e.g., to push images to GHCR).
+permissions:
+  contents: read
+
+jobs:
+  # Every job below is independent, with no `needs:` between them — the deploy
+  # gate is bounded by the SLOWEST job, not by their sum. (Stated without a
+  # count on purpose: a number here goes stale the moment a job is added.)
+  #
+  # This structure is deliberately sized for where a project GOES, not for
+  # the handful of specs a fresh clone ships with. Retrofitting sharding into
+  # a grown codebase means restructuring CI, re-measuring shard balance and
+  # re-testing the harness under time pressure — once per project. Doing it
+  # here means every project born from this template inherits a pipeline that
+  # already scales, and the only knob anyone has to touch is the shard count.
+
+  # Everything that needs no database.
+  quality:
+    name: Lint, build, unit tests
+    runs-on: ubuntu-latest
+    # ~2.5x a green run. A timeout is a runaway-job guard, NOT a capacity
+    # knob: if it trips, something got stuck — find out what rather than
+    # raising the number.
+    timeout-minutes: 12
+
+    # NO `services:` block and NO inline `env:` block anywhere in this file —
+    # both are deliberate.
+    #
+    # `.env.test` is the SINGLE SOURCE OF TRUTH for test configuration, and
+    # the e2e harness loads it directly (test/setup/load-env.ts +
+    # global-setup.ts), in CI as much as locally. A job-level `env:` block
+    # would silently SHADOW the file — `dotenv.config()` never overrides an
+    # existing process.env value — so any key listed here becomes a second,
+    # invisible source that drifts out of step with what developers run.
+    #
+    # Service containers can't fix that either: they start BEFORE checkout,
+    # so their credentials can never be read from a repo file — they'd have
+    # to be retyped, which is the same duplication one layer down. Instead
+    # the backing services come from the very same docker-compose.yml
+    # developers run, fed the very same .env.test, so ports, credentials,
+    # images and healthchecks all have exactly one definition.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --silent
+        env:
+          # Suppress Node's "DEP0169 url.parse" warning emitted by
+          # yarn 1.x itself — yarn-internal, no upstream fix available.
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Generate Prisma client
+        run: yarn prisma:generate
+
+      # `lint`, never `lint:fix`. `eslint --fix` exits 0 after rewriting
+      # whatever it could repair — so a fixing linter in CI silently patches the
+      # runner's copy, passes, and throws the fixes away with the container.
+      # Formatting and every other auto-fixable rule would be enforced nowhere.
+      # `scripts/build-config-contract.spec.ts` asserts this step stays honest.
+      - name: Lint
+        run: yarn lint
+
+      - name: Build
+        run: yarn build
+
+      - name: Unit tests
+        run: yarn test --passWithNoTests
+
+      # Dependency advisories are deliberately NOT audited in this job. They
+      # belong to .github/workflows/security.yml, which the deploy workflows
+      # call alongside this one: scanning needs a weekly cadence as well as a
+      # per-PR one, and this workflow has no schedule to give it. The IMAGE
+      # scan does live here, in the `docker` job below — it needs the image
+      # that job builds.
+
+
+  # The e2e suite, split across independent runners.
+  #
+  # Two levels of parallelism compose. WITHIN a runner, jest runs
+  # `maxWorkers: 50%` processes, each against its own cloned database and its
+  # own Redis logical database (see test/setup/worker-isolation.ts). ACROSS
+  # runners, this matrix splits the spec files. A GitHub runner has 2 cores,
+  # so 50% is 1 worker there and sharding does the real work in CI — the
+  # in-runner parallelism is what keeps a developer's local full run fast.
+  #
+  # SHARD COUNT is the knob. `--shard` splits by FILE, not by duration, so
+  # splits are lumpy and more shards is not monotonically better — a reshuffle
+  # can regroup the slow specs and make things worse. Re-measure instead of
+  # guessing when the suite grows:
+  #
+  #   for s in 1 2 3 4; do yarn test:e2e --shard=$s/4 --listTests; done
+  #
+  # then weigh the slowest shard against ~2 min of per-shard install + build
+  # overhead. Four is a sane default here; a large suite may want more.
+  e2e:
+    name: E2E (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    # If a shard ever trips this, add a shard — don't raise the ceiling.
+    timeout-minutes: 15
+
+    strategy:
+      # One shard failing must not cancel the others: a partial result turns
+      # "which tests are broken?" into a second CI round-trip.
+      fail-fast: false
+      # The divisor below is `strategy.job-total`, so changing this list is
+      # the ONLY edit needed to re-shard — the two can never disagree.
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # The same compose file developers use, pointed at .env.test instead of
+      # .env — so CI gets Postgres on DB_PORT and Redis on REDIS_PORT WITH the
+      # same `--requirepass` auth, matching the URLs the tests will actually
+      # dial. (A GitHub `services:` container cannot express `redis-server
+      # --requirepass` at all — it accepts only docker-create options — which
+      # is a second reason to use compose.) `--wait` blocks on the healthchecks
+      # the compose file already defines.
+      #
+      # `yarn test:e2e` would start this itself via the `pretest:e2e` hook
+      # (idempotent, so this is not a double-start); it stays an explicit step
+      # so a failure to bring up the stack reads as a stack failure in the
+      # logs rather than as a mysterious test failure.
+      - name: Start Postgres + Redis from docker-compose.yml
+        run: docker compose --env-file .env.test up -d --wait postgres redis s3
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --silent
+        env:
+          # Suppress Node's "DEP0169 url.parse" warning emitted by
+          # yarn 1.x itself — yarn-internal, no upstream fix available.
+          NODE_OPTIONS: --no-deprecation
+
+      # Needed for the generated client the specs import. Deliberately no
+      # `yarn build`/`lint` here — ts-jest compiles the sources directly, and
+      # `quality` already covers those in parallel.
+      - name: Generate Prisma client
+        run: yarn prisma:generate
+
+      - name: E2E tests
+        run: yarn test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+      # Container logs are the first thing you want when the failure is
+      # "Postgres never came up" rather than "an assertion failed", and they
+      # are gone the moment the runner is torn down.
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose --env-file .env.test logs --no-color --tail=200
+
+  # The application refuses to boot when the permission catalog in the code
+  # and the rows in the database disagree, so this runs on a throwaway
+  # database rather than surfacing at deploy time when the healthcheck fails
+  # and the old container is already stopped. Its own job because it needs a
+  # database (so it can't live in `quality`) but has nothing to do with the
+  # e2e specs (so it shouldn't ride on an arbitrary shard).
+  authorization:
+    name: Authorization catalog in sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Makes .env.test visible to every LATER step, not just the jest
+      # processes that load it themselves — the authorization-catalog step
+      # below is a plain shell step and needs the same credentials. `set -a`
+      # exports each assignment; sourcing with bash also resolves the
+      # `${SERVICE_NAME}`-style references the file uses (the same expansion
+      # dotenv-expand does at runtime), so derived values land correctly.
+      #
+      # Nothing sensitive crosses a boundary here: every value in .env.test is
+      # a committed test-only constant (throwaway container credentials, a
+      # test JWT secret, blank third-party keys), which is precisely why the
+      # file can be the shared source for laptops and CI alike. Real secrets
+      # live in GitHub environments and are used by the deploy workflows.
+      - name: Load .env.test into the job environment
+        run: |
+          set -a
+          . ./.env.test
+          set +a
+          sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' .env.test |
+            sort -u |
+            while read -r key; do
+              printf '%s=%s\n' "$key" "${!key}" >> "$GITHUB_ENV"
+            done
+
+      # The same compose file developers use, pointed at .env.test instead of
+      # .env — so CI gets Postgres on DB_PORT and Redis on REDIS_PORT WITH the
+      # same `--requirepass` auth, matching the URLs the tests will actually
+      # dial. (A GitHub `services:` container cannot express `redis-server
+      # --requirepass` at all — it accepts only docker-create options — which
+      # is a second reason to use compose.) `--wait` blocks on the healthchecks
+      # the compose file already defines.
+      #
+      # `yarn test:e2e` would start this itself via the `pretest:e2e` hook
+      # (idempotent, so this is not a double-start); it stays an explicit step
+      # so a failure to bring up the stack reads as a stack failure in the
+      # logs rather than as a mysterious test failure.
+      - name: Start Postgres + Redis from docker-compose.yml
+        run: docker compose --env-file .env.test up -d --wait postgres redis s3
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --silent
+        env:
+          # Suppress Node's "DEP0169 url.parse" warning emitted by
+          # yarn 1.x itself — yarn-internal, no upstream fix available.
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Generate Prisma client
+        run: yarn prisma:generate
+
+      # Credentials/host/port come from .env.test (loaded above) — never
+      # retyped here, or this step would drift from the stack it connects to.
+      # Only the throwaway database NAME is local to this step, so the check
+      # can't disturb the e2e databases on the same server.
+      - name: Authorization catalog is in sync
+        run: |
+          RBAC_DB_NAME="${DB_NAME}_rbac_check"
+          export DB_NAME="$RBAC_DB_NAME"
+          export DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${RBAC_DB_NAME}?schema=public"
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres \
+            -c "DROP DATABASE IF EXISTS \"$RBAC_DB_NAME\";" \
+            -c "CREATE DATABASE \"$RBAC_DB_NAME\";"
+          yarn prisma:deploy
+          yarn rbac:sync
+          yarn rbac:check
+
+
+  docker:
+    name: Build & scan container image
+    runs-on: ubuntu-latest
+    # Deliberately NOT gated on `ci`. Gating appended its whole runtime to
+    # every deploy; running it in parallel takes that off the critical path.
+    # The cost is a wasted image build on runs where tests fail — a few cached
+    # minutes, against minutes saved on every green deploy.
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: nestjs-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Trivy scans the built image for CVEs in OS packages and node modules.
+      # Fails on HIGH or CRITICAL; MEDIUM is reported but non-blocking.
+      # `ignore-unfixed: true` skips CVEs with no available patch so the
+      # build doesn't red-light on findings you literally cannot fix.
+      #
+      # The only exact-version `uses:` in this repo — everything else tracks a
+      # moving major tag (`@v7`). Two reasons, both load-bearing: upstream
+      # publishes no moving major tag at all (there is no `@v0`/`@v0.36`, only
+      # `vX.Y.Z`), so an alias here would simply fail to resolve; and this is a
+      # `composite` action, not a JavaScript one, so it has no Node runtime and
+      # was untouched by the Node 20 deprecation that moved every other action
+      # in these workflows. Bump it deliberately, not as part of a sweep.
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: nestjs-api:ci
+          format: table
+          exit-code: '1'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          # Documented, dated risk acceptances (mirrors the source-side audit
+          # allowlist in .github/scripts/audit-gate.mjs). Ships empty — an
+          # entry here is the image-side half of the same last-resort decision.
+          trivyignores: '.trivyignore'

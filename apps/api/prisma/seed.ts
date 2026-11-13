@@ -1,0 +1,149 @@
+import '../src/config/app-timezone';
+import 'dotenv/config';
+import { expand } from 'dotenv-expand';
+import * as dotenv from 'dotenv';
+import * as bcrypt from 'bcrypt';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
+import { SeededRoleName } from '../src/common/enums/seeded-role-name.enum';
+import {
+  accountPasswordMessage,
+  isAccountPassword,
+} from '../src/common/util/account-password.util';
+import { assignPlatformRole, seedPermissions, seedRoles } from './rbac-seeder';
+
+// Load .env (with ${VAR} expansion) before touching process.env, matching
+// how the runtime app bootstraps via @nestjs/config + prisma.config.ts.
+expand(dotenv.config({ override: false }));
+
+// Same cost factor as UsersService. Keep in sync if that constant changes.
+const BCRYPT_ROUNDS = 12;
+
+interface SeedUser {
+  label: string;
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  // PLATFORM-scope roles granted through `user_roles`. Empty for an ordinary
+  // account — platform roles are staff roles, and self-service capability comes
+  // from AUTHENTICATED_USER_PERMISSIONS rather than from a row here.
+  platformRoles: readonly SeededRoleName[];
+}
+
+function readSeedUser(
+  prefix: 'ADMIN' | 'USER',
+  firstName: string,
+  lastName: string,
+  platformRoles: readonly SeededRoleName[],
+): SeedUser {
+  const emailKey = `SEED_${prefix}_EMAIL`;
+  const passwordKey = `SEED_${prefix}_PASSWORD`;
+  const email = process.env[emailKey];
+  const password = process.env[passwordKey];
+
+  if (!email || !password) {
+    throw new Error(
+      `${emailKey} and ${passwordKey} must be set before running the seeder. ` +
+        `Set them in .env for local dev or in your deploy environment for staging/prod.`,
+    );
+  }
+
+  // The rule every account password passes. Checked here because the seeder
+  // bypasses the validation pipe: a typo'd env var must not install a 4-char
+  // admin password.
+  if (!isAccountPassword(password)) {
+    throw new Error(accountPasswordMessage(passwordKey));
+  }
+
+  return {
+    label: prefix.toLowerCase(),
+    email,
+    password,
+    firstName,
+    lastName,
+    platformRoles,
+  };
+}
+
+async function upsertSeedUser(
+  prisma: PrismaClient,
+  user: SeedUser,
+): Promise<void> {
+  const email = user.email.toLowerCase();
+  // `findFirst`: email is unique only among live rows (partial index).
+  const existing = await prisma.user.findFirst({ where: { email } });
+
+  let userId: string;
+  if (existing) {
+    // Idempotent re-run: don't clobber anything. If an operator has
+    // manually rotated the seeded admin's password, a repeat seed should
+    // not reset it.
+    console.log(
+      `[seed] ${user.label}: already exists (${email}) — leaving as is.`,
+    );
+    userId = existing.id;
+  } else {
+    const created = await prisma.user.create({
+      data: {
+        email,
+        password: await bcrypt.hash(user.password, BCRYPT_ROUNDS),
+        passwordChangedAt: new Date(),
+        firstName: user.firstName,
+        lastName: user.lastName,
+        emailVerifiedAt: new Date(),
+      },
+    });
+    console.log(
+      `[seed] ${user.label}: created ${created.email} (${created.id})`,
+    );
+    userId = created.id;
+  }
+
+  // Role links are reconciled on every run even for a pre-existing user, so a
+  // seeded admin that predates RBAC picks up its `user_roles` rows.
+  for (const roleName of user.platformRoles) {
+    await assignPlatformRole(prisma, userId, roleName);
+  }
+  console.log(
+    `[seed] ${user.label}: platform role(s) ${user.platformRoles.join(', ')} in sync`,
+  );
+}
+
+async function main(): Promise<void> {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not set. Cannot seed.');
+  }
+
+  // Platform roles are STAFF roles. The ordinary seed user deliberately gets
+  // NONE — that is the shape of a real account, and seeding one proves the
+  // claim that a user with no platform role and no membership is fully
+  // functional. Self-service capability comes from
+  // AUTHENTICATED_USER_PERMISSIONS, which the ability factory grants to every
+  // authenticated caller rather than from any row in `user_roles`.
+  const admin = readSeedUser('ADMIN', 'Admin', 'User', [
+    SeededRoleName.PLATFORM_ADMIN,
+  ]);
+  const user = readSeedUser('USER', 'Regular', 'User', []);
+
+  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+  const prisma = new PrismaClient({ adapter });
+
+  try {
+    // Order matters: roles reference permissions, users reference roles.
+    await seedPermissions(prisma);
+    await seedRoles(prisma);
+    await upsertSeedUser(prisma, admin);
+    await upsertSeedUser(prisma, user);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+main().catch((error: unknown) => {
+  console.error(
+    '[seed] failed:',
+    error instanceof Error ? error.message : error,
+  );
+  process.exit(1);
+});

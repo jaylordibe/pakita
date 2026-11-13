@@ -1,0 +1,27 @@
+# Trivy vulnerability exceptions. Read by BOTH Trivy jobs: the production image
+# scan (the `docker` job in .github/workflows/test.yml) and the working-tree
+# scan (the `trivy-fs` job in .github/workflows/security.yml), so an entry here
+# suppresses a finding in both. Each entry is a conscious,
+# documented risk acceptance — keep the rationale and review date current, and
+# remove the entry the moment its upgrade path opens up. Mirror any change here
+# in the dependency-audit allowlist (.github/scripts/audit-gate.mjs), which
+# gates the same advisories from the source side.
+#
+# EMPTY BY DEFAULT, and it should stay that way as long as possible. Note that
+# the scan already passes `ignore-unfixed: true`, so anything listed here is a
+# vulnerability that HAS a published fix which you are choosing not to take —
+# that needs a stronger justification than "no patch available".
+#
+# Format is one identifier per line, with the rationale in comments above it:
+#
+#   # CVE-2026-00000 — <package>: <what the vulnerability is>.
+#   # <Why no upgrade path exists, and why it is not exploitable in THIS image.>
+#   # Review by 2026-12-31 — <what would let this be dropped>.
+#   CVE-2026-00000
+
+# CVE-2026-109461 — @azure/msal-node: the auth_code flow can disclose parameters
+# to an attacker-chosen endpoint. Fixed only in 7.1.0, which no @azure/identity
+# release accepts yet. Unreachable here; the full rationale is the matching
+# entry in .github/scripts/audit-gate.mjs.
+# Review by 2026-12-31 — drop once @azure/identity accepts msal-node >=7.1.0.
+CVE-2026-109461 exp:2026-12-31

@@ -1,0 +1,602 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                      String    @id @default(uuid()) @db.Uuid
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  createdBy               String?   @map("created_by") @db.Uuid
+  updatedBy               String?   @map("updated_by") @db.Uuid
+  deletedAt               DateTime? @map("deleted_at")
+  deletedBy               String?   @map("deleted_by") @db.Uuid
+  isActive                Boolean   @default(true) @map("is_active")
+  firstName               String    @map("first_name")
+  middleName              String?   @map("middle_name")
+  lastName                String    @map("last_name")
+  // Unique among LIVE rows only, via partial indexes declared in the users
+  // migration (`WHERE deleted_at IS NULL`). A plain @unique would let a
+  // soft-deleted account hold its email/username hostage forever. Prisma
+  // cannot express a partial unique index, so these must NOT carry @unique
+  // or migrate would manage a conflicting full index. Look them up with
+  // `findFirst`, never `findUnique`.
+  //
+  // Why not `@@unique([email, deletedAt])` to get `findUnique` back? Because in
+  // SQL `NULL != NULL`: Postgres treats every live row's (email, NULL) as
+  // distinct, so that constraint would accept TWO live users with the same
+  // email while still reporting `indisunique = true`. Silent, and worse than
+  // the type error it avoids. `UNIQUE ... NULLS NOT DISTINCT` (PG 15+) fixes it
+  // but Prisma never emits it, so migrate would fight you forever.
+  //
+  // And `findFirst` costs nothing: `WHERE email = $1 AND deleted_at IS NULL`
+  // is an index scan on the partial index (3 buffers over 20k rows). It is the
+  // same plan `findUnique` would produce. Dropping the `deletedAt` predicate —
+  // i.e. using the raw client — is what turns it into a seq scan.
+  username                String?
+  email                   String
+  password                String
+  passwordChangedAt       DateTime? @map("password_changed_at")
+  otpHash                 String?   @map("otp_hash")
+  otpPurpose              String?   @map("otp_purpose")
+  otpExpiresAt            DateTime? @map("otp_expires_at")
+  emailVerifiedAt         DateTime? @map("email_verified_at")
+  // `phoneNumber` may be set without verification (e.g. via admin
+  // create or `PATCH /users/me/phone`); `phoneNumberVerifiedAt` is
+  // stamped only when the OTP flow completes (POST
+  // /users/me/request-phone-verification → PATCH /users/me/verify-phone).
+  // Plain phone updates clear the verifiedAt — the new number hasn't
+  // been proven owned, so any prior verified state is no longer valid.
+  phoneNumber             String?   @map("phone_number")
+  phoneNumberVerifiedAt   DateTime? @map("phone_number_verified_at")
+  gender                  String?
+  // The stored file shown as this person's picture. Unique: an attached file
+  // belongs to exactly one reference (see `FileAsset`). Set only through
+  // `PUT`/`DELETE /users/me/profile-image` with the id `POST /files` returned.
+  profileImageFileAssetId String?   @unique @map("profile_image_file_asset_id") @db.Uuid
+  birthday                DateTime? @db.Date
+  timezone                String?
+
+  deviceTokens          DeviceToken[]
+  // PLATFORM-scope role assignments. WORKSPACE-scope roles live on
+  // `workspaceMemberships` instead; `AbilityFactory` refuses to compile a
+  // permission that arrives through the wrong one.
+  //
+  // A user may hold NO platform role at all and still be a complete,
+  // functioning account: their self-service capabilities come from
+  // AUTHENTICATED_USER_PERMISSIONS, which the ability factory injects for
+  // every authenticated caller rather than from a row in this table.
+  userRoles             UserRole[]
+  // Every workspace this person belongs to, in any role, active or ended. One
+  // row per workspace, forever.
+  memberships           WorkspaceMembership[]
+  // Invitations this person sent. Distinct from `memberships` because an
+  // inviter is not necessarily still a member by the time it is accepted.
+  sentInvitations       WorkspaceMembership[] @relation("WorkspaceMembershipInviter")
+  // Invitations addressed to this person, resolved when the invite was raised.
+  receivedInvitations   WorkspaceInvitation[] @relation("WorkspaceInvitationInvitee")
+  refreshTokens         RefreshToken[]
+  /// RESTRICT, not SetNull: the file ROW cannot be deleted while this column
+  /// points at it. Its object is protected by `FilesService.markDeleting`'s
+  /// contract instead — the release clears this column in the same transaction.
+  profileImageFileAsset FileAsset?            @relation("UserProfileImage", fields: [profileImageFileAssetId], references: [id], onDelete: Restrict)
+  uploadedFiles         FileAsset[]           @relation("FileAssetUploader")
+
+  @@map("users")
+}
+
+/// One stored file: its details and its lifecycle, in one row.
+///
+/// `POST /files` creates the row (`processing`), writes the object, and marks it
+/// `ready` with an `expiresAt`. A resource then ATTACHES it by id in a JSON
+/// request — one conditional UPDATE from `ready` to `attached`, so an id is
+/// consumed exactly once. A `ready` file that is never attached expires, and the
+/// cleanup job removes it.
+///
+/// Ownership: until attached, a file belongs to `uploadedBy` and only they can
+/// attach it. Once attached it belongs to exactly ONE reference (each
+/// referencing column is unique). Detaching it — replace, remove, account
+/// erasure — marks it `deleting` in the same transaction that clears the
+/// reference; the cleanup job deletes the object and then the row. A
+/// `deleting` row is the durable record that an object still has to go, so a
+/// failed delete is retried rather than forgotten.
+///
+/// `storageKey` is recorded BEFORE the object is written, so no object exists
+/// that no row knows about, and is never returned by the API.
+model FileAsset {
+  id             String    @id @default(uuid()) @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  uploadedBy     String    @map("uploaded_by") @db.Uuid
+  // `FilePurpose` — decides which content is accepted and what may attach it.
+  purpose        String
+  // `FileAssetStatus`.
+  status         String    @default("processing")
+  storageKey     String    @unique @map("storage_key")
+  // `FileKind`.
+  kind           String
+  // Server-determined from the inspected content, never the client's header.
+  contentType    String    @map("content_type")
+  // Null until the processed bytes are written.
+  sizeBytes      Int?      @map("size_bytes")
+  width          Int?
+  height         Int?
+  // User content: the client's file name, reduced to a safe display form.
+  fileName       String    @map("file_name")
+  // Set exactly while `ready` (CHECK in the migration): the moment an
+  // unattached file stops being attachable.
+  expiresAt      DateTime? @map("expires_at")
+  attachedAt     DateTime? @map("attached_at")
+  deleteAttempts Int       @default(0) @map("delete_attempts")
+
+  /// RESTRICT: users are soft-deleted or anonymised, never hard-deleted, and a
+  /// hard delete must not drop rows whose objects are still in storage.
+  uploader        User  @relation("FileAssetUploader", fields: [uploadedBy], references: [id], onDelete: Restrict)
+  profileImageFor User? @relation("UserProfileImage")
+
+  /// The cleanup job's claim: `ready` rows past `expires_at`, and `processing`
+  /// and `deleting` rows by age.
+  @@index([status, expiresAt])
+  /// The per-user quota count of unattached files, and the index behind the
+  /// RESTRICT FK.
+  @@index([uploadedBy, status])
+  @@map("file_assets")
+}
+
+/// One issued refresh token.
+///
+/// The access token is a short-lived, stateless JWT; this table is the
+/// long-lived half of a session and the authority on whether it is still alive.
+/// That split is the whole point: a stateless token cannot be revoked before it
+/// expires, so it is made cheap to lose by keeping it brief, and the durable
+/// credential is kept somewhere it CAN be revoked.
+///
+/// Why a row rather than a second JWT: a refresh token must be revocable, and a
+/// revocable JWT needs a server-side blocklist anyway. Since the store is
+/// unavoidable, an opaque random string with the store as the single source of
+/// truth is simpler than a signed token plus a store that can disagree with it.
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  /// When the session decision was made — written EXPLICITLY by
+  /// `RefreshTokenService.persist`, not left to the default.
+  ///
+  /// The same instant is signed into the accompanying access token's `iat`, so
+  /// both halves of one session agree about when it began. Letting Postgres
+  /// evaluate `now()` at INSERT time instead would put the row a hair after the
+  /// value the token carries, and the two can straddle a second boundary. The
+  /// default remains for rows written outside that path.
+  createdAt  DateTime  @default(now()) @map("created_at")
+  userId     String    @map("user_id") @db.Uuid
+  /// SHA-256 of the opaque token, hex-encoded. The token itself is returned to
+  /// the client once, at issue, and never stored — a database disclosure must
+  /// not hand over usable sessions.
+  ///
+  /// SHA-256 rather than bcrypt on purpose: this value is 256 bits of CSPRNG
+  /// output, not a human-chosen password, so there is no guessing attack for a
+  /// slow KDF to frustrate. A fast digest also keeps the refresh path from
+  /// becoming a CPU-bound denial-of-service lever.
+  tokenHash  String    @unique @map("token_hash")
+  /// The session chain. Rotation issues a new row carrying the same familyId,
+  /// so an entire lineage can be revoked together when replay is detected.
+  familyId   String    @map("family_id") @db.Uuid
+  expiresAt  DateTime  @map("expires_at")
+  /// Stamped when this token is exchanged. Its presence is what makes replay
+  /// detectable: a second exchange of the same token means the token leaked,
+  /// because a well-behaved client discards it after a single use.
+  consumedAt DateTime? @map("consumed_at")
+  revokedAt  DateTime? @map("revoked_at")
+  /// Captured at issue for the audit trail — "which device was this?" is the
+  /// first question asked after a suspected token theft.
+  userAgent  String?   @map("user_agent")
+  ipAddress  String?   @map("ip_address")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  /// Supports the retention sweep that clears expired rows.
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// Everything the MCP OAuth authorization server (oidc-provider, see
+/// src/modules/mcp-oauth) persists: registered clients, grants, sign-in
+/// interactions and browser sessions, authorization codes, and access and
+/// refresh tokens. One table in the library's documented adapter shape, keyed
+/// by (model, id), because the library owns these records' lifecycle and
+/// schema; the app reads them only through the provider.
+///
+/// For the credential models (AuthorizationCode, AccessToken, RefreshToken)
+/// `id` is the SHA-256 of the value handed to the client and the payload never
+/// holds the value itself, so a database disclosure hands over no usable token.
+///
+/// No user foreign key: the user id lives in the payload. Deleting or erasing
+/// an account does not need to cascade, because every credential is refused at
+/// use once the account is inactive, deleted or past its session cutoff, and
+/// the retention sweep deletes rows past `expires_at`.
+model OAuthPayload {
+  model      String
+  id         String
+  payload    Json      @db.JsonB
+  /// The grant a token belongs to, so revoking a grant revokes all its tokens.
+  grantId    String?   @map("grant_id")
+  /// Device-flow user code. The device flow is off; kept because the adapter
+  /// interface looks records up by it.
+  userCode   String?   @map("user_code")
+  /// Interaction and session lookup key.
+  uid        String?
+  /// Null for records that never expire (registered clients).
+  expiresAt  DateTime? @map("expires_at")
+  /// Stamped when an authorization code or rotated refresh token is used, so
+  /// a second use is detected as replay.
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@id([model, id])
+  @@index([grantId])
+  @@index([uid])
+  /// Supports the retention sweep that clears expired rows.
+  @@index([expiresAt])
+  @@map("oauth_payloads")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Authorization (RBAC + CASL)
+//
+// `roles` and `permissions` are a projection of
+// `src/common/authorization/permission-catalog.ts`. Never hand-edit seeded
+// rows: the app refuses to boot when the catalog and the database disagree.
+//
+// A permission row records WHAT (action + subject) and never a condition.
+// `AbilityFactory` derives the WHERE from `scope` + `ownership` + request
+// context. That is why there is no `condition` column here.
+// ─────────────────────────────────────────────────────────────────────────
+
+model Workspace {
+  id          String    @id @default(uuid()) @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdBy   String?   @map("created_by") @db.Uuid
+  updatedBy   String?   @map("updated_by") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+  name        String
+  // Unique among live rows only, via a partial index (`WHERE deleted_at IS
+  // NULL`) declared in the workspaces migration — Prisma cannot express a partial
+  // unique index, so it must NOT carry `@unique` here or migrate would try to
+  // manage a conflicting full index. Look it up with `findFirst`, not
+  // `findUnique`.
+  slug        String
+  description String?
+  isActive    Boolean   @default(true) @map("is_active")
+
+  memberships WorkspaceMembership[]
+  invitations WorkspaceInvitation[]
+
+  @@map("workspaces")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  name        String   @unique
+  scope       String
+  // Orders roles for the privilege-escalation guard ONLY: you may assign a
+  // role AT OR BELOW your own rank, never one above it. A lateral grant is not
+  // an escalation — an admin appointing a peer admin gains nothing it did not
+  // already have. Rank does NOT imply inherited permissions; each role's
+  // grants are listed explicitly in the catalog.
+  rank        Int
+  description String?
+  // Every role is seeded and catalog-owned — there is no endpoint that creates
+  // one, so in practice this is always true. Retained as an explicit marker
+  // that the row is code-owned and will be reconciled by `yarn prisma:seed`.
+
+  permissions RolePermission[]
+  userRoles   UserRole[]
+  memberships WorkspaceMembership[]
+  invitations WorkspaceInvitation[]
+
+  @@index([scope])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  // Derived slug, e.g. `platform.user.update.own`. See `permissionName()`.
+  name        String   @unique
+  action      String
+  subject     String
+  scope       String
+  ownership   String
+  description String
+
+  roles RolePermission[]
+
+  @@unique([scope, action, subject, ownership])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid()) @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  createdBy    String?  @map("created_by") @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Restrict, not Cascade: deleting a role must never silently strip people's
+  // access. It fails loudly until every holder is reassigned.
+  //
+  // Only PLATFORM-scoped roles belong here. That is enforced in
+  // `UserRolesService.loadPlatformRole` on the write path, and — the part that
+  // actually bounds authority — in `AbilityFactory`, which refuses to compile a
+  // permission whose scope does not match the branch it arrived in. A workspace
+  // permission reaching the platform branch would otherwise compile to an
+  // UNCONDITIONAL rule, because workspace permissions are always `ANY`.
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  /// Closes the otherwise-unindexed scan behind `ON DELETE RESTRICT` and the
+  /// holder count on a role. Same reasoning as `WorkspaceMembership.roleId`.
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+/// One person's relationship with one workspace — the ONLY such relationship
+/// there is. Every role is the same table distinguished by `roleId`, which is
+/// what makes the platform's tenancy model Slack-shaped: one global
+/// account, many workspaces, exactly one role in each.
+///
+/// The row is created once per (workspace, user) pair and then moves between
+/// lifecycle states forever. It is never deleted and never soft-deleted, so
+/// `@@unique([workspaceId, userId])` is an UNCONDITIONAL database constraint —
+/// see `WorkspaceMembershipStatus` for why soft deletion cannot express it.
+///
+/// **This row is CURRENT STATE, not a ledger.** One row per pair means a former
+/// member who re-joins reuses the row they already have: `status`, `roleId`,
+/// `joinedAt`, and `endedAt` are all overwritten, and the tenure that was there
+/// before is gone from the table. That is the deliberate trade for "exactly one
+/// current role per person per workspace" being a database constraint rather than
+/// an application convention.
+///
+/// The HISTORY lives in `audit_logs`. Every transition — join, re-join,
+/// invitation accepted, leave, suspend, reactivate, role change, ownership
+/// transfer — writes an event, and the two paths that overwrite a tenure
+/// (`WorkspaceMembershipsService.add` and `WorkspaceInvitationsService.accept`)
+/// carry the replaced tenure in `metadata.previousTenure`. Report on tenure from
+/// those events, never by reading `joinedAt` and assuming it is the first one.
+///
+/// That history is **best-effort, not authoritative**: `AuditService.record`
+/// swallows its own failures by design and runs after this transaction commits,
+/// so a re-join can overwrite a tenure whose event never lands. Fine for
+/// investigation; not a system of record. Guaranteed tenure needs an append-only
+/// period table written inside the same transaction — see
+/// `src/common/authorization/README.md`.
+///
+/// ONLY `status = 'active'` grants authority. That filter lives in
+/// `PermissionLoaderService`'s grant query, not in a guard: a guard runs before
+/// the row is loaded and therefore cannot see a status at all.
+///
+/// This subject is BOTH ownable (by the person, via `userId`) and tenant-scoped
+/// (by the workspace, via `workspaceId`). The two CASL rules OR-compose, so
+/// someone who owns one workspace and is a plain member of another gets exactly
+/// the union of the two — with no special case in application code. See
+/// SUBJECT_OWNER_KEY / SUBJECT_TENANT_KEY.
+model WorkspaceMembership {
+  id          String    @id @default(uuid()) @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdBy   String?   @map("created_by") @db.Uuid
+  updatedBy   String?   @map("updated_by") @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  roleId      String    @map("role_id") @db.Uuid
+  /// `WorkspaceMembershipStatus`. A plain String, per the no-DB-enums rule —
+  /// constrained by the TS enum and `@IsEnum`, so widening the lifecycle needs
+  /// no migration.
+  status      String    @default("active")
+  /// When the CURRENT tenure began. NOT NULL: a membership row exists only once
+  /// somebody has actually joined.
+  ///
+  /// Preserved across a suspend/reactivate cycle, so "member since" stays true
+  /// for the tenure in progress — but REWRITTEN when somebody who left re-joins,
+  /// because the row describes the relationship as it stands now. It is not
+  /// "first joined", and reporting that would be wrong for anyone on their
+  /// second stint. The replaced value is audited; see the note on this model.
+  joinedAt    DateTime  @map("joined_at")
+  /// When the current tenure ended. Set alongside `status = 'left'`, and cleared
+  /// when they re-join on the same row — at which point the closed tenure exists
+  /// only in `audit_logs`.
+  endedAt     DateTime? @map("ended_at")
+  invitedBy   String?   @map("invited_by") @db.Uuid
+  /// Staff-visible annotation on the relationship (preferences, allergies…).
+  /// Gated in the service: writable only by a caller who may `update` the
+  /// membership, never by the member themselves.
+  notes       String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Restrict, not Cascade: deleting a role must never silently strip access.
+  /// Scope integrity lives in `AbilityFactory` and the service layer — see the
+  /// note on `UserRole.role`.
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  /// SetNull, not Cascade: deleting the inviter's account must not delete the
+  /// membership they created.
+  inviter   User?     @relation("WorkspaceMembershipInviter", fields: [invitedBy], references: [id], onDelete: SetNull)
+
+  /// The tenancy invariant. Unconditional precisely because the row is never
+  /// removed — one relationship per person per workspace, in any state.
+  @@unique([workspaceId, userId])
+  /// Grant loading: every request resolves the caller's ACTIVE memberships.
+  @@index([userId, status])
+  /// Roster listing, and the owner-count check behind the last-owner invariant.
+  @@index([workspaceId, status])
+  /// Closes the otherwise-unindexed scan behind `ON DELETE RESTRICT` and the
+  /// assignment count in `RolesService`. This is the large table once a product's
+  /// rosters grow, so a sequential scan per role delete is not acceptable.
+  @@index([roleId])
+  @@map("workspace_memberships")
+}
+
+/// An outstanding offer to join a workspace.
+///
+/// Modelled separately from `WorkspaceMembership` because an invited email need
+/// not belong to a user yet — there is no `userId` to hang a membership row on
+/// until somebody accepts. No membership row is written until acceptance: a
+/// placeholder would consume the ONE row `@@unique([workspaceId, userId])`
+/// allows, overwriting a former member's history to record an offer they had
+/// not taken up.
+///
+/// Acceptance is a conditional UPDATE out of `pending`, inside the same
+/// transaction that writes the membership, so two simultaneous redemptions of
+/// one token produce exactly one membership.
+model WorkspaceInvitation {
+  id            String    @id @default(uuid()) @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  workspaceId   String    @map("workspace_id") @db.Uuid
+  /// Lowercased at the DTO boundary. Deliberately NOT a FK to `users`: the
+  /// whole point is that the invitee may not exist yet.
+  ///
+  /// Unique among PENDING rows only, via a partial index declared in the
+  /// workspace_invitations migration (`WHERE status = 'pending'`). Prisma cannot express that, so it
+  /// carries no `@@unique` here — look it up with `findFirst`, never
+  /// `findUnique`.
+  email         String
+  /// The account the address resolved to AT INVITE TIME, when it resolved to
+  /// one at all. Null means the address had no account yet — the ordinary case
+  /// for inviting a stranger.
+  ///
+  /// This exists so revoke and accept stop re-deriving identity from `email`,
+  /// which is mutable. Deriving it late meant a re-registered address inherited
+  /// somebody else's invitation: the revoke deleted the wrong membership and
+  /// attributed the audit event to the wrong person.
+  invitedUserId String?   @map("invited_user_id") @db.Uuid
+  roleId        String    @map("role_id") @db.Uuid
+  /// SHA-256 of the opaque token, hex-encoded — the same construction, and the
+  /// same reasoning, as `RefreshToken.tokenHash`. The plaintext is emailed once
+  /// and never stored.
+  tokenHash     String    @unique @map("token_hash")
+  /// `WorkspaceInvitationStatus`.
+  status        String    @default("pending")
+  invitedBy     String?   @map("invited_by") @db.Uuid
+  /// Expiry is a timestamp rather than a status, so an unattended invitation
+  /// becomes unusable without any sweep having to run.
+  expiresAt     DateTime  @map("expires_at")
+  acceptedAt    DateTime? @map("accepted_at")
+  acceptedBy    String?   @map("accepted_by") @db.Uuid
+  revokedAt     DateTime? @map("revoked_at")
+  revokedBy     String?   @map("revoked_by") @db.Uuid
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  /// SetNull, not Cascade: an erased account must not take the invitation
+  /// history of a workspace with it. The address on the row is what remains.
+  invitedUser User?     @relation("WorkspaceInvitationInvitee", fields: [invitedUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status])
+  /// "What is this person still expected to accept?" — and the index behind
+  /// the `SetNull` FK, which would otherwise scan on every account erasure.
+  @@index([invitedUserId])
+  /// Supports a retention sweep over expired invitations.
+  @@index([expiresAt])
+  /// As on the other two role-referencing tables: `ON DELETE RESTRICT` scans
+  /// the referencing side, and an unindexed one is a sequential scan.
+  @@index([roleId])
+  @@map("workspace_invitations")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  actorId      String?  @map("actor_id") @db.Uuid
+  targetUserId String?  @map("target_user_id") @db.Uuid
+  action       String
+  metadata     Json?
+
+  @@index([actorId, createdAt])
+  @@index([targetUserId, createdAt])
+  // `?action=…` filter + default `ORDER BY createdAt DESC`, and pure
+  // date-range queries (no actor/target/action filter). Mirror the
+  // (actorId, createdAt) / (targetUserId, createdAt) shape above. A trigram
+  // GIN index on `metadata::text` for substring search is added via raw SQL
+  // in the migration (Prisma can't express trigram operator classes).
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model AppVersion {
+  id            String   @id @default(uuid()) @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdBy     String?  @map("created_by") @db.Uuid
+  updatedBy     String?  @map("updated_by") @db.Uuid
+  version       String
+  description   String?
+  platform      String
+  // Distinguishes independent release trains within one platform: iOS vs
+  // Android, macOS vs Windows vs Linux. They carry different version numbers,
+  // stores and force-update timing, so they cannot share a row. Null for `web`,
+  // which has a single distribution. Constrained to `DeviceOs` in the app layer
+  // and required for any platform that has more than one train — see
+  // `src/modules/app-versions/release-train-registry.ts`.
+  deviceOs      String?  @map("device_os")
+  releaseDate   DateTime @map("release_date")
+  downloadUrl   String?  @map("download_url")
+  isForceUpdate Boolean  @default(false) @map("is_force_update")
+
+  // NULL is distinct in a Postgres unique index, so this does NOT block two
+  // `web` rows (deviceOs = null) from sharing a version — that gap is closed by
+  // a service-level guard. For a platform with real trains (deviceOs set) it
+  // enforces hard.
+  @@unique([platform, deviceOs, version])
+  @@index([platform, deviceOs, releaseDate])
+  @@map("app_versions")
+}
+
+model DeviceToken {
+  id              String   @id @default(uuid()) @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdBy       String?  @map("created_by") @db.Uuid
+  updatedBy       String?  @map("updated_by") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  token           String   @unique
+  appPlatform     String   @map("app_platform")
+  deviceType      String   @map("device_type")
+  deviceOs        String   @map("device_os")
+  deviceOsVersion String   @map("device_os_version")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("device_tokens")
+}

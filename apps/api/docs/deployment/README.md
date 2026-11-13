@@ -1,0 +1,746 @@
+# Deployment contract
+
+This is the **application-side contract**: what the code needs from whatever
+runs it. It names no cloud, because the application depends on no cloud.
+
+Everything below is a generic capability. The provider mappings near the end are
+**examples**, not requirements — the same image, the same commands and the same
+environment variable names deploy to all of them.
+
+```
+                        Internet
+                           │
+                           ▼
+                 ┌──────────────────┐
+                 │   API runtime    │   node dist/main.js
+                 │  (HTTP, scales   │   QUEUE_WORKER_ENABLED=false
+                 │   horizontally)  │
+                 └────────┬─────────┘
+        ┌─────────────────┼─────────────────┬──────────────┐
+        ▼                 ▼                 ▼              ▼
+  ┌───────────┐   ┌──────────────┐   ┌────────────┐  ┌──────────┐
+  │PostgreSQL │   │Redis-        │   │Object      │  │Runtime-  │
+  │           │   │compatible    │   │storage     │  │injected  │
+  │           │   │              │   │            │  │secrets   │
+  └─────▲─────┘   └──────▲───────┘   └─────▲──────┘  └──────────┘
+        │                │  enqueue        │
+        │                ▼                 │
+        │        ┌──────────────────┐      │
+        │        │  Worker runtime  │──────┘   node dist/worker.js
+        └────────│  (queue depth)   │          QUEUE_WORKER_ENABLED=true
+                 └──────────────────┘
+                    ├── BullMQ processors
+                    └── BullMQ job schedulers   (recurring work lives in Redis)
+
+                 ┌──────────────────┐
+                 │  Migration job   │   yarn prisma:deploy && yarn rbac:sync
+                 │ (runs to exit)   │   run once, before the new API revision
+                 └──────────────────┘
+```
+
+The application requires exactly these capabilities, and nothing else:
+
+| Capability | Contract |
+|---|---|
+| HTTP runtime | Runs a Node 24 container, sets `PORT`, routes to `0.0.0.0`, sends `SIGTERM` to stop |
+| SQL database | PostgreSQL 18-compatible, reachable over TCP with a connection string |
+| Redis-compatible backend | Redis 8-compatible, optional AUTH, optional TLS |
+| Object storage | One of: S3-compatible, Google Cloud Storage, Azure Blob — or none (`stub`) |
+| Runtime secrets | Injected as environment variables by whatever the platform provides |
+| Queue/worker runtime | A second container from the same image running a different command |
+| Logging | Collects stdout/stderr |
+| Health checks | Can call HTTP endpoints |
+
+---
+
+## 1. Runtime commands
+
+Three commands, one image.
+
+| Runtime | Command | `QUEUE_WORKER_ENABLED` |
+|---|---|---|
+| **API** | `node dist/main.js` | `false` |
+| **Worker** | `node dist/worker.js` | `true` |
+| **Migration** | the `migrate` image — schema migration **and** RBAC catalog sync | n/a |
+
+The API and the worker are independently runnable and independently scalable
+from the same build. Nothing about the image differs between them.
+
+| | API | Worker |
+|---|---|---|
+| Serves HTTP | yes | no |
+| Enqueues jobs | yes | yes |
+| **Consumes** jobs | **never** | yes |
+| **Installs recurring schedules** | **never** | yes |
+| Health probe | `GET /api/health/readiness` | `GET /api/health/workers` (served by the API, reports on the worker) |
+| Scale on | request concurrency | queue depth |
+
+`QUEUE_WORKER_ENABLED` gates job consumption and scheduler reconciliation
+together, so there is one switch and no way to get half of it.
+
+**Why the API must not install schedules.** Reconciliation *removes* schedulers
+the running release does not declare. If the API did it too, an API instance on
+a different release from the worker would delete the worker's schedules while
+the worker put them back, indefinitely.
+
+**Why recurring work is not an in-process cron.** A cron decorator fires once
+per process, so N API instances run every sweep N times, and a restart during
+the scheduled minute skips it with nothing recording that it did not happen. A
+BullMQ job scheduler lives in Redis: one job per tick regardless of instance
+count, surviving the replacement of every process that touched it.
+`@nestjs/schedule` is deliberately not a dependency.
+
+### Local development
+
+One process does everything, because there is no autoscaler to duplicate work:
+
+```bash
+docker compose up -d      # PostgreSQL + Redis + S3-compatible storage + Mailpit
+yarn prisma:deploy        # or yarn prisma:migrate
+yarn rbac:sync            # the API refuses to boot until the catalog is projected
+yarn start:dev            # QUEUE_WORKER_ENABLED=true, API + worker in one process
+```
+
+No cloud account, no credential, no provider SDK configuration. `STORAGE_PROVIDER`
+defaults to `stub`, which persists nothing.
+
+---
+
+## 2. Container contract
+
+| Property | Value |
+|---|---|
+| Base image | `node:24-alpine` |
+| Default port | **3000** (`EXPOSE 3000`, documentation only) |
+| `$PORT` | **Authoritative.** Set it and the app binds it; a platform that injects its own (8080 is common) simply wins |
+| Bind host | `0.0.0.0`, always |
+| User | non-root (`app`) for API and worker |
+| PID 1 | `tini`, so `SIGTERM` reaches Node instead of being swallowed |
+| Logs | JSON to **stdout/stderr** in production, pretty in development. No log files, ever |
+| Filesystem | No persistence assumed. Uploads go to object storage; nothing is written to disk |
+| Secrets | Never baked into the image — injected at runtime |
+| Dependencies | Runtime image carries production dependencies only |
+| Build metadata | `GIT_SHA` build arg → `ENV`, surfaced at `GET /api/health/version`. Never set it at runtime: a runtime value, even an empty one, replaces the image's |
+
+### Shutdown
+
+`SIGTERM` starts the same orderly stop in both runtimes
+(`src/graceful-shutdown.ts`). Both handle the signal explicitly, because Nest's
+hooks give no way to drain jobs before the database closes, to bound how long
+the close takes, or to report what was still running.
+
+1. BullMQ stops accepting new jobs and drains active ones, for up to
+   **25 seconds** in all. The API runtime consumes nothing, so this is a no-op
+   there; a process that also consumes (the single-container deploy) finishes
+   its jobs before anything below closes.
+2. The Nest context closes: HTTP stops accepting, Prisma disconnects and
+   **ends the pg pool**, Redis clients quit, BullMQ queues close.
+3. Telemetry flushes last so the final seconds survive.
+
+Anything still active at 25 seconds stays in Redis and is retried once its lock
+expires; nothing is silently abandoned. Give every runtime that consumes jobs a
+termination grace period **above 25 seconds** so it reports what it abandoned
+rather than being `SIGKILL`ed mid-sentence.
+
+### Migrations
+
+Migrations run as their **own container**, to completion, before the new API
+revision takes traffic. Never on API startup, never on worker startup — ten
+instances booting concurrently would race `migrate deploy` against each other,
+and an instance whose migration failed would restart-loop after the previous
+release had already stopped.
+
+```bash
+docker build --target migrate -t <registry>/<service>-migrate:<sha> .
+```
+
+That image runs **two** steps, and both are required. The schema migration alone
+is not a complete deploy step: the permission catalog in
+`src/common/authorization/` is the source of truth and the database is its
+projection, and **the application refuses to boot when the two disagree**. A
+release that adds a permission would therefore migrate successfully, report
+success, and then crash-loop the API and the worker — after the previous release
+had already been replaced. The catalog sync is idempotent, so running it every
+time costs nothing when nothing changed.
+
+Deploy order:
+
+1. Build and push the runtime and migrate images from the same commit.
+2. Run the migration container. **Stop here if it fails.**
+3. Deploy the worker.
+4. Deploy the API.
+
+Worker before API, so a new job name has a consumer before anything enqueues it.
+Rollback reverses the order, which is why schema changes should be
+**expand/contract**: add nullable, backfill, and only drop in a later release. A
+migration that adds and removes in one step cannot be rolled back by redeploying
+the previous image.
+
+### A release that is not backwards-compatible
+
+Migrations run **before** the new revision serves, so the **old** build serves
+traffic against the **new** schema for the whole swap window. That is why
+migrations must normally be expand-only — add nullable, backfill separately,
+tighten in a later release.
+
+A release that cannot satisfy that (a dropped or renamed table, a tightened
+constraint the running code violates) needs a **maintenance window**, and an
+automated deploy will not give you one:
+
+1. Stop the API and the worker, so requests fail fast instead of hitting a schema
+   the running build cannot read.
+2. Run the migration image against a database nothing is reading.
+3. Start the new revision.
+
+Review each migration for this before release: a dropped column the running build
+still selects (Prisma selects every scalar column) is enough. Rolling back a schema
+change means restoring a backup, not redeploying — so confirm you have a
+**verified** one before starting (see [`../operations.md`](../operations.md)).
+
+---
+
+## 3. Database contract
+
+PostgreSQL 18-compatible, reachable over TCP. The application knows nothing else
+about it — not who operates it, not how it is provisioned.
+
+| Requirement | Detail |
+|---|---|
+| Connection | A standard `postgresql://` URL in `DATABASE_URL` |
+| Extensions | None required beyond a stock installation |
+| Migrations | Applied by a separate container, never at startup |
+| Pooling | The application pools **in-process**; size it explicitly |
+
+The pool is explicit because the API scales horizontally, and the number that
+matters is the product:
+
+```
+(API max instances × DATABASE_POOL_MAX)
+  + (worker max instances × DATABASE_POOL_MAX)
+  + the migration container's pool
+  + headroom for an admin session or a backup tool
+  < max_connections − the server's superuser reserve
+```
+
+Worked example against a server with `max_connections = 400`:
+
+| | instances | × pool | = |
+|---|---|---|---|
+| API | 10 | 10 | 100 |
+| Worker | 3 | 10 | 30 |
+| Migration | 1 | 10 | 10 |
+| Admin headroom | — | — | 10 |
+| | | **total** | **150** |
+
+Raise instance caps **or** the pool, never both without redoing the arithmetic.
+If the product exceeds the budget, put a connection pooler in front (PgBouncer,
+or whatever the provider offers) rather than shrinking `DATABASE_POOL_MAX` to a
+number that starves each instance.
+
+---
+
+## 4. Redis contract
+
+Redis 8-compatible, reachable over TCP. Any implementation that speaks the
+protocol works — a container, a managed service, or a compatible alternative.
+
+| Variable | Meaning |
+|---|---|
+| `REDIS_URL` | `redis://[user:password@]host:port[/db]` or `rediss://…` for TLS |
+| `REDIS_TLS_ENABLED` | `true`/`false`. **Must agree with the URL scheme** or boot fails |
+| `REDIS_TLS_CA` | Optional PEM CA. Needed only for a private or per-instance CA |
+
+Three properties the application enforces rather than trusts:
+
+- **The scheme and the flag must agree.** Two statements of the same fact that
+  can diverge is how a deployment ends up believing traffic is encrypted when it
+  is not — the one failure here that produces no error and no symptom.
+- **`rejectUnauthorized` is hard-coded `true`** and is not configurable.
+  Disabling verification keeps the encryption and discards the only thing that
+  proves the far end is the Redis you meant.
+- **Every client is built from one function**
+  (`src/common/redis/redis-connection.ts`) — the shared app client, the rate
+  limiter's storage, and BullMQ — so TLS cannot be configured for one and missed
+  for another.
+
+A PEM flattened to one line (`\n` escapes) is normalised automatically, because
+every secret-injection mechanism does that.
+
+**Queued jobs are exactly as durable as this Redis.** There is no in-memory
+fallback, by design. Use persistence and replication; a flush loses every
+waiting, delayed and recurring definition, and schedulers are only rebuilt on
+the next worker boot.
+
+---
+
+## 5. Object storage contract
+
+Four adapters behind one interface. **No provider is privileged**, and only the
+selected provider's SDK is loaded at runtime — so choosing one costs nothing at
+startup for the other three.
+
+| `STORAGE_PROVIDER` | Backend | Authentication |
+|---|---|---|
+| `stub` (default; refused in production) | none — persists nothing | none |
+| `s3` | AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, Ceph | AWS default credential chain — instance profile, task role, IRSA, or `AWS_*` locally |
+| `gcs` | Google Cloud Storage | Application Default Credentials — attached service account, or Workload Identity Federation |
+| `azure` | Azure Blob Storage | `DefaultAzureCredential` — managed identity, or a CLI login |
+
+**There is no configuration key for a long-lived cloud credential, for any
+provider.** No access key, no service-account JSON, no account key, no
+connection string. Every adapter authenticates through its platform's keyless
+identity chain. That is enforced by a test asserting no such key exists in the
+schema.
+
+Objects are **private by default**:
+
+- The application never builds a public URL for an object. Nothing in it
+  makes storage public or assumes it is.
+- Reads use **short-lived signed URLs**: `createSignedReadUrl()`, clamped to
+  `[30s, 1h]` in code whatever `STORAGE_SIGNED_URL_TTL_SECONDS` says.
+- **Authorize before signing.** A signed URL is an unrevocable bearer
+  credential; the method has no idea who is asking and performs no
+  authorization of its own.
+- Object names are **server-generated** — a UUID plus a code-chosen
+  subdirectory. `buildObjectName` refuses `..`, `//`, leading slashes and
+  anything else that could reshape a stored path, so no request value can
+  choose where an object lands or reach another tenant's.
+- Store the **`storageKey`**, not a URL. A URL embeds the bucket, the provider
+  and the access model; a key survives all three changing.
+- Objects are written `Cache-Control: private, max-age=3600` — no longer than
+  the longest signed URL — so a shared cache never keeps serving one after its
+  signature expires.
+- Uploads (`POST /api/files`) are held in memory up to `FILE_UPLOAD_MAX_BYTES`
+  (default 25 MiB) per request. The platform's edge must allow request bodies at
+  least that large on that route, or uploads fail before reaching the API.
+- The worker's `files.cleanup.v1` job (every 10 minutes) deletes unattached
+  and released objects. The storage identity therefore needs delete permission
+  on the bucket, not only write and read.
+- Image uploads are decoded in the API process, at most two at a time per
+  process. Native memory per decode is set by the image's pixel count, not its
+  byte size — about 200 MB at the default `FILE_IMAGE_MAX_PIXELS` (measured in
+  `node:24-alpine`), outside the V8 heap the liveness probe checks. Size the API
+  container for about 400 MB on top of its baseline, and alert on OOM kills.
+
+### On a VM: which identity the application presents
+
+On a VM, the `api` service can persist uploads to **S3 (or any S3-compatible service),
+Google Cloud Storage, or Azure Blob Storage** — one adapter each, selected by
+`STORAGE_PROVIDER`. It can also run with `stub`, which persists nothing.
+
+**This template supplies no variable for a long-lived cloud credential, for any
+provider.** No access key, no service-account JSON, no account key, no
+connection string. Each adapter authenticates through its platform's keyless
+identity chain, so the decision here is which identity the VM presents:
+
+- **The VM already has a cloud identity** (an attached instance role or service
+  account). Nothing to configure — the SDK's default chain picks it up from the
+  instance metadata service.
+- **The VM has no cloud identity** — the usual case for a generic VPS. Use
+  workload identity federation: the host exchanges an OIDC token it already has
+  for short-lived cloud credentials. Write the federation config onto the host, bind-mount it read-only into the `api` container, and point
+  the provider's standard discovery variable at it. That file describes *how to
+  obtain* credentials and holds no secret material.
+- **Neither is available.** Run an S3-compatible object store you control
+  (for example RustFS) alongside the stack, with `STORAGE_PROVIDER=s3` and
+  `STORAGE_S3_ENDPOINT`, rather than downloading a static key.
+
+Grant whichever identity you end up with write access to that one bucket, scoped
+to it alone.
+
+#### Google Cloud VM
+
+The first case above, made concrete for a Compute Engine VM using `gcs`.
+Nothing goes in `.env` for credentials: Application Default Credentials read
+the attached service account from the VM's metadata server.
+
+Each step below gives the console path and the terminal command; either does
+it. Run the commands as a project owner in Cloud Shell or on a machine signed
+in with `gcloud auth login`, never on the VM (its account cannot grant itself
+roles). `PROJECT_ID` is the VM's project, `SA_EMAIL` the service account,
+`BUCKET` this environment's bucket (`STORAGE_GCS_BUCKET`), `VM` and `ZONE` the
+instance.
+
+1. **Create a dedicated service account** for this environment (one for prod,
+   one for staging) and attach it to the VM when creating it.
+2. **Set the VM's access scope to "Allow full access to all Cloud APIs"**
+   (`cloud-platform`). Scopes cap what the attached account may do regardless
+   of its roles. Changing a scope needs the VM stopped.
+   - Console: Compute Engine → VM instances → the VM → Stop → Edit → API and
+     identity management → Access scopes: "Allow full access to all Cloud
+     APIs" → Save → Start.
+   - Terminal:
+     ```
+     gcloud compute instances stop VM --zone ZONE
+     gcloud compute instances set-service-account VM --zone ZONE \
+       --service-account SA_EMAIL --scopes cloud-platform
+     gcloud compute instances start VM --zone ZONE
+     ```
+   - Check: the VM's details page, "API and identity management", shows the
+     account and "Allow full access to all Cloud APIs".
+3. **Enable the IAM Service Account Credentials API**
+   (`iamcredentials.googleapis.com`) in the VM's project, when anything calls
+   `createSignedReadUrl`. With no key file the SDK signs through its `signBlob`
+   call, and the API is off in a new project; without it every signed URL
+   fails with "IAM Service Account Credentials API has not been used in
+   project … or it is disabled".
+   - Console: APIs & Services → Library → "IAM Service Account Credentials
+     API"
+     (`https://console.cloud.google.com/apis/library/iamcredentials.googleapis.com?project=PROJECT_ID`)
+     → Enable.
+   - Terminal:
+     ```
+     gcloud services enable iamcredentials.googleapis.com --project PROJECT_ID
+     ```
+   - Check: the API's page shows "Status: Enabled", or
+     `gcloud services list --enabled --project PROJECT_ID | grep iamcredentials`
+     prints it.
+4. **Grant the service account:**
+   - `roles/storage.objectAdmin` on this environment's bucket only — uploads
+     write objects and the cleanup job deletes them. Without it every
+     `POST /api/files` answers 503 `EXTERNAL_SERVICE_UNAVAILABLE` and the api
+     logs `does not have storage.objects.create access`.
+     - Console: Cloud Storage → Buckets → the bucket → Permissions → Grant
+       access → New principals: `SA_EMAIL` → Role: Cloud Storage → Storage
+       Object Admin → Save. Grant it on the bucket, not on the project's IAM
+       page, which would reach every bucket in the project.
+     - Terminal:
+       ```
+       gcloud storage buckets add-iam-policy-binding gs://BUCKET \
+         --member="serviceAccount:SA_EMAIL" \
+         --role="roles/storage.objectAdmin"
+       ```
+     - Check: the bucket's Permissions tab lists `SA_EMAIL` with Storage
+       Object Admin, or
+       `gcloud storage buckets get-iam-policy gs://BUCKET | grep -B3 SA_EMAIL`.
+   - `roles/iam.serviceAccountTokenCreator` on **itself**, when anything signs
+     URLs. Grant it on the service account, not on the project, which would
+     let it sign as every account there. The project `Editor` role does not
+     include `signBlob`, so the default Compute Engine account needs this too.
+     Without it every signed URL fails with "Permission
+     'iam.serviceAccounts.signBlob' denied".
+     - Console: IAM & Admin → Service Accounts → the account → Principals
+       with access → Grant access → New principals: the account's own
+       `SA_EMAIL` → Role: Service Accounts → Service Account Token Creator →
+       Save. A row inherited from the project for another account does not
+       count.
+     - Terminal:
+       ```
+       gcloud iam service-accounts add-iam-policy-binding SA_EMAIL \
+         --member="serviceAccount:SA_EMAIL" \
+         --role="roles/iam.serviceAccountTokenCreator"
+       ```
+     - Check: Principals with access lists `SA_EMAIL` with Service Account
+       Token Creator and no inheritance, or
+       `gcloud iam service-accounts get-iam-policy SA_EMAIL | grep -A2 serviceAccountTokenCreator`.
+5. **In `.env`:** `STORAGE_PROVIDER="gcs"`, `STORAGE_GCS_BUCKET`, and leave
+   `STORAGE_GCS_PROJECT_ID` empty.
+
+IAM grants and a newly enabled API take a minute or two to apply; the api
+needs no restart, because it signs on every request.
+
+### Cost of shipping four adapters
+
+Only the selected provider's SDK is **loaded**, but all four are **installed**,
+so they occupy image space regardless. Measured in the runtime image:
+
+| | Size on disk |
+|---|---|
+| `@azure/*` (storage-blob + identity) | 60 MB |
+| `@aws-sdk/*` (client-s3 + presigner) | 12 MB |
+| `@google-cloud/storage` | < 11 MB |
+| **storage SDKs total** | **~80 MB of a 659 MB `node_modules`** |
+
+For context, Prisma 7's runtime is ~225 MB and OpenTelemetry ~49 MB in the same
+image, so the portability is not what makes it large.
+
+A fork that will only ever use one provider can delete the other three adapter
+files, their branches in `file-storage.module.ts`, and their SDKs from
+`package.json` — one small commit, nothing outside that folder notices, and it
+recovers most of that 80 MB.
+
+### What is actually proven
+
+| Adapter | Coverage |
+|---|---|
+| `s3` | **Exercised against a real backend.** `test/storage-s3.e2e-spec.ts` runs against the test compose stack's S3 server (RustFS): upload verified with `HeadObject`, a signed URL that really fetches, an unsigned read that is refused, delete, and non-collision of two identical uploads. This also covers AWS S3, R2, Spaces and Ceph, which speak the same API. |
+| `gcs`, `azure` | **Construction only.** The selection switch and the client options are covered; `save`, `delete` and `createSignedReadUrl` have never executed against Google or Azure. Verify against a real bucket before relying on either — particularly `createSignedReadUrl`, which needs `roles/iam.serviceAccountTokenCreator` and the IAM Service Account Credentials API on GCS ("Google Cloud VM" in the object storage contract above) and `Storage Blob Data Contributor` on Azure. |
+| `stub` | Fully covered; persists nothing. |
+
+Every provider's calls, signing a read URL included, are bounded by
+`STORAGE_REQUEST_TIMEOUT_MS` (default 15s; boot refuses a value outside 1s–120s).
+The failure that bounds is a SLOW backend rather than a dead one: an upload
+awaiting a hung request keeps its Postgres connection checked out, so a stalled
+bucket would otherwise saturate `DATABASE_POOL_MAX` and fail requests that never
+touched storage.
+
+---
+
+## 6. Secrets contract
+
+The application reads configuration from **environment variables only**, through
+`ConfigService`. It has no dependency on any secret-management SDK and makes no
+call to one — injecting secrets is the platform's job, whether that is a
+Kubernetes Secret, a task-definition secret reference, a mounted file exported
+into the environment, or a plain `.env` file in development.
+
+Never logged. Redaction covers authorization and cookie headers, credential
+fields in request bodies, `set-cookie`, and — because this API deliberately
+carries a token in a query string on the email-verification link —
+secret-bearing **query parameters** are rewritten out of logged URLs before they
+reach stdout.
+
+---
+
+## 7. Health contract
+
+| Endpoint | Checks | Use for |
+|---|---|---|
+| `GET /api/health/liveness` | process only (heap ceiling) | Restart decisions. A database or Redis blip must **not** kill a healthy process |
+| `GET /api/health/readiness` | database + queue connectivity | Traffic decisions. An API that cannot enqueue follow-up work is not ready |
+| `GET /api/health/workers` | worker heartbeat freshness | Alerting on the worker. **Deliberately off readiness** — a restarting worker must not pull the API out of rotation |
+| `GET /api/health/version` | `GIT_SHA` + process start time | Confirming a deploy replaced the running revision |
+
+All are unauthenticated, so a failing check logs the real cause and returns a
+fixed string — driver errors quote internal hosts, database users and ports.
+
+These map onto every platform's probe model: a liveness/readiness probe pair
+(Kubernetes), a single HTTP health check (most container schedulers), or a
+container `HEALTHCHECK`. Nothing about them is provider-specific.
+
+`/api/health/workers` is also the alarm for a failed scheduler installation: the
+queue heartbeat is itself one of the recurring schedules, so if installation
+never lands, the heartbeat stops and this endpoint goes stale within ~15
+minutes.
+
+---
+
+## 8. Environment contract
+
+### Required, both runtimes
+
+| Variable | Notes |
+|---|---|
+| `NODE_ENV` | `production` |
+| `SERVICE_NAME` | lowercase slug; namespaces Redis keys and JWT `iss`/`aud` |
+| `DATABASE_URL` | secret |
+| `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME` | secret (password) |
+| `REDIS_URL` | secret |
+| `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | secret (password) |
+| `JWT_SECRET` | secret — 48+ random bytes, unique per environment |
+| `API_BASE_URL`, `WEB_BASE_URL` | public `https://` hostnames — **required in production**; the localhost defaults, `http:`, localhost, an IP address and a URL with credentials are refused there |
+| `CORS_ORIGIN` | explicit list; `*` is refused in production |
+| `TRUST_PROXY` | the addresses of the trusted proxy hops — see [Client topologies](#client-topologies); `false` refused in production |
+| `EMAIL_PROVIDER`, `SMS_PROVIDER`, `STORAGE_PROVIDER` | **required in production** — they default to `stub`, and `stub` (and `EMAIL_PROVIDER=smtp`) is refused there. Their own settings are in the adapter tables below and in §5 |
+| `TURNSTILE_WEB_SECRET`, `TURNSTILE_MOBILE_SECRET` | secret — **required in staging and production**: the bot check's two widgets (website, app). Both or neither in any environment; Cloudflare's test secrets refused in staging and production. The worker validates the same configuration, so it needs both too |
+| `TURNSTILE_WEB_SITE_KEY` | public — the website widget's site key, rendered by the MCP sign-in page. Needed wherever the two secrets are set (staging, production) for MCP clients to sign in: without it the API and worker still boot, and only the sign-in page refuses (503). Add the API host to that widget's hostname list in Cloudflare |
+
+`EMAIL_PROVIDER`, `SMS_PROVIDER` and `STORAGE_PROVIDER` are listed here rather
+than only under the adapter tables because in production they are not optional: the default is
+`stub`, `stub` is refused, and there is no third value that needs no
+configuration. A production environment assembled from this table alone would
+otherwise crash-loop on the first boot with `"EMAIL_PROVIDER" is required`.
+`STORAGE_PROVIDER` is the same since file uploads exist: the `stub` default
+stores nothing, so production refuses it and needs `s3`, `gcs` or `azure`.
+
+### Runtime-distinguishing
+
+| Variable | API | Worker |
+|---|---|---|
+| `QUEUE_WORKER_ENABLED` | `false` | `true` |
+| `QUEUE_WORKER_CONCURRENCY` | — | `10` |
+| `PORT` | platform-injected or 3000 | unused |
+
+### Tuning, with safe defaults
+
+`DATABASE_POOL_MAX` (10), `DATABASE_CONNECTION_TIMEOUT_MS` (5000),
+`DATABASE_IDLE_TIMEOUT_MS` (30000), `REDIS_TLS_ENABLED` (false), `REDIS_TLS_CA`,
+`THROTTLE_TTL_MS`, `THROTTLE_LIMIT`, `SWAGGER_ENABLED`,
+`AUTHORIZATION_GRANTS_CACHE_TTL_SECONDS`, `GIT_SHA`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `JWT_EXPIRES_IN` (15m),
+`REFRESH_TOKEN_EXPIRES_IN_DAYS` (30), `WORKSPACE_INVITATION_EXPIRES_IN_DAYS` (7),
+`TRUST_CLOUDFLARE_HEADERS` (false — set true only when the origin is reachable
+solely through Cloudflare), `EMAIL_VERIFIED_REDIRECT_URL`, `PASSWORD_RESET_URL`,
+`STORAGE_SIGNED_URL_TTL_SECONDS` (300), `STORAGE_REQUEST_TIMEOUT_MS` (15000),
+`FILE_UPLOAD_MAX_BYTES` (26214400), `FILE_UPLOAD_TTL_SECONDS` (86400),
+`FILE_IMAGE_MAX_PIXELS` (40000000).
+
+### Optional, MCP endpoint
+
+| Variable | Notes |
+|---|---|
+| `MCP_ALLOWED_ORIGINS` | browser origins allowed to call `/api/mcp`; unset refuses any request carrying an `Origin` header (server-side clients send none) |
+| `MCP_OAUTH_ACCESS_TOKEN_TTL_MINUTES` | MCP access token lifetime, default 60 (5–1440) |
+| `MCP_OAUTH_REFRESH_TOKEN_TTL_DAYS` | how long an MCP client may renew before the user signs in again, default 30 (1–90) |
+| `MCP_OAUTH_REDIRECT_DOMAINS` | https origins MCP clients may register as their OAuth redirect; unset allows any https origin (loopback always allowed) |
+
+`/api/mcp` and its OAuth sign-in work with no MCP variable set; see
+[`../mcp.md`](../mcp.md). The OAuth endpoints and discovery documents are at
+the origin root — `/oauth/*`, `/.well-known/oauth-authorization-server`,
+`/.well-known/oauth-protected-resource*` — so the edge must route those to the
+API as well as `/api/*`, without caching. The signing and cookie keys derive
+from `JWT_SECRET`; the issuer is the origin of `API_BASE_URL`.
+
+### Optional, only when the matching adapter is selected
+
+| Selected | Requires | Optional |
+|---|---|---|
+| `STORAGE_PROVIDER=s3` | `STORAGE_S3_BUCKET` | `STORAGE_S3_REGION`, `STORAGE_S3_ENDPOINT`, `STORAGE_S3_FORCE_PATH_STYLE` |
+| `STORAGE_PROVIDER=gcs` | `STORAGE_GCS_BUCKET` | `STORAGE_GCS_PROJECT_ID` |
+| `STORAGE_PROVIDER=azure` | `STORAGE_AZURE_ACCOUNT_NAME`, `STORAGE_AZURE_CONTAINER` | — |
+| `EMAIL_PROVIDER=resend` | `RESEND_API_KEY` (secret), `EMAIL_FROM` | — |
+| `EMAIL_PROVIDER=mailgun` | `MAILGUN_API_KEY` (secret; a domain sending key), `MAILGUN_DOMAIN`, `EMAIL_FROM` on that domain | `MAILGUN_REGION` (`us` default, `eu`). Mailgun takes no idempotency key, so a retry after a timed-out delivery can send twice |
+| `SMS_PROVIDER=twilio` | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (secret), `TWILIO_FROM` | — |
+
+`EMAIL_PROVIDER` and `SMS_PROVIDER` **cannot be `stub` in production** — boot
+fails. The stub adapters log the rendered message body, which carries one-time
+codes and the verify-email link, so shipping them would put credentials on
+stdout through a default nobody chose. `EMAIL_PROVIDER=smtp` (with `SMTP_HOST`
+and `SMTP_PORT`) is refused there and in staging: it is the unauthenticated
+plaintext relay to the local Mailpit inbox, not a delivery path.
+
+`PHONE_CODE_FIXED` (six digits, unset by default) makes every texted code that
+value, for local and staging testing before an SMS sender is approved. It is
+accepted only with `SMS_PROVIDER=stub`, so production can never have it, and
+boot fails if it is left set after switching to a real provider.
+
+Selecting one provider never requires another's configuration to exist.
+
+### Client topologies
+
+The API serves any client — a browser single-page app (Angular, React, Vue,
+Svelte), a mobile app, or a server-rendered web app (Next.js, Nuxt, Angular
+SSR, SvelteKit) — through standard HTTP alone. Nothing here is specific to a
+framework; what matters is which hop talks to the API.
+
+**`TRUST_PROXY` is the one setting this turns on.** It is `false` when nothing
+sits in front of the API (local development), and otherwise a comma-separated
+list of the IP addresses or CIDR ranges of the hops whose `X-Forwarded-For` the
+API believes. Express walks that header right to left from the connecting peer
+and stops at the first address not on the list, so a client can prepend
+anything without effect. Hop counts, `true`, keywords such as `uniquelocal`, and
+hostnames are refused at boot: each one trusts a peer nobody named, and a
+trusted peer can choose its own client address.
+
+That resolved address (`request.ip`) is the only client address the API uses:
+
+- **rate limits** — an anonymous caller, and any caller on a `@Public()` route,
+  is limited per address (IPv6 per /64); a caller with a valid access token is
+  limited per user, so people sharing one address do not share one quota —
+  and one user's quota is shared by all of their devices and clients.
+  Password sign-in is limited twice: per identifier and address, and per
+  address alone across every identifier
+  (`src/common/util/login-throttle.util.ts`);
+- **sessions** — every refresh token records it, with the `User-Agent`;
+- **the audit trail** — every audit row's request envelope records it.
+
+Every hop in front of the API must therefore hand on the real client address —
+a single `X-Forwarded-For` value, or its own appended to what it received.
+
+#### Browser-direct — the default
+
+```
+browser / mobile app → (CDN) → edge proxy → API
+```
+
+Every call, from every client, goes to the public API URL (`API_BASE_URL`).
+Browser origins are listed in `CORS_ORIGIN`; mobile apps are not subject to
+CORS. `TRUST_PROXY` lists the edge proxy only. On a single server, give the
+edge proxy a fixed address on the internal network and list exactly that.
+
+#### Server-rendered — opt-in
+
+```
+browser → (CDN) → edge proxy → web server → API      (server-side calls)
+browser → (CDN) → edge proxy → API                   (in-browser calls)
+```
+
+The web server renders pages and calls the API itself. Those server-side calls
+go to the API's internal address (for example `http://api:3000/api` on a
+private container network) and carry three headers from the browser's request:
+
+- `X-Forwarded-For` — the browser's address, as the edge proxy handed it to the
+  web server;
+- `User-Agent` — the browser's user agent;
+- `Origin` — the browser's origin. It selects the website's Turnstile widget
+  to verify a token against; without it the API verifies against the app's
+  widget, and the website's tokens are refused.
+
+Calls the page makes from the browser after it loads go to the public API URL,
+exactly as in browser-direct, and need `CORS_ORIGIN` the same way.
+
+Then add the web server's fixed address to `TRUST_PROXY`. **This makes the web
+server as trusted as the edge proxy**: it can name any client address, so it
+must take that address only from the edge proxy's header and never from
+anything the browser sent. Without the headers or the trust, every visitor of
+the server-rendered app shares the web server's single rate-limit bucket, and
+every session records the web server's address instead of the visitor's.
+
+On a single server with Docker Compose: give the web server a fixed
+`ipv4_address` outside the network's dynamic `ip_range`, and set `TRUST_PROXY`
+to both fixed addresses, the edge proxy's and the web server's (for example
+`172.30.0.10,172.30.0.11`).
+
+#### Any other platform
+
+List the load balancer or ingress addresses, or the private range they connect
+from. Never list a range that other workloads able to reach the API also sit
+in: each of them could then choose its own client address.
+
+A CDN in front of that load balancer is a hop too. Either the load balancer
+replaces `X-Forwarded-For` with the CDN's own client-address header (for
+Cloudflare, `CF-Connecting-IP`, accepted only from Cloudflare's published
+ranges) — or `TRUST_PROXY` also lists the CDN's published ranges.
+Otherwise the API stops at the CDN's edge address, and everyone routed through
+one edge shares one rate-limit bucket.
+
+---
+
+## 9. Provider mappings — **examples only**
+
+None of these is required, and the application is identical across all of them.
+
+| | API + worker | PostgreSQL | Redis | Object storage |
+|---|---|---|---|---|
+| **AWS** | ECS/Fargate service + service | RDS | managed Redis | S3 (`s3`) |
+| **Google Cloud** | Cloud Run service + worker pool | Cloud SQL | Memorystore | GCS (`gcs`) |
+| **Azure** | Container Apps × 2 | Azure Database for PostgreSQL | Azure Cache | Blob (`azure`) |
+| **Kubernetes** | two Deployments | operator or managed | operator or managed | any of the three |
+| **Docker Compose / VM** | two services | `postgres` container | `redis` container | RustFS or another S3-compatible server (`s3`), or `stub` |
+
+In every case: same image, same three commands, same variable names. What
+changes is which values the platform injects and which identity it attaches.
+
+---
+
+## Publishing images
+
+This repository **publishes**; it never deploys. `.github/workflows/publish-image.yml`
+runs the tests and the security scan, then pushes both images (runtime and
+`migrate`) to GHCR under `sha-<commit>`, scans the runtime's digest (the migrate
+image's scan reports without blocking), attests the build provenance of both, and
+only then moves the `main` / `staging` tag (migrate first). Enable it with the
+repository variable `PUBLISH_ENABLED=true`. Attestations need a public repository,
+or a plan that supports them on private ones (`ATTEST_PROVENANCE=true`).
+
+The `publish` job outputs both pushed digests, as `image` and `migrate-image`
+(`ghcr.io/<owner>/<repo>@sha256:…` and `…-migrate@sha256:…`), so a deploy job
+added to this workflow with `needs: publish` deploys exactly what was scanned.
+
+Deploying is left to your platform: a single server, a container service or an
+autoscaled cluster. Whichever it is, deploy **by digest** (ideally only digests
+attested by that workflow) and run the `migrate` image to completion before the
+new runtime serves (section 2).
+
+## Other deployment material in this repository
+
+- [`../operations.md`](../operations.md) — an honest inventory of which
+  operational controls this template actually enforces versus which it only
+  gives you somewhere to put.
+
+## What this document does not cover
+
+Terraform, Pulumi, CDK, Kubernetes manifests, VPC layout, DNS, CI workflow YAML,
+monitoring policies, backup drills. Those are infrastructure decisions; the
+application-side contract is above, and section 8 is what any of them has to
+satisfy.

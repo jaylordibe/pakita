@@ -1,0 +1,171 @@
+// Stable, machine-readable error identifiers emitted on every API error
+// response. The values here are part of the public API contract — once
+// shipped, NEVER rename or repurpose a code. Adding new codes is fine;
+// removing or changing meaning is not.
+//
+// Clients (web + mobile) program against `errorCode`, not against
+// `message` (which may be re-worded or localized). See
+// `src/common/errors/README.md` for the consumer contract.
+
+export enum ErrorCode {
+  // ── Authentication (401) ─────────────────────────────────────────────
+  /** No Authorization header on a protected route. */
+  TOKEN_MISSING = 'TOKEN_MISSING',
+  /** Token malformed, signature mismatch, `iss`/`aud` mismatch, or carries
+   *  a `purpose` claim (verification links can't be used as access tokens). */
+  TOKEN_INVALID = 'TOKEN_INVALID',
+  /** Token `exp` claim is in the past. */
+  TOKEN_EXPIRED = 'TOKEN_EXPIRED',
+  /** Token `jti` is in the Redis logout blocklist (per-token revocation). */
+  TOKEN_REVOKED = 'TOKEN_REVOKED',
+  /** Token `iat` predates user.passwordChangedAt — password change or reset,
+   *  email change, logout-all, or support revocation. A self-service password
+   *  or email change returns a fresh session to the caller. */
+  SESSION_INVALIDATED = 'SESSION_INVALIDATED',
+  /** User row missing, `isActive=false`, or soft-deleted. Collapsed to one
+   *  code to avoid enumeration leaks (the strategy can't distinguish them
+   *  via `prisma.scoped` anyway). */
+  USER_INACTIVE = 'USER_INACTIVE',
+  /** /auth/login: wrong identifier or password, or an inactive account. An
+   *  unknown identifier still runs a dummy bcrypt compare. */
+  INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
+  /** Login blocked: emailVerifiedAt is null. Leaked only after password
+   *  verification (see auth.service.login). */
+  EMAIL_NOT_VERIFIED = 'EMAIL_NOT_VERIFIED',
+  /** Re-authentication in a `/me/*` flow failed (wrong currentPassword).
+   *  CRITICAL: token is still valid — clients MUST NOT auto-logout on this. */
+  CURRENT_PASSWORD_INCORRECT = 'CURRENT_PASSWORD_INCORRECT',
+  /** /auth/refresh: the presented refresh token is unknown, expired, already
+   *  exchanged, or revoked. Deliberately ONE code for all four — naming which
+   *  one applied would confirm to a caller that a token it holds is genuine,
+   *  and separating "replayed" from "unknown" would tell an attacker their
+   *  stolen token was the real one. Clients treat this as "the session is
+   *  over": discard both tokens and send the user to login. */
+  REFRESH_TOKEN_INVALID = 'REFRESH_TOKEN_INVALID',
+
+  // ── Authorization (403) ──────────────────────────────────────────────
+  /** Generic 403 fallback. Emitted when a bare `ForbiddenException` reaches
+   *  the global filter. Predates the CASL layer; prefer PERMISSION_DENIED,
+   *  which carries the action/subject that was refused. Retained because
+   *  error codes are a public, additive-only contract. */
+  INSUFFICIENT_ROLE = 'INSUFFICIENT_ROLE',
+  /** Admin attempting an operation against their own user row that the
+   *  policy refuses (e.g. PATCH /users/:id/password where :id === self). */
+  ADMIN_SELF_TARGET_FORBIDDEN = 'ADMIN_SELF_TARGET_FORBIDDEN',
+  /** PermissionsGuard or a service-layer `assertCan` refused: the caller is
+   *  authenticated but no CASL rule grants this action on this subject.
+   *  `details` is `{ action: string; subject?: string }`.
+   *
+   *  NOTE: a *cross-tenant* read never reaches this code. Tenant isolation
+   *  happens in the query (`accessibleBy`), so another workspace's record is
+   *  simply not found → 404 RESOURCE_NOT_FOUND. A 403 here would confirm the
+   *  record exists. */
+  PERMISSION_DENIED = 'PERMISSION_DENIED',
+
+  // ── Request body rejected before parsing (413, 415) ─────────────────
+  /** The body, or an uploaded file, exceeds the size limit. */
+  PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
+  /** The body's charset or content-encoding is not one the parser accepts, or
+   *  an uploaded file's inspected content is not a type its purpose accepts. */
+  UNSUPPORTED_MEDIA_TYPE = 'UNSUPPORTED_MEDIA_TYPE',
+
+  // ── Validation / bad input (400) ─────────────────────────────────────
+  /** class-validator failure on a DTO. `details` is
+   *  `Array<{ field: string; constraints: string[] }>`. */
+  VALIDATION_FAILED = 'VALIDATION_FAILED',
+  /** Bad or expired phone-verification code. */
+  INVALID_OTP = 'INVALID_OTP',
+  /** Bad, expired or already-used link token (verify-email,
+   *  password reset). */
+  INVALID_LINK = 'INVALID_LINK',
+  /** A route behind the Turnstile bot check was called without an
+   *  `X-Turnstile-Token` header. Nothing was sent, created or checked. */
+  TURNSTILE_TOKEN_MISSING = 'TURNSTILE_TOKEN_MISSING',
+  /** Cloudflare refused the `X-Turnstile-Token` — bad, expired, already used,
+   *  or minted by the other widget. One code for all of them: the remedy is
+   *  always a fresh token. */
+  TURNSTILE_TOKEN_INVALID = 'TURNSTILE_TOKEN_INVALID',
+  /** 400 — sign-up with a disposable / temporary email provider. `details`
+   *  is `{ domain: string }`. */
+  EMAIL_DOMAIN_DISALLOWED = 'EMAIL_DOMAIN_DISALLOWED',
+  /** Prisma P2003 — foreign-key references a record that doesn't exist.
+   *  `details` is `{ field: string }`. */
+  FK_REFERENCE_INVALID = 'FK_REFERENCE_INVALID',
+  /** A workspace-scoped permission was checked but no workspace could be
+   *  resolved from the request (no `:workspaceId` route param, no
+   *  `workspaceId` in the body). Indicates a client calling a tenant-scoped
+   *  route without naming the tenant. */
+  WORKSPACE_CONTEXT_MISSING = 'WORKSPACE_CONTEXT_MISSING',
+
+  // ── Resource state (404, 409) ────────────────────────────────────────
+  /** Generic 404. `details` is `{ resource: string }`. */
+  RESOURCE_NOT_FOUND = 'RESOURCE_NOT_FOUND',
+  /** 409 — value already taken (Prisma P2002, or sign-up with a registered
+   *  email). `details` is `{ field: string }`. */
+  UNIQUE_CONSTRAINT_VIOLATION = 'UNIQUE_CONSTRAINT_VIOLATION',
+  /** Generic 409 for application-level conflicts that aren't a DB unique
+   *  violation (e.g. domain-rule clashes). */
+  RESOURCE_CONFLICT = 'RESOURCE_CONFLICT',
+
+  // ── Workspace membership + invitations (400, 403, 409) ────────────────
+  /** 409 — the operation would leave a workspace with no active owner. Emitted
+   *  when the last active owner is removed, suspended, demoted, or leaves.
+   *  Clients should tell the user to appoint another owner first. Enforced for
+   *  EVERY caller including a platform admin: it is a data-integrity
+   *  invariant, not an authorization rule. */
+  LAST_OWNER_PROTECTED = 'LAST_OWNER_PROTECTED',
+  /** 409 — the membership exists but is not in a state that permits this
+   *  operation (e.g. reactivating one that was never suspended, or acting on
+   *  a membership that has ended). `details` is
+   *  `{ status: WorkspaceMembershipStatus }`. */
+  MEMBERSHIP_NOT_ACTIVE = 'MEMBERSHIP_NOT_ACTIVE',
+  /** 403 — the requested role cannot be assigned here. Covers a role from the
+   *  wrong scope, and a role outranking the caller's own assignment ceiling.
+   *  Deliberately ONE code for both: distinguishing them tells a caller
+   *  probing for escalation exactly which wall they hit. */
+  ROLE_NOT_ASSIGNABLE = 'ROLE_NOT_ASSIGNABLE',
+  /** 400 — an invitation token is unknown, already used, or revoked. Kept
+   *  indistinguishable from one another so a token cannot be probed for
+   *  existence, exactly like REFRESH_TOKEN_INVALID. */
+  INVITATION_INVALID = 'INVITATION_INVALID',
+  /** 400 — the invitation was genuine but has passed its expiry. Separate
+   *  from INVITATION_INVALID because it is safe to disclose (the holder
+   *  already proved possession of a real token) and because the client's
+   *  remedy differs: ask for a fresh invitation rather than check the link. */
+  INVITATION_EXPIRED = 'INVITATION_EXPIRED',
+
+  // ── Stored files (409, 422, 429) ─────────────────────────────────────
+  /** 409 — the file id names the caller's own upload for this purpose, but it
+   *  can no longer be attached: it expired, was already attached, or is being
+   *  deleted. The remedy is the same for each — upload the file again. A file
+   *  that is not the caller's, not for this purpose, or already removed by the
+   *  cleanup job is 404 instead — with the same remedy for a file the caller
+   *  did upload. */
+  FILE_NOT_ATTACHABLE = 'FILE_NOT_ATTACHABLE',
+  /** 409 — `DELETE /files/:id` names the caller's own file, but it is
+   *  attached to something (or still being processed), so it cannot be
+   *  released this way: remove it from whatever shows it instead. */
+  FILE_NOT_RELEASABLE = 'FILE_NOT_RELEASABLE',
+  /** 422 — the content is of an accepted type but cannot be used: it does not
+   *  decode, or its dimensions or pixel count exceed the purpose's limit. */
+  FILE_CONTENT_INVALID = 'FILE_CONTENT_INVALID',
+  /** 429 — the caller already holds the maximum number of uploaded files that
+   *  are not attached to anything. Attach or release one of them, or wait:
+   *  each expires `FILE_UPLOAD_TTL_SECONDS` after upload, and a released one
+   *  can still count for up to an hour after it was uploaded. Retrying
+   *  immediately does not help. */
+  FILE_QUOTA_EXCEEDED = 'FILE_QUOTA_EXCEEDED',
+
+  // ── Infrastructure (429, 500, 503) ───────────────────────────────────
+  /** Too many requests. Emitted by the global @nestjs/throttler guard AND by
+   *  application code via `Errors.rateLimited()` — one code on purpose, since
+   *  the remedy is identical. Only the throttler sets `Retry-After`, so a
+   *  client must own its backoff rather than rely on the header. */
+  RATE_LIMITED = 'RATE_LIMITED',
+  /** Third-party integration is unavailable or returned an error
+   *  (SMS / email / storage providers, the Turnstile check, etc.). */
+  EXTERNAL_SERVICE_UNAVAILABLE = 'EXTERNAL_SERVICE_UNAVAILABLE',
+  /** Catch-all 500 for unexpected runtime errors. The real exception is
+   *  logged server-side; the response never leaks internals. */
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
+}

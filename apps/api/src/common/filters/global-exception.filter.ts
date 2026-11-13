@@ -1,0 +1,334 @@
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { Request, Response } from 'express';
+import {
+  AppExceptionPayload,
+  ErrorResponseBody,
+} from '../errors/app-exception';
+import { ErrorCode } from '../errors/error-code.enum';
+import { redactUrlSecrets } from '../util/redact-url-secrets.util';
+
+// Single global filter. Catches every uncaught throwable and emits the
+// standard error envelope (see src/common/errors/README.md). Priority
+// order in `catch()`:
+//
+//   1. Prisma's PrismaClientKnownRequestError — translated by code
+//      (P2002 → 409, P2003 → 400, P2025 → 404).
+//   2. HttpException (and all its subclasses, including ThrottlerException
+//      and Nest's built-in Unauthorized/Forbidden/etc.) — pulls a
+//      structured AppExceptionPayload out of the response if present
+//      (Errors.* factory), else falls back to a status-based default code.
+//   3. Anything else — generic 500, real error logged but never leaked.
+//
+// This filter replaces the legacy `AllExceptionsFilter` and
+// `PrismaExceptionFilter`. One file, one envelope, one mental model.
+
+// Subset of the meta shape emitted by @prisma/adapter-pg for P2002 and
+// raw driver errors. Prisma's public types don't describe this nested object, so
+// we declare just the path we actually read.
+interface AdapterPgMeta {
+  target?: unknown;
+  driverAdapterError?: {
+    cause?: {
+      originalCode?: string;
+      constraint?: {
+        fields?: unknown;
+      };
+    };
+  };
+}
+
+interface Translated {
+  status: number;
+  errorCode: ErrorCode;
+  message: string;
+  details?: unknown;
+}
+
+const HTTP_REASON: Record<number, string> = {
+  [HttpStatus.BAD_REQUEST]: 'Bad Request',
+  [HttpStatus.UNAUTHORIZED]: 'Unauthorized',
+  [HttpStatus.FORBIDDEN]: 'Forbidden',
+  [HttpStatus.NOT_FOUND]: 'Not Found',
+  [HttpStatus.CONFLICT]: 'Conflict',
+  [HttpStatus.PAYLOAD_TOO_LARGE]: 'Payload Too Large',
+  [HttpStatus.UNSUPPORTED_MEDIA_TYPE]: 'Unsupported Media Type',
+  [HttpStatus.UNPROCESSABLE_ENTITY]: 'Unprocessable Entity',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'Too Many Requests',
+  [HttpStatus.INTERNAL_SERVER_ERROR]: 'Internal Server Error',
+  [HttpStatus.SERVICE_UNAVAILABLE]: 'Service Unavailable',
+};
+
+// Untagged HttpExceptions (e.g. a bare framework ForbiddenException, the
+// throttler, or the default ValidationPipe BadRequestException) fall back
+// to a sensible code based on HTTP status, so clients still get a
+// programmable contract for every error the framework itself raises.
+const STATUS_TO_DEFAULT_CODE: Record<number, ErrorCode> = {
+  [HttpStatus.BAD_REQUEST]: ErrorCode.VALIDATION_FAILED,
+  [HttpStatus.UNAUTHORIZED]: ErrorCode.TOKEN_INVALID,
+  [HttpStatus.FORBIDDEN]: ErrorCode.INSUFFICIENT_ROLE,
+  [HttpStatus.NOT_FOUND]: ErrorCode.RESOURCE_NOT_FOUND,
+  [HttpStatus.CONFLICT]: ErrorCode.RESOURCE_CONFLICT,
+  // Multer raises a bare PayloadTooLargeException for an oversized upload.
+  [HttpStatus.PAYLOAD_TOO_LARGE]: ErrorCode.PAYLOAD_TOO_LARGE,
+  [HttpStatus.UNSUPPORTED_MEDIA_TYPE]: ErrorCode.UNSUPPORTED_MEDIA_TYPE,
+  [HttpStatus.TOO_MANY_REQUESTS]: ErrorCode.RATE_LIMITED,
+  [HttpStatus.SERVICE_UNAVAILABLE]: ErrorCode.EXTERNAL_SERVICE_UNAVAILABLE,
+};
+
+@Catch()
+export class GlobalExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(GlobalExceptionFilter.name);
+
+  catch(exception: unknown, host: ArgumentsHost): void {
+    const httpContext = host.switchToHttp();
+    const request = httpContext.getRequest<Request>();
+    const response = httpContext.getResponse<Response>();
+
+    const translated = this.translate(exception);
+
+    const body: ErrorResponseBody = {
+      statusCode: translated.status,
+      error: HTTP_REASON[translated.status] ?? 'Error',
+      errorCode: translated.errorCode,
+      message: translated.message,
+      details: translated.details ?? null,
+      // Redacted for the same reason as the log line, and it matters here too:
+      // clients feed error envelopes straight into their own error trackers, so
+      // an unredacted `path` puts the credential in a third-party system the
+      // moment an email-verification link expires. The field still answers what
+      // it exists to answer — which endpoint failed.
+      //
+      // `originalUrl`, not `url`: Express rewrites `url` relative to the router
+      // mount, and since Nest 12 an unmatched route is answered inside the
+      // `/api` mount — `url` would report `/does-not-exist` for a request to
+      // `/api/does-not-exist`. `originalUrl` is the path the client sent.
+      path: redactUrlSecrets(request.originalUrl),
+      timestamp: new Date().toISOString(),
+      requestId: this.extractRequestId(request),
+    };
+
+    this.log(translated.status, request, exception);
+    response.status(translated.status).json(body);
+  }
+
+  // ── Dispatch ────────────────────────────────────────────────────────
+
+  private translate(exception: unknown): Translated {
+    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      return this.fromPrisma(exception);
+    }
+    if (exception instanceof HttpException) {
+      return this.fromHttpException(exception);
+    }
+    return this.fromUnknown();
+  }
+
+  // ── HttpException → envelope ─────────────────────────────────────────
+
+  private fromHttpException(exception: HttpException): Translated {
+    const status = exception.getStatus();
+    const response = exception.getResponse();
+
+    // Tagged exception (constructed via Errors.* factory) — pull the
+    // structured payload off and use it verbatim.
+    if (typeof response === 'object' && response !== null) {
+      const payload = response as Partial<AppExceptionPayload> & {
+        message?: string | string[];
+      };
+      if (typeof payload.errorCode === 'string') {
+        return {
+          status,
+          errorCode: payload.errorCode,
+          message: this.normalizeMessage(payload.message) ?? exception.message,
+          details: payload.details,
+        };
+      }
+      // Untagged HttpException (framework throw — ValidationPipe, guards,
+      // throttler) — fall back to the status-based default code, but keep
+      // the caller's message.
+      return {
+        status,
+        errorCode: STATUS_TO_DEFAULT_CODE[status] ?? ErrorCode.INTERNAL_ERROR,
+        message: this.normalizeMessage(payload.message) ?? exception.message,
+      };
+    }
+
+    // String form: `new NotFoundException('...')` — Nest serializes the
+    // string into the message field for us.
+    const message = typeof response === 'string' ? response : exception.message;
+    return {
+      status,
+      errorCode: STATUS_TO_DEFAULT_CODE[status] ?? ErrorCode.INTERNAL_ERROR,
+      message,
+    };
+  }
+
+  // ── Prisma → envelope ────────────────────────────────────────────────
+
+  private fromPrisma(
+    exception: Prisma.PrismaClientKnownRequestError,
+  ): Translated {
+    // A statement cut off by its `statement_timeout` (57014), set where a
+    // read must not hold a pooled connection for long: the database is busy,
+    // not broken, so a retry later may succeed.
+    const meta = exception.meta as AdapterPgMeta | undefined;
+    if (meta?.driverAdapterError?.cause?.originalCode === '57014') {
+      return {
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        errorCode: ErrorCode.EXTERNAL_SERVICE_UNAVAILABLE,
+        message: 'Busy right now; try again in a moment',
+      };
+    }
+    switch (exception.code) {
+      case 'P2002': {
+        const field = this.getTargetField(exception);
+        return {
+          status: HttpStatus.CONFLICT,
+          errorCode: ErrorCode.UNIQUE_CONSTRAINT_VIOLATION,
+          message: field
+            ? `${this.humanize(field)} already in use`
+            : 'Duplicate value for unique field',
+          details: field ? { field } : null,
+        };
+      }
+      case 'P2003': {
+        const field = this.getTargetField(exception);
+        return {
+          status: HttpStatus.BAD_REQUEST,
+          errorCode: ErrorCode.FK_REFERENCE_INVALID,
+          message: field
+            ? `${this.humanize(field)} references a record that does not exist`
+            : 'Foreign key references a record that does not exist',
+          details: field ? { field } : null,
+        };
+      }
+      case 'P2025':
+        return {
+          status: HttpStatus.NOT_FOUND,
+          errorCode: ErrorCode.RESOURCE_NOT_FOUND,
+          message: 'Resource not found',
+        };
+      default:
+        return {
+          status: HttpStatus.INTERNAL_SERVER_ERROR,
+          errorCode: ErrorCode.INTERNAL_ERROR,
+          message: 'Internal server error',
+        };
+    }
+  }
+
+  // ── Unknown → envelope ───────────────────────────────────────────────
+
+  private fromUnknown(): Translated {
+    return {
+      status: HttpStatus.INTERNAL_SERVER_ERROR,
+      errorCode: ErrorCode.INTERNAL_ERROR,
+      message: 'Internal server error',
+    };
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────
+
+  // The default ValidationPipe exceptionFactory emits `message` as a
+  // string[]. Flatten to a single string for the envelope's message
+  // field (the field-level detail belongs in `details`, but the default
+  // pipe doesn't populate it — clients still get a readable summary here).
+  private normalizeMessage(
+    message: string | string[] | undefined,
+  ): string | undefined {
+    if (Array.isArray(message)) {
+      return message.join(', ');
+    }
+    return message;
+  }
+
+  // pino-http populates req.id; fall back to the inbound header so
+  // operators who supply X-Request-Id manually still get correlation.
+  private extractRequestId(request: Request): string | undefined {
+    const id = (request as Request & { id?: unknown }).id;
+    if (typeof id === 'string' && id.length > 0) return id;
+    const header = request.headers['x-request-id'];
+    if (typeof header === 'string' && header.length > 0) return header;
+    if (Array.isArray(header) && header[0]) return header[0];
+    return undefined;
+  }
+
+  // P2002 meta shape varies by driver path:
+  //   - Classic Rust engine: meta.target = string[] or string
+  //       (e.g. ['email'] or 'users_email_key')
+  //   - adapter-pg (Prisma 7+): meta.target is undefined; the field list
+  //       lives at meta.driverAdapterError.cause.constraint.fields
+  //       (e.g. { fields: ['email'] })
+  //   - Fallback: Prisma's message string contains
+  //       "Unique constraint failed on the fields: (`email`)"
+  // Check all three in order so we return a sensible field name
+  // regardless of which path the error came from. For composite
+  // uniques, returns the last column — imprecise but not misleading.
+  private getTargetField(
+    error: Prisma.PrismaClientKnownRequestError,
+  ): string | undefined {
+    const meta = error.meta as AdapterPgMeta | undefined;
+    if (!meta) return this.extractFieldFromMessage(error.message);
+
+    if (Array.isArray(meta.target) && meta.target.length > 0) {
+      const first: unknown = meta.target[0];
+      if (typeof first === 'string' && first.length > 0) return first;
+    }
+    if (typeof meta.target === 'string' && meta.target.length > 0) {
+      const withoutSuffix = meta.target.replace(/_(key|idx|unique)$/i, '');
+      const last = withoutSuffix.split('_').pop();
+      if (last && last.length > 0) return last;
+    }
+
+    const adapterFields = meta.driverAdapterError?.cause?.constraint?.fields;
+    if (
+      Array.isArray(adapterFields) &&
+      adapterFields.length > 0 &&
+      typeof adapterFields[0] === 'string'
+    ) {
+      return adapterFields[0];
+    }
+
+    return this.extractFieldFromMessage(error.message);
+  }
+
+  // Parse the field name out of Prisma's message string as a last
+  // resort. Example: "Unique constraint failed on the fields: (`email`)"
+  // Composite: "... on the fields: (`platform`,`version`)" → picks
+  // `platform`.
+  private extractFieldFromMessage(message: string): string | undefined {
+    return /fields:\s*\(`?([^`,)]+)`?/.exec(message)?.[1]?.trim();
+  }
+
+  private humanize(field: string): string {
+    return field
+      .replace(/([A-Z])/g, ' $1')
+      .toLowerCase()
+      .replace(/^./, (firstCharacter) => firstCharacter.toUpperCase());
+  }
+
+  // The URL is redacted here as well as in the pino request serializer, because
+  // this line is built by hand and would otherwise sail straight past it. A
+  // failed `GET /auth/verify-email?token=…` is exactly the request that reaches
+  // this method, so the unredacted form would put a bearer credential in the
+  // logs on every expired-link click.
+  private log(status: number, request: Request, exception: unknown): void {
+    const safeUrl = redactUrlSecrets(request.originalUrl);
+    if (status >= 500) {
+      this.logger.error(
+        `${request.method} ${safeUrl} -> ${status}`,
+        exception instanceof Error ? exception.stack : String(exception),
+      );
+    } else {
+      this.logger.warn(`${request.method} ${safeUrl} -> ${status}`);
+    }
+  }
+}
