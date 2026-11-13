@@ -193,7 +193,7 @@ test/            e2e specs + setup/ (global DB setup, worker isolation)
 
 ## Non-obvious invariants
 
-- **Two local stacks:** dev (5433/6378, `.env`) and test (5434/6380,
+- **Two local stacks:** dev (5450/6450/9450, `.env`) and test (5451/6451/9451,
   `.env.test`). e2e runs a real `DROP DATABASE`; never point it at dev.
 - **`.env.test` is the only test config.** Under `NODE_ENV=test` the app
   never reads `.env`, and env validation refuses a real outside provider:

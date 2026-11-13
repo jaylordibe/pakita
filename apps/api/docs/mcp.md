@@ -151,7 +151,7 @@ again.
 
 The OAuth and discovery paths are at the origin root, outside `/api`, because
 that is where OAuth clients look for them. Locally the MCP URL is
-`http://localhost:3000/api/mcp`; deployed, `https://<api-host>/api/mcp`.
+`http://localhost:3450/api/mcp`; deployed, `https://<api-host>/api/mcp`.
 
 ## 6. Available tools
 
@@ -184,7 +184,7 @@ access ends, token separation, and the page protections.
 ## 8. MCP Inspector
 
 `npx @modelcontextprotocol/inspector`, transport **Streamable HTTP**, URL
-`http://localhost:3000/api/mcp`, then start its OAuth flow from the
+`http://localhost:3450/api/mcp`, then start its OAuth flow from the
 authentication settings: it registers itself and opens the sign-in page. The
 UI calls from its own origin, so add it (for example `http://localhost:6274`)
 to `MCP_ALLOWED_ORIGINS` locally.

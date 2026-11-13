@@ -57,6 +57,9 @@ export default defineConfig({
   },
   renderer: {
     plugins: [vue(), productionContentSecurityPolicy()],
+    // Pakita's own port, clear of the usual 5173 other projects take
+    // (Pakita's local ports are listed in the root README).
+    server: { port: 3451, strictPort: true },
     build: {
       rolldownOptions: {
         input: {

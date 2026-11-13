@@ -33,8 +33,8 @@ Package manager: **pnpm**, run from the workspace root (`pnpm-lock.yaml` committ
 
 | Stack | Command | Containers | Ports |
 |---|---|---|---|
-| dev | `docker compose up -d` (reads `.env`) | `${SERVICE_NAME}-postgres` / `-redis` / `-s3` | **5433** / **6378** / **9000** |
-| test | `docker compose --env-file .env.test up -d --wait postgres redis s3` | `${SERVICE_NAME}-test-postgres` / `-test-redis` / `-test-s3` | **5434** / **6380** / **9002** |
+| dev | `docker compose up -d` (reads `.env`) | `${SERVICE_NAME}-postgres` / `-redis` / `-s3` | **5450** / **6450** / **9450** |
+| test | `docker compose --env-file .env.test up -d --wait postgres redis s3` | `${SERVICE_NAME}-test-postgres` / `-test-redis` / `-test-s3` | **5451** / **6451** / **9451** |
 
 Container names are `${SERVICE_NAME}${COMPOSE_STACK_SUFFIX}-*`; `.env.test` sets `COMPOSE_STACK_SUFFIX="-test"` and its own `COMPOSE_PROJECT_NAME`, so the volumes never mix.
 

@@ -247,7 +247,7 @@ pnpm install
 cp .env.example .env
 sed -i.bak "s|^JWT_SECRET=.*|JWT_SECRET=\"$(openssl rand -hex 48)\"|" .env && rm .env.bak
 
-# PostgreSQL, Redis and S3-compatible storage (RustFS) on host ports 5433 / 6378 / 9000
+# PostgreSQL, Redis and S3-compatible storage (RustFS) on host ports 5450 / 6450 / 9450
 docker compose up -d
 
 # Schema, then the RBAC catalog. The API refuses to boot until the catalog is in the database
@@ -259,14 +259,14 @@ pnpm prisma:seed        # projects the catalog and creates the SEED_* admin and 
 pnpm start:dev
 ```
 
-The Swagger UI is at [localhost:3000/api/docs](http://localhost:3000/api/docs)
-and the readiness check is at [localhost:3000/api/health/readiness](http://localhost:3000/api/health/readiness).
+The Swagger UI is at [localhost:3450/api/docs](http://localhost:3450/api/docs)
+and the readiness check is at [localhost:3450/api/health/readiness](http://localhost:3450/api/health/readiness).
 
 Run the tests:
 
 ```bash
 pnpm test         # unit tests
-pnpm test:e2e     # e2e: starts its own isolated stack on 5434 / 6380 / 9002 (.env.test)
+pnpm test:e2e     # e2e: starts its own isolated stack on 5451 / 6451 / 9451 (.env.test)
 ```
 
 <details>
@@ -293,7 +293,7 @@ pnpm rbac:sync            # permission catalog changed
 
 **Troubleshooting**
 
-- **Port already in use (5433 / 6378 / 9000)**: something else is bound to it; `lsof -i :5433` finds it.
+- **Port already in use (5450 / 6450 / 9450)**: something else is bound to it; `lsof -i :5450` finds it.
 - **`JWT_SECRET` boot error**: `.env.example` leaves it blank, and validation requires at least 32 characters. Generate one with `openssl rand -hex 48`.
 - **"Authorization catalog does not match the database"**: run `pnpm rbac:sync`.
 - **Prisma client out of date**: run `pnpm prisma:generate` after schema changes.

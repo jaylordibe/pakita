@@ -51,6 +51,16 @@ pnpm --filter @pakita/api start:dev
 pnpm --filter @pakita/desktop dev
 ```
 
+Pakita's local ports are chosen to stay clear of other projects on the same
+machine: it avoids the usual 3000, 5173, 5432–5434, 6379–6380 and 9000.
+
+| What | Port |
+|---|---|
+| API (`PORT`) | 3450 |
+| Desktop dev renderer (`pnpm --filter @pakita/desktop dev`) | 3451 |
+| Dev stack: Postgres / Redis / S3 (`apps/api/.env`) | 5450 / 6450 / 9450 |
+| Test stack: Postgres / Redis / S3 (`apps/api/.env.test`) | 5451 / 6451 / 9451 |
+
 ### Try the whole app
 
 With the API running, fill your local server with a sample church:
@@ -65,7 +75,7 @@ English Bible passages and a **Sunday Service** playlist for the coming
 Sunday. Running it again changes nothing. It is for development only: it
 refuses `NODE_ENV=production`, and a church server never runs it.
 
-In the desktop app, connect to **`http://localhost:3000`** (the API's
+In the desktop app, connect to **`http://localhost:3450`** (the API's
 `PORT`; plain `http` is accepted only for a server on this computer).
 
 Pakita has two levels of account. **Church accounts** are a church's own
