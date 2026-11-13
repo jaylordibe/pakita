@@ -156,11 +156,16 @@ async function refreshSelectedSong(): Promise<void> {
   }
 }
 
-async function goLive(): Promise<void> {
+/** Presents the selected song; a double-clicked slide starts there. */
+async function goLive(slideIndex = 0): Promise<void> {
   if (!selectedSong.value) return;
   errorMessage.value = null;
   try {
-    await window.pakita.live.start(selectedSong.value.id, arrangementId.value);
+    await window.pakita.live.start(
+      selectedSong.value.id,
+      arrangementId.value,
+      slideIndex,
+    );
   } catch (error) {
     errorMessage.value = messageOf(error);
   }
@@ -360,7 +365,7 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
                 <h2>{{ selectedSong.title }}</h2>
                 <p v-if="selectedSong.artist">{{ selectedSong.artist }}</p>
               </div>
-              <button class="go-live" data-testid="go-live" @click="goLive">
+              <button class="go-live" data-testid="go-live" @click="goLive()">
                 <AppIcon name="play" />
                 Go live
               </button>
@@ -401,11 +406,18 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
             </p>
             <ol class="slides">
               <li v-for="(slide, index) in previewSlides" :key="index">
-                <span class="slide-label">
-                  <span>{{ slide.sectionLabel }}</span>
-                  <span class="slide-number">{{ index + 1 }}</span>
-                </span>
-                <span class="slide-text">{{ slide.text }}</span>
+                <button
+                  class="slide"
+                  title="Double-click to put this slide live"
+                  :data-testid="`song-slide-${index}`"
+                  @dblclick="goLive(index)"
+                >
+                  <span class="slide-label">
+                    <span>{{ slide.sectionLabel }}</span>
+                    <span class="slide-number">{{ index + 1 }}</span>
+                  </span>
+                  <span class="slide-text">{{ slide.text }}</span>
+                </button>
               </li>
             </ol>
           </template>
@@ -536,8 +548,9 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
   list-style: none;
 }
 
-.slides li {
+.slide {
   position: relative;
+  width: 100%;
   aspect-ratio: 16 / 9;
   display: grid;
   place-items: center;
@@ -552,14 +565,28 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
     ),
     #05050c;
   color: #fff;
+  font-weight: 400;
+  text-align: center;
+  white-space: normal;
   overflow: hidden;
   transition:
     border-color 160ms var(--ease-out),
     transform 200ms var(--ease-out);
 }
 
-.slides li:hover {
+.slide:hover:not(:disabled) {
   border-color: var(--border-strong);
+  background:
+    radial-gradient(
+      ellipse at 50% 120%,
+      rgb(77 98 255 / 0.12),
+      transparent 60%
+    ),
+    #05050c;
+}
+
+.slide:active:not(:disabled) {
+  transform: none;
 }
 
 .slide-label {

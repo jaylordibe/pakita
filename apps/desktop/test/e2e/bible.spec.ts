@@ -251,6 +251,36 @@ test('finds a book by typing part of it, and a chapter by its number', async () 
   await expect(book).toHaveValue('Genesis');
 });
 
+test('puts a double-clicked verse live, with Go live in reach after scrolling', async () => {
+  await operator.getByTestId('bible-reference').fill('jn 3');
+  await operator.getByTestId('bible-reference').press('Enter');
+
+  // This test Bible's chapters are two verses long; room below them stands in
+  // for a long chapter.
+  const content = operator.locator('.panel-content');
+  await operator
+    .locator('.verses')
+    .evaluate((list) => (list.style.paddingBottom = '3000px'));
+  // Scrolled to the bottom, the passage head (and Go live) is still on screen.
+  await content.evaluate((element) =>
+    element.scrollTo(0, element.scrollHeight),
+  );
+  await expect
+    .poll(() => content.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(1000);
+  await expect(operator.getByTestId('bible-go-live')).toBeInViewport();
+  await operator
+    .locator('.verses')
+    .evaluate((list) => (list.style.paddingBottom = ''));
+
+  await operator.getByTestId('bible-verse-17').dblclick();
+  const projector = await findProjector(application);
+  await expect(projector.locator('#caption')).toHaveText(
+    'John 3:17 · World English Bible (Public Domain)',
+  );
+  await operator.getByTestId('live-stop').click();
+});
+
 test('presents from the laptop’s copy after a restart with the server down', async () => {
   await application.close();
   await api.stop();

@@ -188,6 +188,12 @@ async function openResult(result: BibleSearchHit): Promise<void> {
   chooseVerse(result.verse, false);
 }
 
+/** Double-click: that verse alone, live at once. */
+async function goLiveWith(verse: number): Promise<void> {
+  chooseVerse(verse, false);
+  await goLive();
+}
+
 async function goLive(): Promise<void> {
   const first = selection.value[0];
   const last = selection.value.at(-1);
@@ -342,12 +348,15 @@ onUnmounted(() => unsubscribe?.());
 
     <main class="panel-content">
       <template v-if="translations.length > 0">
-        <div class="page-head">
+        <div class="page-head passage-head">
           <div class="titles">
             <h2>
               {{ selectionLabel ?? `${book?.name ?? ''} ${chapter}` }}
             </h2>
-            <p>Click a verse; shift-click to select a range.</p>
+            <p>
+              Click a verse; shift-click to select a range; double-click to put
+              a verse live.
+            </p>
           </div>
           <AddToPlaylist :entry="passageEntry" />
           <button
@@ -371,6 +380,7 @@ onUnmounted(() => unsubscribe?.());
               :aria-pressed="selection.includes(verse)"
               :data-testid="`bible-verse-${verse.verse}`"
               @click="chooseVerse(verse.verse, $event.shiftKey)"
+              @dblclick="goLiveWith(verse.verse)"
             >
               <sup>{{ verse.verse }}</sup>
               <span>{{ verse.text }}</span>
@@ -402,6 +412,18 @@ onUnmounted(() => unsubscribe?.());
   display: grid;
   grid-template-columns: minmax(0, 1fr) 4.75rem;
   gap: 0.5rem;
+}
+
+/* Stays in reach while the verses scroll beneath it: the passage's name,
+   "Add to playlist" and "Go live". */
+.passage-head {
+  position: sticky;
+  top: -1.6rem;
+  z-index: 1;
+  margin: -1.6rem -2rem 1rem;
+  padding: 1.6rem 2rem 0.9rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
 .go-to {

@@ -138,8 +138,8 @@ const pakita: PakitaApi = {
     onChanged: (listener) => subscribe(IpcEvent.displaysChanged, listener),
   },
   live: {
-    start: (songId, arrangementId) =>
-      invoke(IpcChannel.liveStart, { songId, arrangementId }),
+    start: (songId, arrangementId, slideIndex = 0) =>
+      invoke(IpcChannel.liveStart, { songId, arrangementId, slideIndex }),
     startPassage: (passage) => invoke(IpcChannel.liveStartPassage, passage),
     startPlaylist: (playlistId, entryIndex) =>
       invoke(IpcChannel.liveStartPlaylist, { playlistId, entryIndex }),

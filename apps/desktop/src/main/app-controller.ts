@@ -1021,6 +1021,7 @@ export class AppController {
   async startLive(
     songId: string,
     arrangementId: string | null,
+    slideIndex = 0,
   ): Promise<LiveState> {
     const loaded = await this.loadSong(songId);
     if (loaded.status === 'missing') {
@@ -1044,6 +1045,8 @@ export class AppController {
       throw new Error('That arrangement has no slides.');
     }
     this.live.start(song.title, slides, await this.resolveLook(null));
+    // Straight to the chosen slide: the first is never shown on the way.
+    this.live.goTo(slideIndex);
     this.projector.open();
     return this.broadcastLiveState();
   }

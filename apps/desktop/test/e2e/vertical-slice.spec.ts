@@ -95,6 +95,16 @@ test('presents the song on the projector', async () => {
   await expect(projector.locator('#stage')).toHaveClass(/is-dark/);
   await operator.getByTestId('live-blackout').click();
   await expect(projector.locator('#stage')).not.toHaveClass(/is-dark/);
+
+  // Double-clicking a slide puts that very slide live.
+  await operator.getByTestId('song-slide-0').dblclick();
+  await expect(projector.locator('#slide')).toHaveText(
+    'Amazing grace, how sweet the sound',
+  );
+  await operator.getByTestId('song-slide-1').dblclick();
+  await expect(projector.locator('#slide')).toHaveText(
+    'That saved a wretch like me',
+  );
 });
 
 test('leaves the projector alone when only a display’s work area changes', async () => {

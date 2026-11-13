@@ -604,7 +604,12 @@ export interface PakitaApi {
     onChanged(listener: () => void): () => void;
   };
   readonly live: {
-    start(songId: string, arrangementId: string | null): Promise<LiveState>;
+    /** Presents a song, from the slide at `slideIndex` (the first by default). */
+    start(
+      songId: string,
+      arrangementId: string | null,
+      slideIndex?: number,
+    ): Promise<LiveState>;
     startPassage(passage: PassageRequest): Promise<LiveState>;
     /** Presents the whole playlist, from the entry at `entryIndex`. */
     startPlaylist(playlistId: string, entryIndex: number): Promise<LiveState>;

@@ -468,8 +468,15 @@ async function start(): Promise<void> {
   );
   handle(
     IpcChannel.liveStart,
-    z.object({ songId: uuid, arrangementId: uuid.nullable() }).strict(),
-    ({ songId, arrangementId }) => controller.startLive(songId, arrangementId),
+    z
+      .object({
+        songId: uuid,
+        arrangementId: uuid.nullable(),
+        slideIndex: z.number().int().min(0).max(100_000),
+      })
+      .strict(),
+    ({ songId, arrangementId, slideIndex }) =>
+      controller.startLive(songId, arrangementId, slideIndex),
   );
   handle(IpcChannel.liveNext, noPayload, () => controller.next());
   handle(IpcChannel.livePrevious, noPayload, () => controller.previous());
