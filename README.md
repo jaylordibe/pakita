@@ -36,8 +36,12 @@ Redis and object storage.
 ```bash
 pnpm install
 
+# API environment: the defaults match the local stack; only JWT_SECRET
+# must be set. Run once: apps/api/.env is git-ignored and stays yours.
+cp apps/api/.env.example apps/api/.env
+sed -i.bak "s|^JWT_SECRET=.*|JWT_SECRET=\"$(openssl rand -hex 48)\"|" apps/api/.env && rm apps/api/.env.bak
+
 # API — starts the local Postgres, Redis and storage, then the API.
-# Copy apps/api/.env.example to apps/api/.env first and fill it in.
 pnpm --filter @pakita/api stack:up
 pnpm --filter @pakita/api prisma:deploy   # the database schema
 pnpm --filter @pakita/api prisma:seed     # roles, plus a sign-in admin and user
