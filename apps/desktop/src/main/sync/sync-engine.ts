@@ -4,8 +4,8 @@ import type { SyncChanges } from '../api/api-schemas';
 import { SignInRequiredError } from '../auth/session';
 import type { DatabaseClient } from '../database/database-client';
 
-/** Pages of 200 changes; a sanity bound well above any church library. */
-const PAGE_SIZE = 200;
+/** Pages of 50 songs; a sanity bound well above any church library. */
+const PAGE_SIZE = 50;
 const MAX_PAGES = 5_000;
 
 export interface SyncDependencies {
@@ -17,7 +17,7 @@ export interface SyncDependencies {
   ): Promise<SyncChanges>;
   readonly database: Pick<
     DatabaseClient,
-    'getSyncState' | 'applySyncPage' | 'resetWorkspace'
+    'getSyncState' | 'applySyncPage' | 'beginResync' | 'finishResync'
   >;
   now(): Date;
 }
@@ -28,8 +28,9 @@ export interface SyncDependencies {
  * Each page is applied in one database transaction together with its cursor,
  * so an interrupted run resumes where the last complete page left off. When
  * the server's history was replaced (its epoch changed, or it is behind the
- * laptop — a backup was restored), the workspace's copy is discarded and
- * synchronised from the beginning.
+ * laptop — a backup was restored), the workspace is resynchronised from the
+ * beginning: the old copy stays presentable until the new history has fully
+ * arrived, and an interrupted resynchronisation resumes as one.
  *
  * It only ever writes the database; what is on screen during a presentation
  * is held in memory and is never touched by a synchronisation.
@@ -41,6 +42,7 @@ export class SyncEngine {
     message: null,
   };
   private running: Promise<SyncStatus> | null = null;
+  private isRerunRequested = false;
 
   constructor(
     private readonly dependencies: SyncDependencies,
@@ -51,12 +53,29 @@ export class SyncEngine {
     return this.status;
   }
 
-  /** Runs one synchronisation; a call while one is running joins it. */
+  /**
+   * Runs one synchronisation. A call while one is running joins it, and
+   * makes it run once more when it finishes — so a change saved during a run
+   * is never left behind by it.
+   */
   syncWorkspace(workspaceId: string): Promise<SyncStatus> {
-    this.running ??= this.run(workspaceId).finally(() => {
+    if (this.running) {
+      this.isRerunRequested = true;
+      return this.running;
+    }
+    this.running = this.runUntilSettled(workspaceId).finally(() => {
       this.running = null;
     });
     return this.running;
+  }
+
+  private async runUntilSettled(workspaceId: string): Promise<SyncStatus> {
+    let status: SyncStatus;
+    do {
+      this.isRerunRequested = false;
+      status = await this.run(workspaceId);
+    } while (this.isRerunRequested && status.state === 'idle');
+    return status;
   }
 
   private async run(workspaceId: string): Promise<SyncStatus> {
@@ -78,7 +97,8 @@ export class SyncEngine {
     const saved = await database.getSyncState(workspaceId);
     let cursor = saved?.cursor ?? 0;
     let epoch = saved?.epoch ?? null;
-    let hasReset = false;
+    let isResyncing = saved?.isResyncing ?? false;
+    let hasBegunResync = false;
 
     for (let pageCount = 0; pageCount < MAX_PAGES; pageCount += 1) {
       const page = await this.dependencies.fetchChanges(
@@ -89,14 +109,22 @@ export class SyncEngine {
       const isHistoryReplaced =
         epoch !== null && (page.epoch !== epoch || cursor > page.latestVersion);
       if (isHistoryReplaced) {
-        if (hasReset) {
+        if (hasBegunResync) {
           throw new Error('The server’s history changed again mid-sync.');
         }
-        await database.resetWorkspace(workspaceId);
-        hasReset = true;
+        await database.beginResync(workspaceId, page.epoch);
+        hasBegunResync = true;
+        isResyncing = true;
         cursor = 0;
-        epoch = null;
+        epoch = page.epoch;
         continue;
+      }
+      const foreign = page.songs.find(
+        (change) =>
+          change.song !== null && change.song.workspaceId !== workspaceId,
+      );
+      if (foreign) {
+        throw new Error('The server sent songs from another workspace.');
       }
       await database.applySyncPage(workspaceId, {
         epoch: page.epoch,
@@ -106,6 +134,9 @@ export class SyncEngine {
       epoch = page.epoch;
       cursor = page.nextCursor;
       if (!page.hasMore) {
+        if (isResyncing) {
+          await database.finishResync(workspaceId);
+        }
         return;
       }
     }

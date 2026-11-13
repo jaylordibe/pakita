@@ -33,6 +33,23 @@ down. Where the answer is "you have to do this", it says so.
 | Managed PITR | ❌ Operator-owned | On the production checklist in the root `README.md`. Strongly preferred over plain dumps — it is the only option here that gives a real RPO. |
 | Redis durability | ❌ Operator-owned | Enable AOF (`appendonly yes` on persistent storage) or use a managed Redis with persistence. **Queued jobs are exactly as durable as the Redis they live in**, and there is deliberately no in-memory fallback. |
 
+### After any restore: rotate every workspace's sync epoch
+
+Pakita's desktops keep an offline copy of each workspace and ask only for
+changes after the version they last saw. A restored database reuses version
+numbers the desktops have already seen with different content, so it must
+announce that its history was replaced. Run this once the restore completes
+and before the API takes traffic:
+
+```sql
+UPDATE workspace_sync_states SET epoch = gen_random_uuid();
+```
+
+A desktop that sees a new epoch rebuilds its copy from the beginning, keeping
+the old copy presentable until the new one is complete
+(`apps/desktop/src/main/sync/sync-engine.ts`). Without this step a desktop that
+was ahead of the restored point can silently miss changes.
+
 ### RPO / RTO
 
 This template **does not set** an RPO or RTO, because neither is a property of

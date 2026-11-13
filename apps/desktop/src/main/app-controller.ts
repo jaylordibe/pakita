@@ -172,9 +172,18 @@ export class AppController {
       : null;
     const previous = session.getAccount();
     const account = await session.signIn(identifier, password, turnstileToken);
-    // Signing in again as the same person keeps the database already open.
-    if (!this.database || previous?.userId !== account.userId) {
+    if (previous && previous.userId !== account.userId) {
+      // Someone else signed in on this laptop: the previous account's content
+      // and church choice go, exactly as on sign-out.
+      this.stopBackgroundSync();
       await this.database?.close();
+      this.database = null;
+      this.syncEngine = null;
+      rmSync(this.accountDirectory(previous), { recursive: true, force: true });
+      this.settings.update({ workspaceId: null });
+    }
+    // Signing in again as the same person keeps the database already open.
+    if (!this.database) {
       this.openDatabase(account);
     }
     this.startSync();
@@ -243,12 +252,25 @@ export class AppController {
   }
 
   async getSong(songId: string): Promise<Song | null> {
+    const loaded = await this.loadSong(songId);
+    return loaded.status === 'found' ? loaded.song : null;
+  }
+
+  private async loadSong(
+    songId: string,
+  ): Promise<
+    | { status: 'found'; song: Song }
+    | { status: 'missing' }
+    | { status: 'unreadable' }
+  > {
     const { workspaceId } = this.settings.get();
-    if (!this.database || !workspaceId) return null;
+    if (!this.database || !workspaceId) return { status: 'missing' };
     const stored = await this.database.getSong(workspaceId, songId);
-    if (stored === null) return null;
+    if (stored === null) return { status: 'missing' };
     const parsed = songSchema.safeParse(stored);
-    return parsed.success ? parsed.data : null;
+    return parsed.success
+      ? { status: 'found', song: parsed.data }
+      : { status: 'unreadable' };
   }
 
   async createSong(input: SongInput): Promise<Song> {
@@ -292,7 +314,8 @@ export class AppController {
     }));
   }
 
-  chooseDisplay(displayId: number): void {
+  /** `null` returns to automatic placement. */
+  chooseDisplay(displayId: number | null): void {
     this.settings.update({ projectorDisplayId: displayId });
     if (this.live.isLive) this.projector.place();
     this.notifyDisplaysChanged();
@@ -303,12 +326,25 @@ export class AppController {
     songId: string,
     arrangementId: string | null,
   ): Promise<LiveState> {
-    const song = await this.getSong(songId);
-    if (!song) {
-      throw new Error('That song is not on this laptop. Synchronise first.');
+    const loaded = await this.loadSong(songId);
+    if (loaded.status === 'missing') {
+      throw new Error(
+        'That song is no longer on this laptop — it may have been deleted.',
+      );
     }
+    if (loaded.status === 'unreadable') {
+      throw new Error(
+        'This laptop’s copy of that song cannot be read. Update Pakita.',
+      );
+    }
+    const { song } = loaded;
     const slides = buildSongSlides(song, arrangementId ?? undefined);
-    if (!slides || slides.length === 0) {
+    if (!slides) {
+      throw new Error(
+        'This song changed since you selected it. Select it again.',
+      );
+    }
+    if (slides.length === 0) {
       throw new Error('That arrangement has no slides.');
     }
     this.live.start(song.title, slides);
@@ -344,6 +380,10 @@ export class AppController {
 
   liveState(): LiveState {
     return this.live.snapshot(this.projector.getStatus());
+  }
+
+  isProjectorContents(contentsId: number): boolean {
+    return this.projector.isProjectorContents(contentsId);
   }
 
   async shutdown(): Promise<void> {

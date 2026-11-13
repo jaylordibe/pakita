@@ -111,14 +111,22 @@ async function start(): Promise<void> {
     });
   });
 
+  // Every channel belongs to the operator window, except reading the live
+  // state, which the projector does too.
+  const isOperator = (senderId: number) =>
+    operatorWindow !== null &&
+    !operatorWindow.isDestroyed() &&
+    operatorWindow.webContents.id === senderId;
   const handle = <Schema extends z.ZodType, Result>(
     channel: IpcChannelName,
     schema: Schema,
     handler: (payload: z.infer<Schema>) => Result | Promise<Result>,
+    isAllowedSender: (senderId: number) => boolean = isOperator,
   ) =>
     registerIpcHandler(ipcMain, channel, {
       schema,
       trustedOrigins,
+      isAllowedSender,
       handle: handler,
     });
   const noPayload = z.undefined();
@@ -167,7 +175,7 @@ async function start(): Promise<void> {
     ({ songId, input }) => controller.updateSong(songId, input),
   );
   handle(IpcChannel.displaysList, noPayload, () => controller.listDisplays());
-  handle(IpcChannel.displaysChoose, z.number().int(), (displayId) =>
+  handle(IpcChannel.displaysChoose, z.number().int().nullable(), (displayId) =>
     controller.chooseDisplay(displayId),
   );
   handle(
@@ -184,7 +192,13 @@ async function start(): Promise<void> {
     controller.toggleBlackout(),
   );
   handle(IpcChannel.liveStop, noPayload, () => controller.stopLive());
-  handle(IpcChannel.liveGetState, noPayload, () => controller.liveState());
+  handle(
+    IpcChannel.liveGetState,
+    noPayload,
+    () => controller.liveState(),
+    (senderId) =>
+      isOperator(senderId) || controller.isProjectorContents(senderId),
+  );
 
   app.on('second-instance', () => {
     if (operatorWindow) {

@@ -170,7 +170,7 @@ describe('Sync changes (e2e)', () => {
   });
 
   it('refuses a cursor or page size out of range (400)', async () => {
-    for (const query of ['?cursor=-1', '?limit=0', '?limit=201']) {
+    for (const query of ['?cursor=-1', '?limit=0', '?limit=101']) {
       await request(app.getHttpServer())
         .get(changesUrl(query))
         .set('Authorization', `Bearer ${staff.token}`)

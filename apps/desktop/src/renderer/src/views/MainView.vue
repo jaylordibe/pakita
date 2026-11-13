@@ -3,13 +3,11 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import type {
   AccountSummary,
-  LiveState,
   Song,
   SongSummary,
   SyncStatus,
 } from '../../../shared/ipc-contract';
 import { buildSongSlides } from '../../../shared/slides';
-import LivePanel from '../components/LivePanel.vue';
 import SongEditor from '../components/SongEditor.vue';
 import { messageOf } from '../errors';
 
@@ -30,14 +28,6 @@ const syncStatus = ref<SyncStatus>({
   state: 'idle',
   lastSyncedAt: null,
   message: null,
-});
-const liveState = ref<LiveState>({
-  isLive: false,
-  title: null,
-  slides: [],
-  index: 0,
-  isBlackout: false,
-  projector: 'off',
 });
 const errorMessage = ref<string | null>(null);
 
@@ -64,21 +54,34 @@ async function refreshLibrary(): Promise<void> {
 
 async function selectSong(songId: string): Promise<void> {
   errorMessage.value = null;
+  // Keep the operator's arrangement across edits (ids change; names don't).
+  const previous = selectedSong.value;
+  const previousName =
+    previous?.id === songId
+      ? previous.arrangements.find(
+          (arrangement) => arrangement.id === arrangementId.value,
+        )?.name
+      : undefined;
   selectedSong.value = await window.pakita.library.getSong(songId);
+  const arrangements = selectedSong.value?.arrangements ?? [];
   arrangementId.value =
-    selectedSong.value?.arrangements.find(
-      (arrangement) => arrangement.isDefault,
-    )?.id ?? null;
+    arrangements.find((arrangement) => arrangement.name === previousName)?.id ??
+    arrangements.find((arrangement) => arrangement.isDefault)?.id ??
+    null;
+}
+
+// After a synchronisation, show the selected song as it now is.
+async function refreshSelectedSong(): Promise<void> {
+  if (selectedSong.value && editing.value === null) {
+    await selectSong(selectedSong.value.id);
+  }
 }
 
 async function goLive(): Promise<void> {
   if (!selectedSong.value) return;
   errorMessage.value = null;
   try {
-    liveState.value = await window.pakita.live.start(
-      selectedSong.value.id,
-      arrangementId.value,
-    );
+    await window.pakita.live.start(selectedSong.value.id, arrangementId.value);
   } catch (error) {
     errorMessage.value = messageOf(error);
   }
@@ -95,7 +98,7 @@ async function onSaved(song: Song): Promise<void> {
 }
 
 async function signOut(): Promise<void> {
-  if (liveState.value.isLive) {
+  if ((await window.pakita.live.getState()).isLive) {
     errorMessage.value = 'Stop presenting before signing out.';
     return;
   }
@@ -112,16 +115,13 @@ onMounted(async () => {
       syncStatus.value = status;
       if (status.state === 'idle') {
         void refreshLibrary();
+        void refreshSelectedSong();
         // A synchronisation succeeded: the session is live again.
         if (!props.account.isSignedIn) emit('stateChanged');
       }
     }),
-    window.pakita.live.onState((state) => {
-      liveState.value = state;
-    }),
   );
   syncStatus.value = await window.pakita.sync.getStatus();
-  liveState.value = await window.pakita.live.getState();
   await refreshLibrary();
 });
 onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
@@ -195,6 +195,7 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
             v-model="arrangementId"
             aria-label="Arrangement"
             data-testid="arrangement-select"
+            @change="($event.target as HTMLSelectElement).blur()"
           >
             <option
               v-for="arrangement in selectedSong.arrangements"
@@ -219,8 +220,6 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
       <p v-else class="muted">Choose a song from the library.</p>
       <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
     </main>
-
-    <LivePanel class="live-panel" :state="liveState" />
   </div>
 </template>
 
@@ -228,12 +227,11 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 .layout {
   display: grid;
   grid-template-columns: 18rem 1fr;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
   grid-template-areas:
     'bar bar'
-    'library content'
-    'live live';
-  height: 100vh;
+    'library content';
+  height: 100%;
 }
 
 .bar {
@@ -305,9 +303,5 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 .text {
   white-space: pre-line;
   text-align: center;
-}
-
-.live-panel {
-  grid-area: live;
 }
 </style>

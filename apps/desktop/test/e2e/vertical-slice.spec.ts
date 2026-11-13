@@ -90,6 +90,47 @@ test('presents the song on the projector', async () => {
   await expect(projector.locator('#stage')).not.toHaveClass(/is-dark/);
 });
 
+test('keeps the presentation in the operator’s hands', async () => {
+  const projector = await findProjector(application);
+  const slide = projector.locator('#slide');
+  await expect(slide).toHaveText('That saved a wretch like me');
+
+  // Presenter keys drive the slides even with a drop-down focused, and the
+  // drop-down does not change.
+  const arrangement = operator.getByTestId('arrangement-select');
+  const arrangementBefore = await arrangement.inputValue();
+  await arrangement.focus();
+  await operator.keyboard.press('ArrowLeft');
+  await expect(slide).toHaveText('Amazing grace, how sweet the sound');
+  expect(await arrangement.inputValue()).toBe(arrangementBefore);
+  await operator.keyboard.press('ArrowRight');
+  await expect(slide).toHaveText('That saved a wretch like me');
+
+  // Choosing a display, then Automatic, never leaves the projector dark.
+  const displays = operator.getByTestId('display-select');
+  const firstDisplay = await displays
+    .locator('option')
+    .nth(1)
+    .getAttribute('value');
+  await displays.selectOption(firstDisplay!);
+  await displays.selectOption('');
+  await expect(operator.getByTestId('projector-status')).not.toContainText(
+    'disconnected',
+  );
+  const state = await operator.evaluate(() => window.pakita.live.getState());
+  expect(state.projector).not.toBe('display-missing');
+
+  // Another screen never takes the live controls away.
+  await operator.getByRole('button', { name: 'Change church' }).click();
+  await expect(operator.getByTestId('live-next')).toBeVisible();
+  await operator.getByTestId('live-previous').click();
+  await expect(slide).toHaveText('Amazing grace, how sweet the sound');
+  await operator.getByTestId('live-next').click();
+  await expect(slide).toHaveText('That saved a wretch like me');
+  await operator.getByRole('button', { name: 'Back to the library' }).click();
+  await expect(operator.getByTestId('library-search')).toBeVisible();
+});
+
 test('a synchronisation never replaces what is on the projector', async () => {
   const projector = await findProjector(application);
   const [song] = (

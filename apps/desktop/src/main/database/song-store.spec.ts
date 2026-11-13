@@ -40,6 +40,7 @@ describe('SongStore', () => {
     expect(store.getSyncState('workspace')).toEqual({
       epoch: 'epoch-1',
       cursor: 2,
+      isResyncing: false,
     });
     expect(
       store.listSongs('workspace', '', false).map((song) => song.title),
@@ -89,15 +90,54 @@ describe('SongStore', () => {
     ).toEqual(['c']);
   });
 
-  it('keeps workspaces apart and resets one without touching another', () => {
+  it('keeps workspaces apart: a song id never overwrites another workspace’s row', () => {
     store.applySyncPage('one', 'epoch-1', 1, [songChange('a', 1, 'A')]);
-    store.applySyncPage('two', 'epoch-2', 1, [songChange('b', 1, 'B')]);
+    store.applySyncPage('two', 'epoch-2', 5, [songChange('a', 5, 'Imposter')]);
 
+    expect(store.getSong('one', 'a')).toMatchObject({ title: 'A' });
     expect(store.getSong('two', 'a')).toBeNull();
-    store.resetWorkspace('one');
-    expect(store.getSyncState('one')).toBeNull();
-    expect(store.listSongs('one', '', false)).toEqual([]);
-    expect(store.listSongs('two', '', false)).toHaveLength(1);
+  });
+
+  it('resynchronises without ever emptying the library', () => {
+    store.applySyncPage('workspace', 'old', 3, [
+      songChange('kept', 1, 'Kept, old text'),
+      songChange('gone', 2, 'Only in the old history'),
+      songChange('other', 3, 'Other'),
+    ]);
+
+    store.beginResync('workspace', 'new');
+    // Restored history reuses lower version numbers; it still wins.
+    store.applySyncPage('workspace', 'new', 1, [
+      songChange('kept', 1, 'Kept, new text'),
+    ]);
+    // Interrupted here: everything is still presentable.
+    expect(
+      store
+        .listSongs('workspace', '', false)
+        .map((song) => song.id)
+        .sort(),
+    ).toEqual(['gone', 'kept', 'other']);
+    expect(store.getSyncState('workspace')).toMatchObject({
+      epoch: 'new',
+      cursor: 1,
+      isResyncing: true,
+    });
+
+    store.applySyncPage('workspace', 'new', 2, [
+      songChange('other', 2, 'Other'),
+    ]);
+    store.finishResync('workspace');
+
+    expect(
+      store
+        .listSongs('workspace', '', false)
+        .map((song) => song.id)
+        .sort(),
+    ).toEqual(['kept', 'other']);
+    expect(store.getSong('workspace', 'kept')).toMatchObject({
+      title: 'Kept, new text',
+    });
+    expect(store.getSyncState('workspace')?.isResyncing).toBe(false);
   });
 
   it('applies a page all or nothing', () => {

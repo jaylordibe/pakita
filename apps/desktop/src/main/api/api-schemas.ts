@@ -51,10 +51,28 @@ export const workspacePageSchema = z.object({
   data: z.array(workspaceSchema),
 });
 
+type SongSectionKind = Schemas['SongSectionResponseDto']['kind'];
+const KNOWN_SECTION_KINDS: readonly string[] = [
+  'verse',
+  'chorus',
+  'bridge',
+  'intro',
+  'outro',
+  'custom',
+] satisfies SongSectionKind[];
+
 const songSectionSchema: z.ZodType<Schemas['SongSectionResponseDto']> =
   z.object({
     id: z.string(),
-    kind: z.enum(['verse', 'chorus', 'bridge', 'intro', 'outro', 'custom']),
+    // A kind added on the server after this build is read as `custom`, so an
+    // older desktop keeps synchronising (the slides never depend on it).
+    kind: z
+      .string()
+      .transform((kind) =>
+        KNOWN_SECTION_KINDS.includes(kind)
+          ? (kind as SongSectionKind)
+          : 'custom',
+      ),
     label: z.string(),
     lyrics: z.string().max(10_000),
     position: z.number().int().nonnegative(),

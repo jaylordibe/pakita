@@ -39,6 +39,12 @@ interface AccessToken {
 export class Session {
   private accessToken: AccessToken | null = null;
   private refreshInFlight: Promise<AccessToken> | null = null;
+  /**
+   * Bumped by every sign-in and sign-out. A refresh that finishes in a later
+   * generation belongs to a session that no longer exists: its result is
+   * discarded (and its new token ended), never stored.
+   */
+  private generation = 0;
 
   private constructor(
     private readonly api: ApiClient,
@@ -73,6 +79,8 @@ export class Session {
     password: string,
     turnstileToken: string | null,
   ): Promise<StoredAccount> {
+    this.generation += 1;
+    const generation = this.generation;
     const response = await this.api.request({
       method: 'POST',
       path: '/api/auth/login',
@@ -80,6 +88,11 @@ export class Session {
       body: { identifier, password },
       headers: turnstileToken ? { 'X-Turnstile-Token': turnstileToken } : {},
     });
+    if (generation !== this.generation) {
+      // Signed out (or in again) while this sign-in was on its way.
+      this.endServerSession(response.refreshToken);
+      throw new SignInRequiredError();
+    }
     const account: StoredAccount = {
       origin: this.api.origin,
       userId: response.user.id,
@@ -99,20 +112,28 @@ export class Session {
    * expires) and forgets the account on this laptop.
    */
   async signOut(): Promise<void> {
+    this.generation += 1;
     const { refreshToken } = this;
     this.accessToken = null;
     this.refreshToken = null;
     this.account = null;
     this.store.clear();
+    // A refresh still in flight was started with this token: if the server
+    // has already rotated it, that refresh ends its own new token when it
+    // returns (see `refresh`), so either way no session outlives this call.
     if (refreshToken) {
-      await this.api
-        .request({
-          method: 'POST',
-          path: '/api/auth/logout',
-          body: { refreshToken },
-        })
-        .catch(() => undefined);
+      await this.endServerSession(refreshToken);
     }
+  }
+
+  private async endServerSession(refreshToken: string): Promise<void> {
+    await this.api
+      .request<void>({
+        method: 'POST',
+        path: '/api/auth/logout',
+        body: { refreshToken },
+      })
+      .catch(() => undefined);
   }
 
   /** An authenticated request, refreshing the access token as needed. */
@@ -148,6 +169,7 @@ export class Session {
   }
 
   private async refresh(): Promise<AccessToken> {
+    const generation = this.generation;
     const { refreshToken } = this;
     if (!this.account || !refreshToken) {
       throw new SignInRequiredError();
@@ -159,11 +181,21 @@ export class Session {
         schema: loginResponseSchema,
         body: { refreshToken },
       });
+      if (generation !== this.generation) {
+        // Signed out (or in as someone else) meanwhile: the token just
+        // issued belongs to no one now. End it rather than keep it.
+        void this.endServerSession(response.refreshToken);
+        throw new SignInRequiredError();
+      }
       this.refreshToken = response.refreshToken;
       this.accessToken = this.toAccessToken(response);
       await this.store.saveRefreshToken(response.refreshToken);
       return this.accessToken;
     } catch (error) {
+      if (generation !== this.generation) {
+        // Whatever happened, it happened to a session that no longer exists.
+        throw new SignInRequiredError();
+      }
       if (
         error instanceof ApiError &&
         error.errorCode !== null &&

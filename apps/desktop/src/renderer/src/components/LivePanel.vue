@@ -23,8 +23,11 @@ async function refreshDisplays(): Promise<void> {
 }
 
 async function chooseDisplay(event: Event): Promise<void> {
-  const value = Number((event.target as HTMLSelectElement).value);
-  if (Number.isInteger(value)) {
+  const select = event.target as HTMLSelectElement;
+  // Let go of focus, so the presenter keys never change the display.
+  select.blur();
+  const value = select.value === '' ? null : Number(select.value);
+  if (value === null || Number.isInteger(value)) {
     await window.pakita.displays.choose(value);
     await refreshDisplays();
   }
@@ -39,11 +42,13 @@ async function run(action: () => Promise<unknown>): Promise<void> {
   }
 }
 
-// Presenter keys, ignored while typing in a field.
+// Presenter keys work everywhere while live, except while typing in a text
+// field. A focused drop-down would otherwise take the arrow keys itself and
+// change the projector display or the arrangement mid-service.
 function onKeydown(event: KeyboardEvent): void {
   if (!props.state.isLive) return;
   const target = event.target as HTMLElement | null;
-  if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
+  if (target && ['INPUT', 'TEXTAREA'].includes(target.tagName)) {
     return;
   }
   const actions: Record<string, () => Promise<unknown>> = {

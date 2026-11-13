@@ -171,7 +171,8 @@ export interface PakitaApi {
   };
   readonly displays: {
     list(): Promise<DisplayInfo[]>;
-    choose(displayId: number): Promise<void>;
+    /** `null` returns to automatic placement. */
+    choose(displayId: number | null): Promise<void>;
     onChanged(listener: () => void): () => void;
   };
   readonly live: {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 
-import type { AppState } from '../../shared/ipc-contract';
+import type { AppState, LiveState } from '../../shared/ipc-contract';
+import LivePanel from './components/LivePanel.vue';
 import ConnectView from './views/ConnectView.vue';
 import MainView from './views/MainView.vue';
 import SignInView from './views/SignInView.vue';
@@ -12,6 +13,14 @@ type Screen = 'loading' | 'connect' | 'sign-in' | 'workspace' | 'main';
 const state = ref<AppState | null>(null);
 const screen = ref<Screen>('loading');
 const isChangingServer = ref(false);
+const liveState = ref<LiveState>({
+  isLive: false,
+  title: null,
+  slides: [],
+  index: 0,
+  isBlackout: false,
+  projector: 'off',
+});
 
 // A laptop that already holds an account's content opens straight into the
 // library — signed in or not, online or not — so a service can be presented
@@ -25,6 +34,18 @@ function screenFor(appState: AppState): Screen {
   }
   return 'main';
 }
+
+// From sign-in or the church list, the operator can always return to a
+// library the laptop already holds.
+const canGoBack = computed(() =>
+  Boolean(state.value?.account && state.value.workspaceId),
+);
+
+// The live controls stay on screen whatever else the operator opens, so a
+// presentation can always be driven and stopped.
+const isLivePanelShown = computed(
+  () => screen.value === 'main' || liveState.value.isLive,
+);
 
 async function refresh(): Promise<void> {
   state.value = await window.pakita.app.getState();
@@ -41,29 +62,63 @@ async function onConnected(): Promise<void> {
   await refresh();
 }
 
-onMounted(refresh);
+let unsubscribe: (() => void) | null = null;
+onMounted(async () => {
+  unsubscribe = window.pakita.live.onState((live) => {
+    liveState.value = live;
+  });
+  liveState.value = await window.pakita.live.getState();
+  await refresh();
+});
+onUnmounted(() => unsubscribe?.());
 </script>
 
 <template>
-  <p v-if="screen === 'loading'" class="muted card">Loading…</p>
-  <ConnectView
-    v-else-if="screen === 'connect'"
-    :initial-address="state?.serverOrigin ?? null"
-    @connected="onConnected"
-  />
-  <SignInView
-    v-else-if="screen === 'sign-in'"
-    :server-origin="state?.serverOrigin ?? ''"
-    @signed-in="refresh"
-    @change-server="changeServer"
-  />
-  <WorkspaceView v-else-if="screen === 'workspace'" @selected="refresh" />
-  <MainView
-    v-else-if="screen === 'main' && state?.account"
-    :account="state.account"
-    @signed-out="refresh"
-    @sign-in="screen = 'sign-in'"
-    @state-changed="refresh"
-    @change-workspace="screen = 'workspace'"
-  />
+  <div class="app">
+    <div class="screen">
+      <p v-if="screen === 'loading'" class="muted card">Loading…</p>
+      <ConnectView
+        v-else-if="screen === 'connect'"
+        :initial-address="state?.serverOrigin ?? null"
+        @connected="onConnected"
+      />
+      <SignInView
+        v-else-if="screen === 'sign-in'"
+        :server-origin="state?.serverOrigin ?? ''"
+        :can-go-back="canGoBack"
+        @signed-in="refresh"
+        @change-server="changeServer"
+        @back="screen = 'main'"
+      />
+      <WorkspaceView
+        v-else-if="screen === 'workspace'"
+        :can-go-back="canGoBack"
+        @selected="refresh"
+        @back="screen = 'main'"
+      />
+      <MainView
+        v-else-if="screen === 'main' && state?.account"
+        :account="state.account"
+        @signed-out="refresh"
+        @sign-in="screen = 'sign-in'"
+        @state-changed="refresh"
+        @change-workspace="screen = 'workspace'"
+      />
+    </div>
+    <LivePanel v-if="isLivePanelShown" :state="liveState" />
+  </div>
 </template>
+
+<style scoped>
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.screen {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+</style>

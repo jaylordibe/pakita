@@ -72,6 +72,7 @@ export class SongArrangementInputDto {
   @ArrayMinSize(1)
   @ArrayMaxSize(MAX_ARRANGEMENT_ITEMS)
   @IsString({ each: true })
+  @MaxLength(40, { each: true })
   sectionKeys!: string[];
 }
 

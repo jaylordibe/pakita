@@ -37,4 +37,14 @@ describe('placeProjector', () => {
       display: laptop,
     });
   });
+
+  it('waits for a lost second display under automatic placement while presenting', () => {
+    expect(placeProjector([laptop], 1, null, true)).toEqual({
+      mode: 'display-missing',
+    });
+    expect(placeProjector([laptop, tv], 1, null, true)).toEqual({
+      mode: 'showing',
+      display: tv,
+    });
+  });
 });

@@ -30,6 +30,8 @@ export class Projector {
   private window: BrowserWindow | null = null;
   private status: ProjectorStatus = 'off';
   private isOpen = false;
+  /** This presentation reached a second display (automatic placement). */
+  private wasOnSecondaryDisplay = false;
 
   constructor(private readonly options: ProjectorOptions) {
     const replace = () => {
@@ -51,6 +53,7 @@ export class Projector {
 
   close(): void {
     this.isOpen = false;
+    this.wasOnSecondaryDisplay = false;
     this.status = 'off';
     if (this.window && !this.window.isDestroyed()) {
       this.window.destroy();
@@ -61,12 +64,29 @@ export class Projector {
 
   /** Re-applies the display choice, e.g. after the operator picks another. */
   place(): void {
+    const primaryDisplayId = screen.getPrimaryDisplay().id;
     const placement = placeProjector(
       screen.getAllDisplays(),
-      screen.getPrimaryDisplay().id,
+      primaryDisplayId,
       this.options.getChosenDisplayId(),
+      this.wasOnSecondaryDisplay,
     );
+    if (
+      placement.mode === 'showing' &&
+      placement.display.id !== primaryDisplayId
+    ) {
+      this.wasOnSecondaryDisplay = true;
+    }
     this.applyPlacement(placement);
+  }
+
+  /** Whether these web contents are the projector page (for IPC checks). */
+  isProjectorContents(contentsId: number): boolean {
+    return (
+      this.window !== null &&
+      !this.window.isDestroyed() &&
+      this.window.webContents.id === contentsId
+    );
   }
 
   send(state: LiveState): void {

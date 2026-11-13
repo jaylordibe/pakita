@@ -4,10 +4,11 @@ import { ref } from 'vue';
 import type { AccountSummary } from '../../../shared/ipc-contract';
 import { messageOf } from '../errors';
 
-defineProps<{ serverOrigin: string }>();
+defineProps<{ serverOrigin: string; canGoBack: boolean }>();
 const emit = defineEmits<{
   signedIn: [account: AccountSummary];
   changeServer: [];
+  back: [];
 }>();
 
 const identifier = ref('');

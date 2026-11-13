@@ -82,8 +82,12 @@ export class DatabaseClient {
     });
   }
 
-  async resetWorkspace(workspaceId: string): Promise<void> {
-    await this.request({ type: 'resetWorkspace', workspaceId });
+  async beginResync(workspaceId: string, epoch: string): Promise<void> {
+    await this.request({ type: 'beginResync', workspaceId, epoch });
+  }
+
+  async finishResync(workspaceId: string): Promise<void> {
+    await this.request({ type: 'finishResync', workspaceId });
   }
 
   async listSongs(

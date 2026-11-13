@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import { ApiClient } from '../api/api-client';
@@ -43,6 +43,9 @@ function fakeServer() {
     expiredAccessTokens: new Set<string>(),
     isSessionRevoked: false,
     lastTurnstileToken: null as string | null,
+    /** When set, a refresh waits for it before answering. */
+    refreshGate: null as Promise<void> | null,
+    loggedOutTokens: [] as string[],
   };
   const fetchFunction = async (url: string, init?: RequestInit) => {
     const path = new URL(url).pathname;
@@ -54,8 +57,13 @@ function fakeServer() {
       state.lastTurnstileToken = headers['X-Turnstile-Token'] ?? null;
       return json(200, tokens(state.generation));
     }
+    if (path === '/api/auth/logout') {
+      state.loggedOutTokens.push(body.refreshToken ?? '');
+      return new Response(null, { status: 204 });
+    }
     if (path === '/api/auth/refresh') {
       state.refreshCalls += 1;
+      if (state.refreshGate) await state.refreshGate;
       if (
         state.isSessionRevoked ||
         body.refreshToken !== `refresh-${state.generation}`
@@ -172,5 +180,48 @@ describe('Session', () => {
     await expect(session.request(protectedRequest)).rejects.toBeInstanceOf(
       SignInRequiredError,
     );
+  });
+
+  describe('a refresh still in flight', () => {
+    async function pendingRefresh() {
+      await session.signIn('operator', 'secret', null);
+      let release!: () => void;
+      server.state.refreshGate = new Promise((resolve) => {
+        release = resolve;
+      });
+      server.state.expiredAccessTokens.add('access-1');
+      const request = session.request(protectedRequest);
+      await vi.waitFor(() => expect(server.state.refreshCalls).toBe(1));
+      return { request, release };
+    }
+
+    it('cannot undo a sign-out: its new token is ended, not stored', async () => {
+      const { request, release } = await pendingRefresh();
+
+      await session.signOut();
+      release();
+
+      await expect(request).rejects.toBeInstanceOf(SignInRequiredError);
+      await vi.waitFor(() =>
+        expect(server.state.loggedOutTokens).toContain('refresh-2'),
+      );
+      expect(existsSync(join(directory, 'credentials.bin'))).toBe(false);
+      expect(store.loadAccount()).toBeNull();
+      expect(session.isSignedIn).toBe(false);
+    });
+
+    it('cannot replace the tokens of someone who signed in meanwhile', async () => {
+      const { request, release } = await pendingRefresh();
+      server.state.generation = 7; // the next sign-in hands out tokens 7
+
+      await session.signIn('second-operator', 'secret', null);
+      release();
+
+      await expect(request).rejects.toBeInstanceOf(SignInRequiredError);
+      await expect(store.loadRefreshToken()).resolves.toBe('refresh-7');
+      await expect(session.request(protectedRequest)).resolves.toEqual({
+        token: 'access-7',
+      });
+    });
   });
 });

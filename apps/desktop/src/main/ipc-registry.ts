@@ -13,20 +13,25 @@ export class IpcRejectedError extends Error {
 
 interface IpcSender {
   readonly senderFrame: { readonly url: string } | null;
-  readonly sender: { readonly mainFrame: unknown };
+  readonly sender: { readonly id: number; readonly mainFrame: unknown };
 }
 
 /**
- * Wraps a handler so it runs only for a trusted top-level frame and only on a
- * payload its schema accepts. Every IPC handler in the app is built through
- * this, so neither check can be forgotten on a new channel.
+ * Wraps a handler so it runs only for a trusted top-level frame of an allowed
+ * window, and only on a payload its schema accepts. Every IPC handler in the
+ * app is built through this, so no check can be forgotten on a new channel.
  */
 export function createIpcHandler<Schema extends z.ZodType, Result>(options: {
   readonly schema: Schema;
   readonly trustedOrigins: ReadonlySet<string>;
+  /** Which window (by web contents id) may use this channel. */
+  readonly isAllowedSender: (senderId: number) => boolean;
   readonly handle: (payload: z.infer<Schema>) => Result | Promise<Result>;
 }): (event: IpcSender, payload: unknown) => Promise<Result> {
   return async (event, payload) => {
+    if (!options.isAllowedSender(event.sender.id)) {
+      throw new IpcRejectedError('not allowed for this window');
+    }
     const frame = event.senderFrame;
     if (!frame || !isTrustedUrl(frame.url, options.trustedOrigins)) {
       throw new IpcRejectedError('untrusted sender');

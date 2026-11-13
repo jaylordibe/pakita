@@ -69,8 +69,10 @@ describe('SyncEngine', () => {
       page: { epoch: string; nextCursor: number; songs: never[] },
     ) =>
       store.applySyncPage(workspaceId, page.epoch, page.nextCursor, page.songs),
-    resetWorkspace: async (workspaceId: string) =>
-      store.resetWorkspace(workspaceId),
+    beginResync: async (workspaceId: string, epoch: string) =>
+      store.beginResync(workspaceId, epoch),
+    finishResync: async (workspaceId: string) =>
+      store.finishResync(workspaceId),
   });
 
   const engineFor = (
@@ -93,7 +95,7 @@ describe('SyncEngine', () => {
   });
 
   it('pulls every page and then only what changed since', async () => {
-    const changes = Array.from({ length: 450 }, (_unused, index) =>
+    const changes = Array.from({ length: 120 }, (_unused, index) =>
       song(`song-${index}`, index + 1, `Song ${index}`),
     );
     const { server, fetchChanges } = fakeServer('epoch-1', changes);
@@ -103,19 +105,19 @@ describe('SyncEngine', () => {
       state: 'idle',
       lastSyncedAt: '2026-11-13T10:00:00.000Z',
     });
-    expect(server.requests).toEqual([0, 200, 400]);
-    expect(store.listSongs('workspace', '', false)).toHaveLength(450);
+    expect(server.requests).toEqual([0, 50, 100]);
+    expect(store.listSongs('workspace', '', false)).toHaveLength(120);
 
-    server.changes.push(song('song-0', 451, 'Renamed'));
+    server.changes.push(song('song-0', 121, 'Renamed'));
     server.requests = [];
     await engine.syncWorkspace('workspace');
-    expect(server.requests).toEqual([450]);
+    expect(server.requests).toEqual([120]);
     expect(store.getSong('workspace', 'song-0')).toMatchObject({
       title: 'Renamed',
     });
   });
 
-  it('discards its copy and starts over when the server history was replaced', async () => {
+  it('rebuilds its copy when the server history was replaced', async () => {
     const { server, fetchChanges } = fakeServer('epoch-1', [
       song('a', 1, 'A'),
       song('b', 2, 'B'),
@@ -134,7 +136,56 @@ describe('SyncEngine', () => {
     expect(store.getSyncState('workspace')).toEqual({
       epoch: 'epoch-2',
       cursor: 1,
+      isResyncing: false,
     });
+  });
+
+  it('keeps the old copy presentable when a resync is interrupted, then resumes it', async () => {
+    const { server, fetchChanges } = fakeServer('epoch-1', [
+      song('a', 1, 'A'),
+      song('b', 2, 'B'),
+    ]);
+    const engine = engineFor(fetchChanges);
+    await engine.syncWorkspace('workspace');
+
+    server.epoch = 'epoch-2';
+    server.changes = Array.from({ length: 60 }, (_unused, index) =>
+      song(`new-${index}`, index + 1, `New ${index}`),
+    );
+    // The connection drops after the first page of the new history.
+    let calls = 0;
+    const flaky: typeof fetchChanges = async (...callArguments) => {
+      calls += 1;
+      if (calls === 3) throw new ServerUnreachableError(new Error('gone'));
+      return fetchChanges(...callArguments);
+    };
+    await expect(
+      engineFor(flaky).syncWorkspace('workspace'),
+    ).resolves.toMatchObject({
+      state: 'offline',
+    });
+    // Nothing presentable was lost: old songs and the first new page.
+    expect(store.getSong('workspace', 'a')).not.toBeNull();
+    expect(store.getSong('workspace', 'b')).not.toBeNull();
+    expect(store.listSongs('workspace', '', false)).toHaveLength(52);
+
+    // Online again: the resync resumes and completes.
+    await engineFor(fetchChanges).syncWorkspace('workspace');
+    expect(store.listSongs('workspace', '', false)).toHaveLength(60);
+    expect(store.getSong('workspace', 'a')).toBeNull();
+    expect(store.getSyncState('workspace')?.isResyncing).toBe(false);
+  });
+
+  it('refuses a page that carries another workspace’s songs', async () => {
+    const foreign = song('x', 1, 'X');
+    foreign.song.workspaceId = 'someone-else';
+    const { fetchChanges } = fakeServer('epoch-1', [foreign]);
+    await expect(
+      engineFor(fetchChanges).syncWorkspace('workspace'),
+    ).resolves.toMatchObject({
+      state: 'error',
+    });
+    expect(store.getSong('workspace', 'x')).toBeNull();
   });
 
   it('reports offline without touching the laptop’s copy', async () => {
@@ -150,14 +201,18 @@ describe('SyncEngine', () => {
     expect(store.getSong('workspace', 'a')).not.toBeNull();
   });
 
-  it('joins a synchronisation already running instead of starting another', async () => {
+  it('joins a running synchronisation, then runs once more for what changed meanwhile', async () => {
     const { server, fetchChanges } = fakeServer('epoch-1', [song('a', 1, 'A')]);
     const engine = engineFor(fetchChanges);
 
-    await Promise.all([
-      engine.syncWorkspace('workspace'),
-      engine.syncWorkspace('workspace'),
-    ]);
-    expect(server.requests).toEqual([0]);
+    const first = engine.syncWorkspace('workspace');
+    server.changes.push(song('b', 2, 'B'));
+    const second = engine.syncWorkspace('workspace');
+    expect(second).toBe(first);
+    await Promise.all([first, second]);
+
+    // A second request, from wherever the first run got to.
+    expect(server.requests).toHaveLength(2);
+    expect(store.getSong('workspace', 'b')).not.toBeNull();
   });
 });

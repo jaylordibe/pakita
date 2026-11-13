@@ -17,7 +17,7 @@ export const API_LEVEL = 1;
 export const MINIMUM_DESKTOP_VERSION = '0.0.0';
 
 // This package's version, read once from its package.json: three levels up
-// from both `src/modules/desktop` and the built `dist/modules/desktop`.
+// from both `src/modules/public` and the built `dist/modules/public`.
 export const SERVER_VERSION: string = (
   JSON.parse(
     readFileSync(resolve(__dirname, '../../../package.json'), 'utf8'),

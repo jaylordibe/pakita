@@ -34,7 +34,13 @@ export const DatabaseWorkerRequest = z.discriminatedUnion('type', [
     nextCursor: z.number().int().nonnegative(),
     songs: z.array(syncedSongChangeSchema),
   }),
-  z.object({ requestId, type: z.literal('resetWorkspace'), workspaceId }),
+  z.object({
+    requestId,
+    type: z.literal('beginResync'),
+    workspaceId,
+    epoch: z.string().min(1),
+  }),
+  z.object({ requestId, type: z.literal('finishResync'), workspaceId }),
   z.object({
     requestId,
     type: z.literal('listSongs'),
@@ -69,7 +75,11 @@ export const DatabaseHealthResult = z.object({
 });
 
 export const SyncStateResult = z
-  .object({ epoch: z.string(), cursor: z.number().int().nonnegative() })
+  .object({
+    epoch: z.string(),
+    cursor: z.number().int().nonnegative(),
+    isResyncing: z.boolean(),
+  })
   .nullable();
 
 export const SongSummaryResult = z.array(

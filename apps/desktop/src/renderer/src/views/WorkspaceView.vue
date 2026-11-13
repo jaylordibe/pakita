@@ -4,7 +4,8 @@ import { onMounted, ref } from 'vue';
 import type { WorkspaceSummary } from '../../../shared/ipc-contract';
 import { messageOf } from '../errors';
 
-const emit = defineEmits<{ selected: [workspaceId: string] }>();
+defineProps<{ canGoBack: boolean }>();
+const emit = defineEmits<{ selected: [workspaceId: string]; back: [] }>();
 
 const workspaces = ref<WorkspaceSummary[] | null>(null);
 const errorMessage = ref<string | null>(null);
@@ -49,5 +50,8 @@ async function select(workspaceId: string): Promise<void> {
       {{ workspace.name }}
     </button>
     <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
+    <button v-if="canGoBack" type="button" @click="emit('back')">
+      Back to the library
+    </button>
   </div>
 </template>

@@ -51,8 +51,11 @@ function handle(request: DatabaseWorkerRequest): unknown {
         request.songs,
       );
       return undefined;
-    case 'resetWorkspace':
-      songs.resetWorkspace(request.workspaceId);
+    case 'beginResync':
+      songs.beginResync(request.workspaceId, request.epoch);
+      return undefined;
+    case 'finishResync':
+      songs.finishResync(request.workspaceId);
       return undefined;
     case 'listSongs':
       return songs.listSongs(

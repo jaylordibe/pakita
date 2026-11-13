@@ -1,7 +1,9 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
-export const MAX_SYNC_PAGE_SIZE = 200;
+// A page carries whole songs; at the largest a song can be, 100 still keeps
+// one response to a few megabytes.
+export const MAX_SYNC_PAGE_SIZE = 100;
 
 export class SyncChangesQueryDto {
   /**
@@ -15,7 +17,7 @@ export class SyncChangesQueryDto {
   cursor: number = 0;
 
   @ApiPropertyOptional({
-    default: 100,
+    default: 50,
     minimum: 1,
     maximum: MAX_SYNC_PAGE_SIZE,
   })
@@ -23,5 +25,5 @@ export class SyncChangesQueryDto {
   @IsInt()
   @Min(1)
   @Max(MAX_SYNC_PAGE_SIZE)
-  limit: number = 100;
+  limit: number = 50;
 }

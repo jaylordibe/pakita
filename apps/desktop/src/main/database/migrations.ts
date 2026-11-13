@@ -27,6 +27,19 @@ export const MIGRATIONS: readonly string[] = [
   ) STRICT;
   CREATE INDEX songs_workspace_title ON songs (workspace_id, title COLLATE NOCASE);
   `,
+  // 2 — full resynchronisation that keeps the old copy presentable until the
+  // new one is complete: while `is_resyncing`, every song the new history
+  // contains is recorded in `resync_seen_songs`; songs it lacks are removed
+  // only when the last page has arrived.
+  `
+  ALTER TABLE workspace_sync_states
+    ADD COLUMN is_resyncing INTEGER NOT NULL DEFAULT 0 CHECK (is_resyncing IN (0, 1));
+  CREATE TABLE resync_seen_songs (
+    workspace_id TEXT NOT NULL,
+    song_id TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, song_id)
+  ) STRICT;
+  `,
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;

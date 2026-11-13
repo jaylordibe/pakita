@@ -612,8 +612,10 @@ model DeviceToken {
 /// `UPDATE … RETURNING`) inside its own transaction, so versions within a
 /// workspace commit in the order they are numbered — a desktop that has read
 /// everything up to version N can never later miss a change numbered below N.
-/// `epoch` identifies this counter's history; restoring a backup replaces it,
-/// which tells every desktop to resynchronise from scratch.
+/// `epoch` identifies this counter's history. A restored database reuses
+/// version numbers, so the restore procedure MUST give every workspace a new
+/// epoch (docs/operations.md, "After any restore"); a desktop that sees a new
+/// epoch rebuilds its copy from scratch.
 model WorkspaceSyncState {
   workspaceId String   @id @map("workspace_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
