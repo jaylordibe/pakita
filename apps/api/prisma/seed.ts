@@ -10,7 +10,7 @@ import {
   assertAccountPassword,
   type SeedUser,
   upsertSeedUser,
-} from './seed-user';
+} from './account-seeder';
 
 // Load .env (with ${VAR} expansion) before touching process.env, matching
 // how the runtime app bootstraps via @nestjs/config + prisma.config.ts.

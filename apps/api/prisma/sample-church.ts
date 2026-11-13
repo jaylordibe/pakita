@@ -20,7 +20,7 @@ import type { CreatePlaylistDto } from '../src/modules/playlists/dto/create-play
 import type { CreateSongDto } from '../src/modules/songs/dto/create-song.dto';
 import type { CreateThemeDto } from '../src/modules/themes/dto/create-theme.dto';
 import type { CreateWorkspaceDto } from '../src/modules/workspaces/dto/create-workspace.dto';
-import { assertAccountPassword, upsertSeedUser } from './seed-user';
+import { assertAccountPassword, upsertSeedUser } from './account-seeder';
 
 // ─────────────────────────────────────────────────────────────────────────
 // A sample church for trying Pakita end to end on a developer's machine.
