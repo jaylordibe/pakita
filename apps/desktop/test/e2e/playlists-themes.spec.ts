@@ -55,9 +55,9 @@ test('signs in with two songs in the library', async () => {
   ).toBeVisible();
 });
 
-test('offers the Bible import only to the platform administrator', async () => {
-  // The church owner is not the platform administrator: the server would
-  // refuse an import, so the app does not offer one.
+test('offers no Bible import inside a church', async () => {
+  // Importing is the server administrator's, on the Server screen; a church
+  // owner is never offered it.
   await operator.getByTestId('tab-bible').click();
   await expect(operator.getByTestId('bible-empty')).toBeVisible();
   await expect(operator.getByTestId('bible-import-open')).toHaveCount(0);

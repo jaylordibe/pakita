@@ -107,6 +107,15 @@ export enum ErrorCode {
    *  a membership that has ended). `details` is
    *  `{ status: WorkspaceMembershipStatus }`. */
   MEMBERSHIP_NOT_ACTIVE = 'MEMBERSHIP_NOT_ACTIVE',
+  /** 409 — the account holds a platform role, and a platform account never
+   *  belongs to a workspace. Emitted when one would join a workspace (accepting
+   *  an invitation, being added, created as or made its owner, reactivated).
+   *  Clients should tell the person to use their separate church account. */
+  PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE = 'PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE',
+  /** 409 — the account belongs to a workspace (an active or suspended
+   *  membership), so it cannot be given a platform role. Platform staff use a
+   *  separate account. */
+  WORKSPACE_MEMBER_CANNOT_HOLD_PLATFORM_ROLE = 'WORKSPACE_MEMBER_CANNOT_HOLD_PLATFORM_ROLE',
   /** 403 — the requested role cannot be assigned here. Covers a role from the
    *  wrong scope, and a role outranking the caller's own assignment ceiling.
    *  Deliberately ONE code for both: distinguishing them tells a caller

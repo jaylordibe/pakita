@@ -168,11 +168,7 @@ describe('ROLE_DEFINITION_CATALOG', () => {
         permission.ownership === PermissionOwnership.OWN ||
         SHARED_VOCABULARY_SUBJECTS.has(permission.subject) ||
         (permission.action === 'read' &&
-          INSTALLATION_SHARED_SUBJECTS.has(permission.subject)) ||
-        // Creating a workspace grants authority over a tenant that does not yet
-        // exist, and the creator becomes its owner. Deliberately open in this
-        // template; see the note in the catalog.
-        (permission.action === 'create' && permission.subject === 'Workspace');
+          INSTALLATION_SHARED_SUBJECTS.has(permission.subject));
       expect({ permission: permissionName(permission), isSafe }).toEqual({
         permission: permissionName(permission),
         isSafe: true,
@@ -183,8 +179,7 @@ describe('ROLE_DEFINITION_CATALOG', () => {
   it('withholds platform role assignment from every role except PLATFORM_ADMIN', () => {
     // The separation the platform role split exists to create: PLATFORM_ENGINEER
     // is the highest TECHNICAL authority and must not be able to promote itself
-    // — or anyone — into governance. PLATFORM_ADMIN reaches it through
-    // `manage all`, not through this permission.
+    // — or anyone — into governance.
     for (const [roleName, definition] of roleEntries) {
       const grantsRoleAssignment = definition.permissions.some(
         (permission) =>
@@ -192,7 +187,7 @@ describe('ROLE_DEFINITION_CATALOG', () => {
       );
       expect({ roleName, grantsRoleAssignment }).toEqual({
         roleName,
-        grantsRoleAssignment: false,
+        grantsRoleAssignment: roleName === SeededRoleName.PLATFORM_ADMIN,
       });
     }
   });
@@ -242,17 +237,74 @@ describe('ROLE_DEFINITION_CATALOG', () => {
     }
   });
 
-  it('reserves `manage all` for PLATFORM_ADMIN alone', () => {
+  it('grants `manage all` to no role, PLATFORM_ADMIN included', () => {
+    // `manage all` would reach every workspace's content and silently grant
+    // whatever subject is added next. The admin's authority is named verb by
+    // verb instead.
     for (const [roleName, definition] of roleEntries) {
       const hasManageAll = definition.permissions.some(
-        (permission) =>
-          permission.action === 'manage' && permission.subject === 'all',
+        (permission) => permission.subject === 'all',
       );
       expect({ roleName, hasManageAll }).toEqual({
         roleName,
-        hasManageAll: roleName === SeededRoleName.PLATFORM_ADMIN,
+        hasManageAll: false,
       });
     }
+    expect(
+      PERMISSION_CATALOG.some((permission) => permission.subject === 'all'),
+    ).toBe(false);
+  });
+
+  it("keeps every platform role out of a workspace's content and roster writes", () => {
+    // Platform accounts run the server and never belong to a church. They may
+    // READ the roster ("who belongs where"); they may not change it, and they
+    // may not touch a church's library at all.
+    const CHURCH_CONTENT_SUBJECTS = new Set(['Song', 'Theme', 'Playlist']);
+    const ROSTER_SUBJECTS = new Set([
+      'WorkspaceMembership',
+      'WorkspaceInvitation',
+    ]);
+    for (const [roleName, definition] of roleEntries) {
+      if (definition.scope !== RoleScope.PLATFORM) continue;
+      const intrusions = definition.permissions
+        .filter(
+          (permission) =>
+            CHURCH_CONTENT_SUBJECTS.has(permission.subject) ||
+            (ROSTER_SUBJECTS.has(permission.subject) &&
+              permission.action !== 'read'),
+        )
+        .map(permissionName);
+      expect({ roleName, intrusions }).toEqual({ roleName, intrusions: [] });
+    }
+  });
+
+  it('lets only PLATFORM_ADMIN create a workspace', () => {
+    const creators = roleEntries
+      .filter(([, definition]) =>
+        definition.permissions.some(
+          (permission) =>
+            permission.action === 'create' &&
+            permission.subject === 'Workspace',
+        ),
+      )
+      .map(([roleName]) => roleName);
+    expect(creators).toEqual([SeededRoleName.PLATFORM_ADMIN]);
+  });
+
+  it('lets only a workspace owner or admin create accounts for their people', () => {
+    const creators = roleEntries
+      .filter(([, definition]) =>
+        definition.permissions.some(
+          (permission) =>
+            permission.action === 'createAccount' &&
+            permission.subject === 'WorkspaceMembership',
+        ),
+      )
+      .map(([roleName]) => roleName)
+      .sort();
+    expect(creators).toEqual(
+      [SeededRoleName.WORKSPACE_ADMIN, SeededRoleName.WORKSPACE_OWNER].sort(),
+    );
   });
 
   it('ranks the owner/admin of each scope above every other role in it', () => {

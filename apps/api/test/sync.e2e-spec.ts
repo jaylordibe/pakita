@@ -199,7 +199,7 @@ describe('Public desktop endpoints (e2e)', () => {
     expect(response.body).toEqual({
       product: 'pakita',
       serverVersion: expect.stringMatching(/^\d+\.\d+\.\d+/),
-      apiLevel: 5,
+      apiLevel: 6,
       minimumDesktopVersion: expect.any(String),
     });
   });

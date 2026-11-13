@@ -11,9 +11,10 @@ import { join, resolve } from 'node:path';
 import { findProjector, launchApp } from './support/launch';
 import { startTestApi, type TestApi } from './support/test-api';
 
-// Phase 3's acceptance flow against a real API: an administrator imports a
-// USFM folder → it is published → it synchronises to the laptop → the
-// operator finds a passage and presents it, also offline after a restart.
+// Phase 3's acceptance flow against a real API: the server's administrator
+// imports a USFM folder on the Server screen → it is published → it
+// synchronises to a church's laptop → the operator finds a passage and
+// presents it, also offline after a restart.
 
 test.describe.configure({ mode: 'serial' });
 
@@ -25,7 +26,7 @@ let application: ElectronApplication;
 let operator: Page;
 
 test.beforeAll(async () => {
-  api = await startTestApi({ isOwnerPlatformAdmin: true });
+  api = await startTestApi();
   userDataDirectory = mkdtempSync(join(tmpdir(), 'pakita-bible-'));
   ({ application, operator } = await launchApp(userDataDirectory));
 });
@@ -36,18 +37,20 @@ test.afterAll(async () => {
   rmSync(userDataDirectory, { recursive: true, force: true });
 });
 
-test('signs in and shows that the laptop has no Bible yet', async () => {
+async function signIn(identifier: string, password: string): Promise<void> {
+  await operator.getByTestId('sign-in-identifier').fill(identifier);
+  await operator.getByTestId('sign-in-password').fill(password);
+  await operator.getByRole('button', { name: 'Sign in' }).click();
+}
+
+test('the administrator opens the Bible on the Server screen, with nothing published', async () => {
   await operator.getByTestId('server-address').fill(api.origin);
   await operator.getByRole('button', { name: 'Connect' }).click();
-  await operator.getByTestId('sign-in-identifier').fill(api.owner.identifier);
-  await operator.getByTestId('sign-in-password').fill(api.owner.password);
-  await operator.getByRole('button', { name: 'Sign in' }).click();
-  // The owner's only church opens without asking.
-  await expect(operator.getByTestId('sync-status')).toContainText(
-    'Synchronised',
-  );
+  await signIn(api.administrator.identifier, api.administrator.password);
   await operator.getByTestId('tab-bible').click();
-  await expect(operator.getByTestId('bible-empty')).toBeVisible();
+  await expect(
+    operator.getByText('No translation is published yet.'),
+  ).toBeVisible();
 });
 
 test('imports a USFM folder, publishes it and synchronises it', async () => {
@@ -83,10 +86,10 @@ test('imports a USFM folder, publishes it and synchronises it', async () => {
   await operator.getByTestId('bible-import-submit').click();
 
   await expect(operator.getByTestId('bible-imported')).toContainText(
-    'World English Bible is imported and published: 6 verses.',
+    'World English Bible is imported and published.',
   );
-  await expect(operator.getByTestId('bible-translation')).toContainText(
-    'WEB — World English Bible',
+  await expect(operator.getByTestId('server-bible-WEB')).toContainText(
+    'World English Bible',
   );
   const published = await api.request<
     Array<{ code: string; isPublished: boolean; verseCount: number }>
@@ -115,6 +118,21 @@ test('says when the short name is already published, before and after submitting
   await expect(operator.getByTestId('bible-import-preview')).toHaveCount(0);
   await expect(operator.getByTestId('bible-import-error')).toHaveCount(0);
   await operator.getByRole('button', { name: 'Close' }).click();
+});
+
+test("arrives on a church's laptop with the next synchronisation", async () => {
+  await operator.getByTestId('sign-out').click();
+  await signIn(api.owner.identifier, api.owner.password);
+  // The owner's only church opens without asking.
+  await expect(operator.getByTestId('sync-status')).toContainText(
+    'Synchronised',
+  );
+  await operator.getByTestId('tab-bible').click();
+  await expect(operator.getByTestId('bible-translation')).toContainText(
+    'WEB — World English Bible',
+  );
+  // Importing is the administrator's, on the Server screen.
+  await expect(operator.getByTestId('bible-import-open')).toHaveCount(0);
 });
 
 test('finds a passage and presents it with its reference', async () => {

@@ -5,6 +5,7 @@ import {
   accountPasswordMessage,
   isAccountPassword,
 } from '../src/common/util/account-password.util';
+import { HELD_MEMBERSHIP_OF_LIVE_WORKSPACE } from '../src/modules/authorization/platform-account.policy';
 import { assignPlatformRole } from './rbac-seeder';
 
 // Creates the accounts the seeders need, with a hashed password
@@ -48,6 +49,20 @@ export async function upsertSeedUser(
     throw new Error(
       `${email} belongs to a deleted account; refusing to give it ${user.platformRoles.join(', ')}. Use another email.`,
     );
+  }
+
+  // Platform accounts never belong to a church (`PlatformAccountPolicy`);
+  // the seeder writes roles directly, so it asks the same question itself.
+  if (existing && user.platformRoles.length > 0) {
+    const membership = await prisma.workspaceMembership.findFirst({
+      where: { userId: existing.id, ...HELD_MEMBERSHIP_OF_LIVE_WORKSPACE },
+      select: { id: true },
+    });
+    if (membership) {
+      throw new Error(
+        `${email} belongs to a church, so it cannot be given ${user.platformRoles.join(', ')}. Platform staff use a separate account: use another email.`,
+      );
+    }
   }
 
   let userId: string;

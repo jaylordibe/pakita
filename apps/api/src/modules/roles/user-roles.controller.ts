@@ -10,11 +10,9 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { CurrentAbility } from '../../common/decorators/current-ability.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
-import type { AppAbility } from '../../common/authorization/app-ability';
 import { AssignPlatformRoleDto } from './dto/assign-platform-role.dto';
 import { UserRolesService } from './user-roles.service';
 
@@ -36,15 +34,9 @@ export class UserRolesController {
   async assign(
     @Param('userId', new ParseUUIDPipe()) userId: string,
     @Body() dto: AssignPlatformRoleDto,
-    @CurrentAbility() ability: AppAbility,
     @CurrentUser() currentUser: AuthenticatedUser,
   ): Promise<void> {
-    await this.userRolesService.assign(
-      userId,
-      dto.roleId,
-      ability,
-      currentUser.id,
-    );
+    await this.userRolesService.assign(userId, dto.roleId, currentUser.id);
   }
 
   @Delete(':roleId')
@@ -53,9 +45,8 @@ export class UserRolesController {
   async revoke(
     @Param('userId', new ParseUUIDPipe()) userId: string,
     @Param('roleId', new ParseUUIDPipe()) roleId: string,
-    @CurrentAbility() ability: AppAbility,
     @CurrentUser() currentUser: AuthenticatedUser,
   ): Promise<void> {
-    await this.userRolesService.revoke(userId, roleId, ability, currentUser.id);
+    await this.userRolesService.revoke(userId, roleId, currentUser.id);
   }
 }

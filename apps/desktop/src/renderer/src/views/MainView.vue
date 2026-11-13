@@ -10,10 +10,9 @@ import type {
   WorkspaceSummary,
 } from '../../../shared/ipc-contract';
 import { buildSongSlides } from '../../../shared/slides';
-import pakitaMark from '../assets/pakita-mark.png';
-import AccountsPanel from '../components/AccountsPanel.vue';
 import AddToPlaylist from '../components/AddToPlaylist.vue';
 import AppIcon, { type IconName } from '../components/AppIcon.vue';
+import AppShell from '../components/AppShell.vue';
 import BiblePanel from '../components/BiblePanel.vue';
 import CopyToWorkspace from '../components/CopyToWorkspace.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
@@ -49,7 +48,7 @@ async function loadOtherWorkspaces(): Promise<void> {
   }
 }
 
-type Tab = 'songs' | 'bible' | 'playlists' | 'themes' | 'members' | 'people';
+type Tab = 'songs' | 'bible' | 'playlists' | 'themes' | 'members';
 const CONTENT_TABS: ReadonlyArray<{ id: Tab; label: string; icon: IconName }> =
   [
     { id: 'songs', label: 'Songs', icon: 'songs' },
@@ -64,10 +63,7 @@ const capabilities = ref<AccountCapabilities | null>(null);
 const TABS = computed(() => [
   ...CONTENT_TABS,
   ...(capabilities.value?.canInviteMembers
-    ? [{ id: 'members' as const, label: 'Invite', icon: 'people' as const }]
-    : []),
-  ...(capabilities.value?.canManageAccounts
-    ? [{ id: 'people' as const, label: 'People', icon: 'key' as const }]
+    ? [{ id: 'members' as const, label: 'People', icon: 'people' as const }]
     : []),
 ]);
 async function loadCapabilities(): Promise<void> {
@@ -130,15 +126,6 @@ const syncTone = computed(() => {
   if (status.state === 'idle' && !status.message) return 'idle';
   return 'attention';
 });
-
-const initials = computed(() =>
-  props.account.displayName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0]!.toUpperCase())
-    .join(''),
-);
 
 async function refreshLibrary(): Promise<void> {
   songs.value = await window.pakita.library.listSongs(search.value, false);
@@ -242,33 +229,14 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 </script>
 
 <template>
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="brand">
-        <img :src="pakitaMark" alt="" width="30" height="30" />
-        <span class="brand-text">
-          <span class="wordmark">Pakita</span>
-          <span v-if="churchName" class="church">{{ churchName }}</span>
-        </span>
-      </div>
-
-      <nav class="nav" aria-label="Content">
-        <button
-          v-for="item in TABS"
-          :key="item.id"
-          class="nav-item"
-          :aria-current="tab === item.id ? 'page' : undefined"
-          :data-testid="`tab-${item.id}`"
-          :title="item.label"
-          @click="tab = item.id"
-        >
-          <AppIcon :name="item.icon" />
-          <span class="label">{{ item.label }}</span>
-        </button>
-      </nav>
-
-      <span class="grow"></span>
-
+  <AppShell
+    :subtitle="churchName"
+    :tabs="TABS"
+    :active-tab="tab"
+    :display-name="props.account.displayName"
+    @select="tab = $event"
+  >
+    <template #status>
       <section class="sync" aria-label="Synchronisation">
         <p class="sync-line" :title="syncLabel">
           <span class="light" :class="syncTone" aria-hidden="true"></span>
@@ -313,32 +281,28 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
           <span class="label">Sign in to synchronise</span>
         </button>
       </section>
-
-      <div class="account">
-        <span class="avatar" aria-hidden="true">{{ initials }}</span>
-        <span class="who label">{{ props.account.displayName }}</span>
-        <button
-          v-if="props.account.isSignedIn"
-          class="ghost sm icon-only"
-          title="Change church"
-          @click="emit('changeWorkspace')"
-        >
-          <AppIcon name="church" />
-          <span class="visually-hidden">Change church</span>
-        </button>
-        <button class="ghost sm icon-only" title="Sign out" @click="signOut">
-          <AppIcon name="log-out" />
-          <span class="visually-hidden">Sign out</span>
-        </button>
-      </div>
-    </aside>
+    </template>
+    <template #account-actions>
+      <button
+        v-if="props.account.isSignedIn"
+        class="ghost sm icon-only"
+        title="Change church"
+        @click="emit('changeWorkspace')"
+      >
+        <AppIcon name="church" />
+        <span class="visually-hidden">Change church</span>
+      </button>
+      <button class="ghost sm icon-only" title="Sign out" @click="signOut">
+        <AppIcon name="log-out" />
+        <span class="visually-hidden">Sign out</span>
+      </button>
+    </template>
 
     <div class="workspace">
       <BiblePanel v-if="tab === 'bible'" />
       <PlaylistsPanel v-else-if="tab === 'playlists'" />
       <ThemesPanel v-else-if="tab === 'themes'" />
       <InvitationsPanel v-else-if="tab === 'members'" />
-      <AccountsPanel v-else-if="tab === 'people'" />
       <div v-else class="panel">
         <aside class="panel-list">
           <div class="panel-head">
@@ -456,102 +420,11 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
         </main>
       </div>
     </div>
-  </div>
+  </AppShell>
 </template>
 
 <style scoped>
-.layout {
-  display: grid;
-  grid-template-columns: 14.5rem minmax(0, 1fr);
-  height: 100%;
-}
-
-/* ---------- Sidebar ---------- */
-
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-height: 0;
-  padding: 1rem 0.75rem 0.75rem;
-  background: var(--bg);
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0 0.35rem 1.1rem;
-}
-
-.brand img {
-  flex: none;
-  filter: drop-shadow(0 6px 14px rgb(98 72 255 / 0.5));
-}
-
-.brand-text {
-  display: grid;
-  min-width: 0;
-}
-
-.wordmark {
-  font-family: var(--font-brand);
-  font-weight: 800;
-  font-size: 1.25rem;
-  letter-spacing: -0.01em;
-  line-height: 1.1;
-}
-
-.church {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.nav {
-  display: grid;
-  gap: 0.2rem;
-}
-
-.nav-item {
-  justify-content: flex-start;
-  gap: 0.75rem;
-  min-height: 2.5rem;
-  padding: 0 0.75rem;
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-
-.nav-item:hover:not(:disabled) {
-  background: var(--surface);
-  border-color: transparent;
-  color: var(--text);
-}
-
-.nav-item .icon {
-  width: 1.15rem;
-  height: 1.15rem;
-}
-
-.nav-item[aria-current='page'] {
-  color: #fff;
-  background: linear-gradient(
-    135deg,
-    rgb(122 77 255 / 0.9),
-    rgb(77 98 255 / 0.75)
-  );
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.14),
-    0 8px 20px -10px rgb(98 72 255 / 0.95);
-}
+/* ---------- Sidebar: synchronisation ---------- */
 
 .sync {
   display: grid;
@@ -610,63 +483,8 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
   animation: spin 1s linear infinite;
 }
 
-.account {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.65rem 0.1rem 0 0.25rem;
-  border-top: 1px solid var(--border);
-}
-
-.avatar {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  margin-right: 0.35rem;
-  border-radius: 50%;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: #fff;
-  background: var(--brand-gradient);
-}
-
-.who {
-  flex: 1;
-  min-width: 0;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* A narrow window keeps every control and drops the words beside them. */
+/* A narrow window: the shell drops the words; the sync box narrows to icons. */
 @media (max-width: 1100px) {
-  .layout {
-    grid-template-columns: 4.25rem minmax(0, 1fr);
-  }
-
-  .sidebar {
-    align-items: center;
-    padding-inline: 0.5rem;
-  }
-
-  .brand {
-    padding-inline: 0;
-  }
-
-  .sidebar .label,
-  .brand-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  .nav-item,
   .sync-actions button,
   .sign-in {
     width: 2.6rem;
@@ -687,15 +505,6 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 
   .sync-actions {
     flex-direction: column;
-  }
-
-  .account {
-    flex-direction: column;
-    padding-inline: 0;
-  }
-
-  .avatar {
-    margin: 0 0 0.3rem;
   }
 }
 

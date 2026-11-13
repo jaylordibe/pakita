@@ -168,9 +168,9 @@ export class AbilityFactory {
       return;
     }
     if (permission.ownership === PermissionOwnership.ANY) {
-      // Platform staff: unrestricted over the subject. `manage all` lands here
-      // and, because CASL OR-composes rules, supersedes every narrower rule the
-      // user also holds.
+      // Platform staff: unrestricted over the subject. Because CASL
+      // OR-composes rules, this supersedes every narrower rule the user also
+      // holds on the same action and subject.
       can(permission.action, permission.subject);
     }
   }

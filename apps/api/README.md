@@ -216,7 +216,7 @@ There is no public sign-up and no bot check: an administrator creates every acco
 
 **Workspace scope**
 
-- `POST|GET|PATCH|DELETE /workspaces` — any user may create one; the creator becomes its `WORKSPACE_OWNER`.
+- `POST|GET|PATCH|DELETE /workspaces` — only the platform admin creates one, naming its owner (`ownerEmail`), who becomes its `WORKSPACE_OWNER`; the admin never joins. `PUT /workspaces/:id/owner` replaces the owner; `POST /workspaces/:id/accounts` lets an owner or admin create their people's accounts.
 - `.../workspaces/:workspaceId/memberships` — the **one** roster. Every role is the same resource distinguished by `roleId`, so there is no parallel tree to keep in step. Rank-guarded: you may never grant a role above your own.
 - `.../memberships/:id/{role,suspend,reactivate,transfer-ownership}` — each a separate permission, because CASL's `manage` wildcard would otherwise let anyone holding "update" also assign roles.
 - `.../workspaces/:workspaceId/invitations` (create, list, `:invitationId/resend`, revoke) and `POST /invitations/accept` — invite an existing account by email or username. Create and resend return the one-time code once (only its hash is stored); only the invited account can redeem it, and concurrent redemption yields exactly one membership.

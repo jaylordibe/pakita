@@ -32,10 +32,10 @@ import { assertAccountPassword, upsertSeedUser } from './account-seeder';
 // Two levels of account, kept apart as they are in production:
 // - The church's own people, one per church role (owner, admin, manager,
 //   staff), all members of Grace Community Church and of nothing else. The
-//   owner creates the church and its library.
+//   owner builds the church's roster and library.
 // - The platform admin (SEED_ADMIN_*), installation staff who belong to no
-//   church. It only publishes the sample Bible passages, because a Bible is
-//   shared by every church on the server.
+//   church. It creates the church, naming its owner, and publishes the sample
+//   Bible passages, because a Bible is shared by every church on the server.
 //
 // The church's people are created in the database the way `prisma:seed`
 // creates its accounts (an account is not synchronised content). Everything
@@ -51,10 +51,13 @@ import { assertAccountPassword, upsertSeedUser } from './account-seeder';
 
 expand(dotenv.config({ override: false }));
 
+const OWNER_EMAIL = 'owner@gracechurch.example.com';
+
 const CHURCH: CreateWorkspaceDto = {
   name: 'Grace Community Church',
   slug: 'grace-community',
   description: 'Sample church for local development.',
+  ownerEmail: OWNER_EMAIL,
 };
 
 /** Every sample person's password: fixture data for a local server only. */
@@ -68,7 +71,7 @@ interface ChurchPerson {
 }
 
 const OWNER: ChurchPerson = {
-  email: 'owner@gracechurch.example.com',
+  email: OWNER_EMAIL,
   firstName: 'Olivia',
   lastName: 'Owner',
   role: SeededRoleName.WORKSPACE_OWNER,
@@ -426,6 +429,7 @@ function nextSunday(): string {
 
 // ── Steps ────────────────────────────────────────────────────────────────
 
+/** Created by the platform admin, owned by the sample owner. */
 async function ensureChurch(api: Api): Promise<string> {
   const existing = (
     await api.list<Named & { slug: string }>('/api/workspaces')
@@ -624,21 +628,25 @@ async function main(): Promise<void> {
   }
   await ensurePeople();
 
-  // The church and its library, as its owner.
-  const owner = new Api(apiOrigin());
-  await owner.signIn(OWNER.email, SAMPLE_PASSWORD);
-  console.log(`[sample] signed in to ${apiOrigin()} as ${OWNER.email}`);
-  const churchId = await ensureChurch(owner);
-  await ensureMembers(owner, churchId);
-  const songs = await ensureSongs(owner, churchId);
-  const themes = await ensureThemes(owner, churchId);
-
-  // The Bible is the installation's, so the platform admin publishes it.
+  // Only the platform admin starts a church, naming its owner; the admin
+  // never joins it. The Bible is the installation's, so the admin publishes
+  // that too.
   const platformAdmin = new Api(apiOrigin());
   const adminEmail = requireEnv('SEED_ADMIN_EMAIL');
   await platformAdmin.signIn(adminEmail, requireEnv('SEED_ADMIN_PASSWORD'));
-  console.log(`[sample] signed in as ${adminEmail} (platform admin)`);
+  console.log(
+    `[sample] signed in to ${apiOrigin()} as ${adminEmail} (platform admin)`,
+  );
+  const churchId = await ensureChurch(platformAdmin);
   const translationId = await ensureTranslation(platformAdmin);
+
+  // The church's roster and library, as its owner.
+  const owner = new Api(apiOrigin());
+  await owner.signIn(OWNER.email, SAMPLE_PASSWORD);
+  console.log(`[sample] signed in as ${OWNER.email}`);
+  await ensureMembers(owner, churchId);
+  const songs = await ensureSongs(owner, churchId);
+  const themes = await ensureThemes(owner, churchId);
 
   await ensurePlaylist(owner, churchId, songs, themes, translationId);
   console.log('[sample] done');

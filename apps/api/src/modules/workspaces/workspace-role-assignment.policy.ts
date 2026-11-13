@@ -17,17 +17,6 @@ export interface AssignableWorkspaceRole {
 }
 
 /**
- * A platform admin (`manage all`) has no rank to be bounded by.
- *
- * `null` rather than a sentinel number, so that "unbounded" and "rank not
- * found" can never be the same value. A numeric sentinel invites being used as
- * a FALLBACK — and a rank ceiling that defaults to infinity when the lookup
- * misses is not a ceiling.
- */
-export const UNBOUNDED_RANK = null;
-export type AssignmentCeiling = number | typeof UNBOUNDED_RANK;
-
-/**
  * The roles a caller may hand out WITHOUT holding role-assignment authority.
  *
  * An allowlist, not a denylist, and that direction is the guardrail: a workspace
@@ -90,19 +79,19 @@ export class WorkspaceRoleAssignmentPolicy {
   }
 
   /**
-   * The caller's rank within this workspace, or `UNBOUNDED_RANK` for a platform
-   * admin.
+   * The caller's rank within this workspace.
    *
    * A caller with no ACTIVE membership here has no ceiling to compare against
-   * and is refused outright rather than defaulted to anything.
+   * and is refused outright rather than defaulted to anything. That includes
+   * every platform account: none holds a membership, so none assigns a
+   * workspace role. (A platform admin replaces a workspace's OWNER through
+   * `WorkspaceMembershipsService.replaceOwner`, which is not a role
+   * assignment by a member and does not come through here.)
    */
   async resolveActorRank(
     workspaceId: string,
     actorId: string,
-    ability: AppAbility,
-  ): Promise<AssignmentCeiling> {
-    if (ability.can('manage', 'all')) return UNBOUNDED_RANK;
-
+  ): Promise<number> {
     const actorMembership = await this.prisma.workspaceMembership.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: actorId } },
       select: { status: true, role: { select: { rank: true } } },
@@ -117,8 +106,7 @@ export class WorkspaceRoleAssignmentPolicy {
     return actorMembership.role.rank;
   }
 
-  assertRankPermits(actorRank: AssignmentCeiling, targetRank: number): void {
-    if (actorRank === UNBOUNDED_RANK) return;
+  assertRankPermits(actorRank: number, targetRank: number): void {
     if (targetRank > actorRank) {
       throw Errors.roleNotAssignable();
     }
@@ -136,7 +124,7 @@ export class WorkspaceRoleAssignmentPolicy {
     role: AssignableWorkspaceRole,
     ability: AppAbility,
     targetUserId?: string,
-  ): Promise<AssignmentCeiling> {
+  ): Promise<number> {
     // An INSTANCE check, never a bare subject type: CASL ignores conditions on
     // a type check, so `can('assignRole', 'WorkspaceMembership')` answers true
     // for anyone holding the permission in ANY workspace — including one they
@@ -155,11 +143,7 @@ export class WorkspaceRoleAssignmentPolicy {
       throw Errors.roleNotAssignable();
     }
 
-    const actorRank = await this.resolveActorRank(
-      workspaceId,
-      actorId,
-      ability,
-    );
+    const actorRank = await this.resolveActorRank(workspaceId, actorId);
     this.assertRankPermits(actorRank, role.rank);
     return actorRank;
   }

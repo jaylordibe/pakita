@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../../common/audit/audit.service';
-import type { AppAbility } from '../../common/authorization/app-ability';
 import { RoleScope } from '../../common/enums/role-scope.enum';
 import { Errors } from '../../common/errors/errors';
+import { lockUserRow } from '../../common/util/row-lock.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PermissionLoaderService } from '../authorization/permission-loader.service';
+import { PlatformAccountPolicy } from '../authorization/platform-account.policy';
 
 // A principal with no platform role has no authority to delegate, so they may
 // grant nothing. Most accounts legitimately sit here: platform roles are staff
@@ -29,14 +30,10 @@ export class UserRolesService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly permissionLoaderService: PermissionLoaderService,
+    private readonly platformAccountPolicy: PlatformAccountPolicy,
   ) {}
 
-  async assign(
-    userId: string,
-    roleId: string,
-    ability: AppAbility,
-    actorId: string,
-  ): Promise<void> {
+  async assign(userId: string, roleId: string, actorId: string): Promise<void> {
     const targetUser = await this.prisma.scoped.user.findUnique({
       where: { id: userId },
       select: { id: true },
@@ -46,12 +43,22 @@ export class UserRolesService {
     }
 
     const role = await this.loadPlatformRole(roleId);
-    await this.assertMayAssignRank(actorId, role.rank, ability);
+    await this.assertMayAssignRank(actorId, role.rank);
 
-    await this.prisma.userRole.upsert({
-      where: { userId_roleId: { userId, roleId } },
-      create: { userId, roleId, createdBy: actorId },
-      update: {},
+    // Under the user-row lock, the same one every membership write takes
+    // first: a platform role and a membership granted concurrently to one
+    // account serialise, and whichever runs second is refused.
+    await this.prisma.$transaction(async (transaction) => {
+      await lockUserRow(transaction, userId);
+      await this.platformAccountPolicy.assertMayHoldPlatformRole(
+        transaction,
+        userId,
+      );
+      await transaction.userRole.upsert({
+        where: { userId_roleId: { userId, roleId } },
+        create: { userId, roleId, createdBy: actorId },
+        update: {},
+      });
     });
 
     await this.permissionLoaderService.invalidateUser(userId);
@@ -63,14 +70,9 @@ export class UserRolesService {
     });
   }
 
-  async revoke(
-    userId: string,
-    roleId: string,
-    ability: AppAbility,
-    actorId: string,
-  ): Promise<void> {
+  async revoke(userId: string, roleId: string, actorId: string): Promise<void> {
     const role = await this.loadPlatformRole(roleId);
-    await this.assertMayAssignRank(actorId, role.rank, ability);
+    await this.assertMayAssignRank(actorId, role.rank);
 
     // Every platform role is revocable, with no exceptions to special-case.
     // Self-service capability lives in AUTHENTICATED_USER_PERMISSIONS, which
@@ -113,14 +115,12 @@ export class UserRolesService {
 
   // Same ceiling as inside a workspace: you may grant a role at or below your
   // own platform rank, never above it. Prevents a custom staff role that holds
-  // `assignRole User` from minting a PLATFORM_ADMIN.
+  // `assignRole User` from minting a PLATFORM_ADMIN. The platform admin passes
+  // on rank alone (100, the highest); no role is exempt from the check.
   private async assertMayAssignRank(
     actorId: string,
     targetRank: number,
-    ability: AppAbility,
   ): Promise<void> {
-    if (ability.can('manage', 'all')) return;
-
     const actorRoles = await this.prisma.userRole.findMany({
       where: { userId: actorId },
       select: { role: { select: { rank: true } } },

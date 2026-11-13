@@ -212,7 +212,7 @@ for how the two rules compose.
 `GET /roles`, `GET /roles/:id` and `GET /permissions` are the only
 role-_definition_ endpoints (assignment is `POST`/`DELETE /users/:userId/roles`
 and workspace memberships). There is no `POST`, `PATCH`, or `DELETE` on a role, and their absence is the feature: an operator who
-can add `platform.all.manage` to a role they already hold has made themselves an
+can add any permission to a role they already hold has made themselves an
 admin with no diff for anyone to review.
 
 Two things also make a runtime role API structurally unworkable here.
@@ -497,6 +497,33 @@ Acceptance is a
 conditional `UPDATE` out of `pending` inside the transaction that writes the
 membership, so two simultaneous redemptions produce exactly one membership and
 the loser's whole transaction rolls back.
+
+## Platform accounts never belong to a workspace
+
+A server's platform roles are its staff (on Pakita, the Main Church's IT).
+They run the server; a church's own people run the church. So an account
+holds platform roles **or** workspace memberships, never both. Someone who is
+both uses two accounts.
+
+- **Both directions are refused** by `PlatformAccountPolicy`
+  (`src/modules/authorization/platform-account.policy.ts`): every write that
+  leaves an account with an ACTIVE membership asks it through
+  `WorkspaceOwnershipPolicy.assertUserMayHoldActiveMembership`, and
+  `UserRolesService.assign` asks it before granting a platform role. Both run
+  under the target's user-row lock, so a grant and a join racing on one account
+  serialise and the second is refused (`PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE`,
+  `WORKSPACE_MEMBER_CANNOT_HOLD_PLATFORM_ROLE`).
+- **Stored state that breaks it refuses to boot**
+  (`platform_account_holds_membership` in `AuthorizationDataIntegrityService`).
+- **No role holds `manage all`.** The platform admin's authority is listed verb
+  by verb in the catalog, and stops at a workspace's record: create it naming
+  its owner, rename, delete, replace its owner (`PUT /workspaces/:id/owner`),
+  and read its roster. It never reaches a workspace's content or changes its
+  roster. `permission-catalog.spec.ts` asserts both.
+- **A workspace's people come from inside it.** Its owner and admins invite
+  existing accounts, or create new ones that join in the same step
+  (`createAccount WorkspaceMembership`, `POST /workspaces/:id/accounts`),
+  bounded by the same rank guard as adding a member.
 
 ## Scope integrity lives in the factory, not the schema
 

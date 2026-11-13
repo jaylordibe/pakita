@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { AppAbility } from '../../common/authorization/app-ability';
 import { buildOrderBy } from '../../common/dto/meta-query.dto';
 import { PaginationMeta } from '../../common/dto/paginated-response.dto';
 import { WorkspaceMembershipStatus } from '../../common/enums/workspace-membership-status.enum';
@@ -28,7 +27,6 @@ export class RolesService {
 
   async findPaginated(
     query: RoleQueryDto,
-    ability: AppAbility,
     actorId: string,
   ): Promise<{ data: RoleRow[]; meta: PaginationMeta }> {
     const { page, perPage, search } = query;
@@ -47,14 +45,9 @@ export class RolesService {
       // regardless — this only keeps the UI from offering doors that are
       // locked, and from advertising which roles outrank the viewer.
       where.scope = RoleScope.WORKSPACE;
-      const ceiling = await this.resolveAssignmentCeiling(
-        query.assignableIn,
-        actorId,
-        ability,
-      );
-      if (ceiling !== null) {
-        where.rank = { lte: ceiling };
-      }
+      where.rank = {
+        lte: await this.resolveAssignmentCeiling(query.assignableIn, actorId),
+      };
     }
 
     const [data, total] = await this.prisma.$transaction([
@@ -90,7 +83,7 @@ export class RolesService {
   }
 
   /**
-   * The caller's assignment ceiling in one workspace, or `null` for unbounded.
+   * The caller's assignment ceiling in one workspace: their own rank there.
    *
    * Returns an empty ceiling (rank 0, matching nothing) rather than throwing
    * when the caller has no active membership: this is a LIST endpoint, and a
@@ -100,10 +93,7 @@ export class RolesService {
   private async resolveAssignmentCeiling(
     workspaceId: string,
     actorId: string,
-    ability: AppAbility,
-  ): Promise<number | null> {
-    if (ability.can('manage', 'all')) return null;
-
+  ): Promise<number> {
     const membership = await this.prisma.workspaceMembership.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: actorId } },
       select: { status: true, role: { select: { rank: true } } },

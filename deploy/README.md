@@ -31,19 +31,30 @@ third-party service. Everything runs on this machine.
    `./install.sh` again. It checks every value, downloads the release and
    starts the server.
 4. Run `./create-admin.sh` to create the first administrator. It asks for an
-   email and a password and stores neither anywhere else.
+   email and a password and stores neither anywhere else. The administrator
+   runs the server and never belongs to a church, so use an email that is not
+   someone's church account.
 5. On a laptop, install the Pakita desktop app, connect to
-   `https://your-domain`, sign in as the administrator and create your church.
+   `https://your-domain` and sign in as the administrator. On the Server
+   screen, create an account for your church's owner under **People**, then
+   create the church under **Churches**, naming that owner.
 
 ## People and passwords
 
-There is no sign-up. The administrator creates each person's account in the
-desktop app and gives them a one-time password, which they must replace with
-their own the first time they sign in. Someone who forgets their password asks
-the administrator, who sets a new one-time password the same way; that also
-signs them out everywhere. To add someone to a church, an administrator of that
-church creates an invitation code in the app and passes it on; only that
-person's account can use it.
+There is no sign-up. Accounts are created in the desktop app with a one-time
+password, which the person must replace with their own the first time they
+sign in: by the server's administrator (Server screen, **People**), or by a
+church's owner or administrators for that church's own people (the church's
+**People** tab), who then arrive already in it. Someone who already has an
+account joins a church with an invitation code its owner or administrators
+create and pass on; only that person's account can use it. Someone who forgets
+their password asks the server's administrator, who sets a new one-time
+password the same way; that also signs them out everywhere.
+
+The server's administrator and other staff accounts never belong to a church.
+A staff member who also serves in a church uses a second, ordinary account.
+When a church's owner leaves or loses their account, the server's
+administrator names a new owner (Server screen, **Churches**).
 
 If the administrator cannot sign in themselves, reset their password on the
 server:

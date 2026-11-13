@@ -1,8 +1,6 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
-import type { AppAbility } from '../../common/authorization/app-ability';
 import { ApiPaginatedResponse } from '../../common/decorators/api-paginated-response.decorator';
-import { CurrentAbility } from '../../common/decorators/current-ability.decorator';
 import {
   CurrentUser,
   type AuthenticatedUser,
@@ -21,8 +19,8 @@ import { RolesService } from './roles.service';
  * `src/common/authorization/permission-catalog.ts`, reviewed like code, and
  * projected into the database by `pnpm prisma:seed`. A runtime-editable role is
  * a privilege-escalation primitive with an audit trail nobody reads: an
- * operator who can add `platform.all.manage` to a role they already hold has
- * made themselves an admin without anyone approving a diff.
+ * operator who can add any permission to a role they already hold has made
+ * themselves an admin without anyone approving a diff.
  *
  * Guarding such an endpoint with `isAdministrative: true` alone would permit
  * exactly that. It also could not work: the boot-time
@@ -44,12 +42,10 @@ export class RolesController {
   @ApiPaginatedResponse(RoleResponseDto)
   async findPaginated(
     @Query() query: RoleQueryDto,
-    @CurrentAbility() ability: AppAbility,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<PaginatedResponseDto<RoleResponseDto>> {
     const { data, meta } = await this.rolesService.findPaginated(
       query,
-      ability,
       user.id,
     );
     return { data: data.map((row) => new RoleResponseDto(row)), meta };

@@ -95,7 +95,8 @@ export async function createUser(
   return { id: user.id, email, token: await issueAccessToken(app, user.id) };
 }
 
-// A platform administrator: holds `manage all`.
+// A platform administrator: governance over accounts, platform roles, workspaces
+// and their owners. Never a member of a workspace.
 export function createPlatformAdmin(
   app: INestApplication<App>,
   email = 'admin@example.com',

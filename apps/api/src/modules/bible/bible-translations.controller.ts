@@ -37,8 +37,8 @@ import { CreateBibleTranslationDto } from './dto/create-bible-translation.dto';
 import { PutBibleChapterDto } from './dto/put-bible-chapter.dto';
 
 // The installation's Bible translations. Every signed-in person reads the
-// published ones; importing (create → chapters → publish) and deleting is an
-// administrator's job (`manage all`).
+// published ones; importing (create → chapters → publish) and deleting is the
+// platform administrator's job.
 @ApiTags('Bible translations')
 @ApiBearerAuth()
 @Controller('bible-translations')

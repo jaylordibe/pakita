@@ -6,6 +6,7 @@ import { AuthorizationDataIntegrityService } from './authorization-data-integrit
 import { PermissionCatalogIntegrityService } from './permission-catalog-integrity.service';
 import { PermissionCheckService } from './permission-check.service';
 import { PermissionLoaderService } from './permission-loader.service';
+import { PlatformAccountPolicy } from './platform-account.policy';
 import { RouteAuthorizationAuditService } from './route-authorization-audit.service';
 
 // @Global, like PrismaModule / RedisModule / AuditModule: the guard and every
@@ -27,6 +28,7 @@ import { RouteAuthorizationAuditService } from './route-authorization-audit.serv
     AbilityScopedQueryService,
     PermissionLoaderService,
     PermissionCheckService,
+    PlatformAccountPolicy,
     PermissionCatalogIntegrityService,
     AuthorizationDataIntegrityService,
     RouteAuthorizationAuditService,
@@ -36,6 +38,7 @@ import { RouteAuthorizationAuditService } from './route-authorization-audit.serv
     AbilityScopedQueryService,
     PermissionLoaderService,
     PermissionCheckService,
+    PlatformAccountPolicy,
   ],
 })
 export class AuthorizationModule {}

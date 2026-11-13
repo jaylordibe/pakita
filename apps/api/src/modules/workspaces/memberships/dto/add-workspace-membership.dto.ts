@@ -7,11 +7,11 @@ import {
   MaxLength,
 } from 'class-validator';
 
-// Adds someone who ALREADY has an account. To bring in an address that may not
-// be registered yet, use the invitation flow
-// (`POST /workspaces/:workspaceId/invitations`) — this endpoint deliberately
-// 404s on an unknown email rather than silently creating an account, because a
-// workspace must not be able to mint user records for arbitrary addresses.
+// Adds someone who ALREADY has an account; an unknown email is a 404, never a
+// silently created account. A new person's account is created deliberately,
+// with a first password, by a workspace's owner or admins
+// (`POST /workspaces/:workspaceId/accounts`), or the person is invited
+// (`POST /workspaces/:workspaceId/invitations`).
 export class AddWorkspaceMembershipDto {
   @IsEmail()
   @Transform(({ value }: { value: unknown }) =>

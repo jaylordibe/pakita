@@ -91,9 +91,11 @@ describe('Roles (e2e)', () => {
 
       const body = response.body as PageBody<{ name: string }>;
       expect(body.meta.total).toBeGreaterThan(0);
-      expect(body.data.some((row) => row.name === 'platform.all.manage')).toBe(
-        true,
-      );
+      const names = body.data.map((row) => row.name);
+      // No role holds `manage all`, so the catalog no longer defines it.
+      expect(names).not.toContain('platform.all.manage');
+      expect(names).toContain('platform.workspace.create');
+      expect(names).toContain('workspace.workspace_membership.create_account');
     });
 
     it('filters by scope', async () => {

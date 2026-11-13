@@ -1731,6 +1731,114 @@
         ]
       }
     },
+    "/api/workspaces/{workspaceId}/owner": {
+      "put": {
+        "operationId": "WorkspaceOwnerController_replace",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceWorkspaceOwnerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceMembershipResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `transferOwnership` on `Workspace`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Workspace Memberships"
+        ]
+      }
+    },
+    "/api/workspaces/{workspaceId}/accounts": {
+      "post": {
+        "operationId": "WorkspaceAccountsController_create",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceAccountDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceMembershipResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `createAccount` on `WorkspaceMembership`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Workspace Memberships"
+        ]
+      }
+    },
     "/api/workspaces/{workspaceId}/invitations": {
       "post": {
         "operationId": "WorkspaceInvitationsController_create",
@@ -6327,11 +6435,17 @@
           },
           "isActive": {
             "type": "boolean"
+          },
+          "ownerEmail": {
+            "type": "string",
+            "description": "The email of the existing account that will own the workspace. It must be\nan ordinary account: a platform account never belongs to a workspace\n(`PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE`). An unknown email is\n`RESOURCE_NOT_FOUND`. The creator does not become a member.",
+            "format": "email"
           }
         },
         "required": [
           "name",
-          "slug"
+          "slug",
+          "ownerEmail"
         ]
       },
       "WorkspaceResponseDto": {
@@ -6553,6 +6667,85 @@
         },
         "required": [
           "roleId"
+        ]
+      },
+      "ReplaceWorkspaceOwnerDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "The email of the existing account that becomes the workspace's sole owner.\nIt must be an ordinary account (`PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE`).\nEvery current owner becomes `workspace_admin`.",
+            "format": "email"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "CreateWorkspaceAccountDto": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 72,
+            "pattern": "^(?=.*[A-Za-z])(?=.*\\d).+$",
+            "description": "At least 8 characters and at most 72 bytes in UTF-8 (a character such as ñ takes 2, an emoji 4), with a letter and a digit."
+          },
+          "roleId": {
+            "type": "string",
+            "description": "The workspace role the new account joins with. Bounded like adding a\nmember: at or below the creator's own rank, and only `workspace_staff`\nwithout role-assignment authority (`ROLE_NOT_ASSIGNABLE`).",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 30,
+            "pattern": "^[a-zA-Z0-9._-]+$"
+          },
+          "firstName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "middleName": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "lastName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "gender": {
+            "enum": [
+              "male",
+              "female",
+              "non_binary",
+              "other",
+              "prefer_not_to_say"
+            ],
+            "type": "string"
+          },
+          "birthday": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "password",
+          "roleId",
+          "email",
+          "firstName",
+          "lastName"
         ]
       },
       "CreateWorkspaceInvitationDto": {

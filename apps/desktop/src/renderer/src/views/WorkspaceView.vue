@@ -10,8 +10,7 @@ const props = defineProps<{
   canGoBack: boolean;
   /**
    * At sign-in, a person with exactly one church goes straight into it.
-   * False when the operator asked for the list ("Change church"), which is
-   * also where a new church is created.
+   * False when the operator asked for the list ("Change church").
    */
   opensOnlyChurch: boolean;
 }>();
@@ -20,24 +19,9 @@ const emit = defineEmits<{ selected: [workspaceId: string]; back: [] }>();
 const workspaces = ref<WorkspaceSummary[] | null>(null);
 const errorMessage = ref<string | null>(null);
 const isBusy = ref(false);
-const newName = ref('');
 const invitationCode = ref('');
 /** The church being opened without asking, while it opens. */
 const openingName = ref<string | null>(null);
-
-async function create(): Promise<void> {
-  if (newName.value.trim().length < 2) return;
-  errorMessage.value = null;
-  isBusy.value = true;
-  try {
-    const workspace = await window.pakita.workspaces.create(newName.value);
-    isBusy.value = false;
-    await select(workspace.id);
-  } catch (error) {
-    errorMessage.value = messageOf(error);
-    isBusy.value = false;
-  }
-}
 
 /** Joins the church an administrator gave this person a code for. */
 async function join(): Promise<void> {
@@ -98,8 +82,8 @@ async function select(workspaceId: string): Promise<void> {
           Loading…
         </p>
         <p v-else-if="workspaces?.length === 0" class="muted">
-          Your account does not belong to a church yet. If your church's
-          administrator gave you a code, enter it below; or create a church.
+          Your account does not belong to a church yet. Ask your church's
+          administrator for an invitation code, and enter it below.
         </p>
       </div>
       <ul v-if="workspaces?.length && !openingName" class="churches">
@@ -132,20 +116,6 @@ async function select(workspaceId: string): Promise<void> {
         >
           <AppIcon name="arrow-right" />
           Join church
-        </button>
-      </form>
-      <form v-if="!openingName" class="create" @submit.prevent="create">
-        <input
-          v-model="newName"
-          minlength="2"
-          maxlength="120"
-          placeholder="New church’s name"
-          aria-label="New church's name"
-          data-testid="workspace-new-name"
-        />
-        <button type="submit" :disabled="isBusy" data-testid="workspace-create">
-          <AppIcon name="plus" />
-          Create church
         </button>
       </form>
       <p v-if="errorMessage" class="error" role="alert">

@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
+  IsEmail,
   IsOptional,
   IsString,
   Matches,
@@ -39,4 +40,16 @@ export class CreateWorkspaceDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /**
+   * The email of the existing account that will own the workspace. It must be
+   * an ordinary account: a platform account never belongs to a workspace
+   * (`PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE`). An unknown email is
+   * `RESOURCE_NOT_FOUND`. The creator does not become a member.
+   */
+  @IsEmail()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  ownerEmail!: string;
 }

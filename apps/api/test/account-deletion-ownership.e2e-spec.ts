@@ -181,7 +181,7 @@ describe('Account deletion cannot orphan a workspace (e2e)', () => {
 
   describe('administrative delete: DELETE /users/:id', () => {
     it('refuses for a platform admin too', async () => {
-      // `manage all` bypasses AUTHORIZATION, not data integrity. An admin who
+      // The admin's authority is AUTHORIZATION, not data integrity. An admin who
       // could delete a sole owner would create the one broken state no
       // workspace-level actor can see or repair.
       const admin = await createPlatformAdmin(app);

@@ -12,6 +12,7 @@ import { WorkspaceMembershipStatus } from '../../../common/enums/workspace-membe
 import { SeededRoleName } from '../../../common/enums/seeded-role-name.enum';
 import { Errors } from '../../../common/errors/errors';
 import { buildAuditSnapshot } from '../../../common/util/audit-snapshot.util';
+import { buildNewAccountData } from '../../../common/util/new-account.util';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AbilityScopedQueryService } from '../../authorization/ability-scoped-query.service';
 import { WorkspaceOwnershipPolicy } from '../workspace-ownership.policy';
@@ -19,6 +20,7 @@ import { WorkspaceRoleAssignmentPolicy } from '../workspace-role-assignment.poli
 import { PermissionCheckService } from '../../authorization/permission-check.service';
 import { PermissionLoaderService } from '../../authorization/permission-loader.service';
 import { AddWorkspaceMembershipDto } from './dto/add-workspace-membership.dto';
+import { CreateWorkspaceAccountDto } from './dto/create-workspace-account.dto';
 import { WorkspaceMembershipQueryDto } from './dto/workspace-membership-query.dto';
 import type { WorkspaceMembershipRow } from './dto/workspace-membership-response.dto';
 import { ChangeMembershipRoleDto } from './dto/change-membership-role.dto';
@@ -178,62 +180,14 @@ export class WorkspaceMembershipsService {
           workspaceId,
         );
 
-        const existing = await transaction.workspaceMembership.findUnique({
-          where: { workspaceId_userId: { workspaceId, userId: targetUser.id } },
-          select: {
-            id: true,
-            status: true,
-            joinedAt: true,
-            endedAt: true,
-            role: { select: { name: true } },
-          },
+        return this.joinWithRole(transaction, {
+          workspaceId,
+          userId: targetUser.id,
+          roleId: targetRole.id,
+          notes: mayAnnotate ? dto.notes : undefined,
+          actorId,
+          now,
         });
-
-        if (existing) {
-          const existingStatus = existing.status as WorkspaceMembershipStatus;
-          if (existingStatus !== WorkspaceMembershipStatus.LEFT) {
-            throw Errors.resourceConflict(
-              'That person already has a membership in this workspace',
-            );
-          }
-          // Re-joining after leaving. `joinedAt` is reset because it records the
-          // start of the CURRENT tenure — preserving the original would claim a
-          // continuity of membership that did not happen. The tenure being
-          // overwritten is captured below and audited, because the audit trail is
-          // where this template keeps membership history.
-          const rejoined = await transaction.workspaceMembership.update({
-            where: { id: existing.id },
-            data: {
-              roleId: targetRole.id,
-              status: WorkspaceMembershipStatus.ACTIVE,
-              joinedAt: now,
-              endedAt: null,
-              notes: mayAnnotate ? dto.notes : undefined,
-              updatedBy: actorId,
-            },
-            include: MEMBERSHIP_INCLUDE,
-          });
-          return {
-            membership: rejoined,
-            previousTenure: describeTenure(existing),
-          };
-        }
-
-        const created = await transaction.workspaceMembership.create({
-          data: {
-            workspaceId,
-            userId: targetUser.id,
-            roleId: targetRole.id,
-            status: WorkspaceMembershipStatus.ACTIVE,
-            joinedAt: now,
-            invitedBy: actorId,
-            notes: mayAnnotate ? dto.notes : undefined,
-            createdBy: actorId,
-            updatedBy: actorId,
-          },
-          include: MEMBERSHIP_INCLUDE,
-        });
-        return { membership: created, previousTenure: null };
       },
     );
 
@@ -592,39 +546,13 @@ export class WorkspaceMembershipsService {
         );
       }
 
-      // Demote every CURRENT active owner, not merely the caller's own row.
-      //
-      // Keying the demotion off the actor was wrong for the one case where the
-      // actor is not the owner: a platform admin holds `manage all` and no
-      // membership, so nothing was demoted and the workspace came out of a
-      // "transfer" with TWO owners — while the audit line claimed ownership had
-      // moved. Demoting the incumbent makes the actor-is-owner case fall out as
-      // a special case of the same rule rather than being the only one handled.
-      const outgoingOwners = await transaction.workspaceMembership.findMany({
-        where: {
-          workspaceId,
-          status: WorkspaceMembershipStatus.ACTIVE,
-          roleId: ownerRole.id,
-          id: { not: target.id },
-        },
-        select: { id: true, userId: true },
+      return this.makeSoleOwner(transaction, {
+        workspaceId,
+        membershipId: target.id,
+        ownerRoleId: ownerRole.id,
+        adminRoleId: adminRole.id,
+        actorId,
       });
-      if (outgoingOwners.length > 0) {
-        await transaction.workspaceMembership.updateMany({
-          where: { id: { in: outgoingOwners.map((owner) => owner.id) } },
-          data: { roleId: adminRole.id, updatedBy: actorId },
-        });
-      }
-
-      const promoted = await transaction.workspaceMembership.update({
-        where: { id: target.id },
-        data: { roleId: ownerRole.id, updatedBy: actorId },
-        include: MEMBERSHIP_INCLUDE,
-      });
-      return {
-        promoted,
-        demotedUserIds: outgoingOwners.map((outgoing) => outgoing.userId),
-      };
     });
 
     // Everyone whose authority changed: the new owner, every demoted owner, and
@@ -646,7 +574,357 @@ export class WorkspaceMembershipsService {
     return promoted;
   }
 
+  /**
+   * Makes the account with this email the workspace's sole owner.
+   *
+   * The platform admin's way to hand a workspace to someone — for when its
+   * owner's account is lost, or they leave — and an owner's way to hand over
+   * to somebody not yet on the roster. Unlike `transferOwnership`, the incoming
+   * owner need not be a member: an account with no membership here (or one that
+   * left) joins as owner. A SUSPENDED member is refused, as everywhere else: a
+   * suspension is lifted first, deliberately.
+   *
+   * The guard has checked `transferOwnership Workspace` against this
+   * workspace. Every outgoing owner becomes WORKSPACE_ADMIN.
+   */
+  async replaceOwner(
+    workspaceId: string,
+    email: string,
+    actorId: string,
+  ): Promise<WorkspaceMembershipRow> {
+    const incoming = await this.prisma.scoped.user.findFirst({
+      where: { email },
+      select: { id: true },
+    });
+    if (!incoming) {
+      throw Errors.resourceNotFound('User');
+    }
+    const [ownerRole, adminRole] = await Promise.all([
+      this.loadSeededWorkspaceRole(SeededRoleName.WORKSPACE_OWNER),
+      this.loadSeededWorkspaceRole(SeededRoleName.WORKSPACE_ADMIN),
+    ]);
+
+    const now = new Date();
+    const { promoted, demotedUserIds, joined } = await this.prisma.$transaction(
+      async (transaction) => {
+        // User row, then workspace row — the order in `row-lock.util.ts`.
+        await this.workspaceOwnershipPolicy.assertUserMayHoldActiveMembership(
+          transaction,
+          incoming.id,
+        );
+        await this.workspaceOwnershipPolicy.lockWorkspace(
+          transaction,
+          workspaceId,
+        );
+        const workspace = await transaction.workspace.findFirst({
+          where: { id: workspaceId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!workspace) {
+          throw Errors.resourceNotFound('Workspace');
+        }
+
+        const existing = await transaction.workspaceMembership.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: incoming.id } },
+          select: { id: true, status: true },
+        });
+        const existingStatus = existing?.status as
+          | WorkspaceMembershipStatus
+          | undefined;
+        if (existingStatus === WorkspaceMembershipStatus.SUSPENDED) {
+          throw Errors.membershipNotActive(existingStatus);
+        }
+
+        // Already an active member: promote that membership. Otherwise the
+        // incoming owner joins (or re-joins, after leaving) as owner first.
+        let joinedNow: Awaited<ReturnType<typeof this.joinWithRole>> | null =
+          null;
+        let membershipId: string;
+        if (existing && existingStatus === WorkspaceMembershipStatus.ACTIVE) {
+          membershipId = existing.id;
+        } else {
+          joinedNow = await this.joinWithRole(transaction, {
+            workspaceId,
+            userId: incoming.id,
+            roleId: ownerRole.id,
+            notes: undefined,
+            actorId,
+            now,
+          });
+          membershipId = joinedNow.membership.id;
+        }
+        return {
+          ...(await this.makeSoleOwner(transaction, {
+            workspaceId,
+            membershipId,
+            ownerRoleId: ownerRole.id,
+            adminRoleId: adminRole.id,
+            actorId,
+          })),
+          joined: joinedNow,
+        };
+      },
+    );
+
+    for (const affectedUserId of new Set([
+      promoted.userId,
+      actorId,
+      ...demotedUserIds,
+    ])) {
+      await this.permissionLoaderService.invalidateUser(affectedUserId);
+    }
+    if (joined) {
+      await this.auditService.record({
+        action: 'workspace_membership.added',
+        actorId,
+        targetUserId: promoted.userId,
+        metadata: {
+          workspaceId,
+          membershipId: promoted.id,
+          roleId: ownerRole.id,
+          roleName: ownerRole.name,
+          isRejoin: joined.previousTenure !== null,
+          previousTenure: joined.previousTenure,
+        },
+      });
+    }
+    await this.auditService.record({
+      action: 'workspace_membership.ownership_transferred',
+      actorId,
+      targetUserId: promoted.userId,
+      metadata: {
+        workspaceId,
+        membershipId: promoted.id,
+        demotedUserIds,
+        isReplacement: true,
+      },
+    });
+    return promoted;
+  }
+
+  /**
+   * Creates an account for a new person, who joins this workspace in the same
+   * transaction.
+   *
+   * A workspace's owner and admins (`createAccount WorkspaceMembership`) bring
+   * their own people in without the platform admin. The account is built by
+   * `buildNewAccountData`, the same as `POST /users`: the creator chooses a
+   * one-time password the person must replace at first sign-in. The role is
+   * bounded exactly as adding a member is (`WorkspaceRoleAssignmentPolicy`), so
+   * an admin cannot create an owner. An email that already has an account is
+   * `UNIQUE_CONSTRAINT_VIOLATION` (`email`) and creates nothing: that person is
+   * invited instead.
+   */
+  async createAccount(
+    workspaceId: string,
+    dto: CreateWorkspaceAccountDto,
+    ability: AppAbility,
+    actorId: string,
+  ): Promise<WorkspaceMembershipRow> {
+    const { roleId, ...accountFields } = dto;
+    const targetRole =
+      await this.workspaceRoleAssignmentPolicy.loadAssignableRole(roleId);
+    await this.workspaceRoleAssignmentPolicy.assertMayAssign(
+      workspaceId,
+      actorId,
+      targetRole,
+      ability,
+    );
+    // Hashing is slow (bcrypt); do it before any lock is held.
+    const accountData = await buildNewAccountData(accountFields, actorId);
+
+    const now = new Date();
+    const membership = await this.prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.create({
+        data: accountData,
+        select: { id: true },
+      });
+      await this.workspaceOwnershipPolicy.assertUserMayHoldActiveMembership(
+        transaction,
+        user.id,
+      );
+      await this.workspaceOwnershipPolicy.lockWorkspace(
+        transaction,
+        workspaceId,
+      );
+      const { membership: created } = await this.joinWithRole(transaction, {
+        workspaceId,
+        userId: user.id,
+        roleId: targetRole.id,
+        notes: undefined,
+        actorId,
+        now,
+      });
+      return created;
+    });
+
+    await this.auditService.record({
+      action: 'user.created.by_workspace',
+      actorId,
+      targetUserId: membership.userId,
+      metadata: { workspaceId, email: membership.user.email },
+    });
+    await this.auditService.record({
+      action: 'workspace_membership.added',
+      actorId,
+      targetUserId: membership.userId,
+      metadata: {
+        workspaceId,
+        membershipId: membership.id,
+        roleId: targetRole.id,
+        roleName: targetRole.name,
+        isRejoin: false,
+        previousTenure: null,
+      },
+    });
+    return membership;
+  }
+
   // ── shared lifecycle machinery ─────────────────────────────────────────
+
+  /**
+   * Makes one ACTIVE membership the workspace's owner and demotes every other
+   * active owner to WORKSPACE_ADMIN, so the workspace never has two owners or
+   * none. The caller must already hold the incoming owner's user lock and the
+   * workspace lock, in that order.
+   */
+  private async makeSoleOwner(
+    transaction: Prisma.TransactionClient,
+    {
+      workspaceId,
+      membershipId,
+      ownerRoleId,
+      adminRoleId,
+      actorId,
+    }: {
+      workspaceId: string;
+      membershipId: string;
+      ownerRoleId: string;
+      adminRoleId: string;
+      actorId: string;
+    },
+  ): Promise<{ promoted: WorkspaceMembershipRow; demotedUserIds: string[] }> {
+    // Demote every CURRENT active owner, not merely the caller's own row.
+    //
+    // Keying the demotion off the actor was wrong for the one case where the
+    // actor is not the owner: a platform admin acting on the workspace holds no
+    // membership, so nothing was demoted and the workspace came out of a
+    // "transfer" with TWO owners — while the audit line claimed ownership had
+    // moved. Demoting the incumbent makes the actor-is-owner case fall out as
+    // a special case of the same rule rather than being the only one handled.
+    const outgoingOwners = await transaction.workspaceMembership.findMany({
+      where: {
+        workspaceId,
+        status: WorkspaceMembershipStatus.ACTIVE,
+        roleId: ownerRoleId,
+        id: { not: membershipId },
+      },
+      select: { id: true, userId: true },
+    });
+    if (outgoingOwners.length > 0) {
+      await transaction.workspaceMembership.updateMany({
+        where: { id: { in: outgoingOwners.map((owner) => owner.id) } },
+        data: { roleId: adminRoleId, updatedBy: actorId },
+      });
+    }
+
+    const promoted = await transaction.workspaceMembership.update({
+      where: { id: membershipId },
+      data: { roleId: ownerRoleId, updatedBy: actorId },
+      include: MEMBERSHIP_INCLUDE,
+    });
+    return {
+      promoted,
+      demotedUserIds: outgoingOwners.map((outgoing) => outgoing.userId),
+    };
+  }
+
+  /**
+   * Joins (or re-joins, after leaving) one account to a workspace with a role.
+   *
+   * The caller must already have passed
+   * `WorkspaceOwnershipPolicy.assertUserMayHoldActiveMembership` and locked the
+   * workspace, in that order, inside `transaction`. Refuses an account that
+   * already holds an active or suspended membership here.
+   */
+  private async joinWithRole(
+    transaction: Prisma.TransactionClient,
+    {
+      workspaceId,
+      userId,
+      roleId,
+      notes,
+      actorId,
+      now,
+    }: {
+      workspaceId: string;
+      userId: string;
+      roleId: string;
+      notes: string | undefined;
+      actorId: string;
+      now: Date;
+    },
+  ): Promise<{
+    membership: WorkspaceMembershipRow;
+    previousTenure: MembershipTenureSnapshot | null;
+  }> {
+    const existing = await transaction.workspaceMembership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: {
+        id: true,
+        status: true,
+        joinedAt: true,
+        endedAt: true,
+        role: { select: { name: true } },
+      },
+    });
+
+    if (existing) {
+      const existingStatus = existing.status as WorkspaceMembershipStatus;
+      if (existingStatus !== WorkspaceMembershipStatus.LEFT) {
+        throw Errors.resourceConflict(
+          'That person already has a membership in this workspace',
+        );
+      }
+      // Re-joining after leaving. `joinedAt` is reset because it records the
+      // start of the CURRENT tenure — preserving the original would claim a
+      // continuity of membership that did not happen. The tenure being
+      // overwritten is captured below and audited, because the audit trail is
+      // where this template keeps membership history.
+      const rejoined = await transaction.workspaceMembership.update({
+        where: { id: existing.id },
+        data: {
+          roleId,
+          status: WorkspaceMembershipStatus.ACTIVE,
+          joinedAt: now,
+          endedAt: null,
+          notes,
+          updatedBy: actorId,
+        },
+        include: MEMBERSHIP_INCLUDE,
+      });
+      return {
+        membership: rejoined,
+        previousTenure: describeTenure(existing),
+      };
+    }
+
+    const created = await transaction.workspaceMembership.create({
+      data: {
+        workspaceId,
+        userId,
+        roleId,
+        status: WorkspaceMembershipStatus.ACTIVE,
+        joinedAt: now,
+        invitedBy: actorId,
+        notes,
+        createdBy: actorId,
+        updatedBy: actorId,
+      },
+      include: MEMBERSHIP_INCLUDE,
+    });
+    return { membership: created, previousTenure: null };
+  }
 
   /**
    * The one code path every status change goes through.
@@ -676,7 +954,6 @@ export class WorkspaceMembershipsService {
     const actorRank = await this.workspaceRoleAssignmentPolicy.resolveActorRank(
       workspaceId,
       actorId,
-      ability,
     );
 
     const membership = await this.prisma.$transaction(async (transaction) => {

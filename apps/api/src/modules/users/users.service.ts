@@ -9,6 +9,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { Errors } from '../../common/errors/errors';
 import { WorkspaceMembershipStatus } from '../../common/enums/workspace-membership-status.enum';
 import { hashPassword } from '../../common/util/password-hashing.util';
+import { buildNewAccountData } from '../../common/util/new-account.util';
 import { FilePurpose } from '../../common/enums/file-purpose.enum';
 import { lockUserRow } from '../../common/util/row-lock.util';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -77,7 +78,6 @@ export class UsersService {
    * it can do anything else (`isPasswordChangeRequired`).
    */
   async create(dto: CreateUserDto, actorId: string): Promise<User> {
-    const passwordHash = await hashPassword(dto.password);
     // A single INSERT. No role is assigned, and no transaction is needed to
     // make one atomic with the user row.
     //
@@ -88,21 +88,7 @@ export class UsersService {
     // half-written — a class of bug this design does not have rather than
     // guards against.
     const user = await this.prisma.user.create({
-      data: {
-        email: dto.email.toLowerCase(),
-        username: dto.username?.toLowerCase(),
-        password: passwordHash,
-        passwordChangedAt: new Date(),
-        isPasswordChangeRequired: true,
-        firstName: dto.firstName,
-        middleName: dto.middleName,
-        lastName: dto.lastName,
-        gender: dto.gender,
-        birthday: dto.birthday,
-        timezone: dto.timezone,
-        createdBy: actorId,
-        updatedBy: actorId,
-      },
+      data: await buildNewAccountData(dto, actorId),
     });
 
     await this.auditService.record({
@@ -314,7 +300,7 @@ export class UsersService {
    * bare field write would skip.
    *
    * Refused when the account is somebody's last owner. A platform admin is not
-   * exempt: `manage all` bypasses AUTHORIZATION, not data integrity, and the
+   * exempt: their authority is AUTHORIZATION, not data integrity, and the
    * unadministrable workspace it would leave behind is invisible to every roster
    * read — so nobody would find it to repair it.
    */
@@ -349,7 +335,7 @@ export class UsersService {
     // invokes gdprErase, which also anonymizes personal columns.
     //
     // Refused outright when the target is somebody's last owner. A platform
-    // admin is not exempt: `manage all` bypasses AUTHORIZATION, not data
+    // admin is not exempt: their authority is AUTHORIZATION, not data
     // integrity, and the stranded membership it would create is invisible to
     // every roster read — so nobody would find it to repair it.
     await this.deleteAccount(id, actorId);

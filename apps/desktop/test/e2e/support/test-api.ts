@@ -43,6 +43,12 @@ export interface TestApi {
     path: string,
     body?: unknown,
   ): Promise<Result>;
+  /** An authenticated JSON request as the platform administrator. */
+  adminRequest<Result>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<Result>;
   /** Stops the server: the desktop is now offline. */
   stop(): Promise<void>;
   /** Starts it again on the same port and database. */
@@ -116,12 +122,7 @@ function runInApi(command: string, args: string[], environment: object): void {
   }
 }
 
-export async function startTestApi(
-  options: {
-    /** The owner is also a platform administrator (may import Bibles). */
-    isOwnerPlatformAdmin?: boolean;
-  } = {},
-): Promise<TestApi> {
+export async function startTestApi(): Promise<TestApi> {
   const port = await freePort();
   const databaseName = `pakita_desktop_e2e_${process.pid}`;
   const environment: Record<string, string> = loadTestEnvironment(
@@ -139,19 +140,17 @@ export async function startTestApi(
 
   // Accounts the way a church server gets them: its administrator from the
   // seeder (deploy/create-admin.sh runs the same), everyone else created by
-  // an administrator. The owner is seeded too, on a password of their own.
+  // an administrator. The owner is seeded too, on a password of their own —
+  // a separate person: the administrator never belongs to a church.
   const stamp = `${process.pid}-${Date.now()}`;
   const administratorEmail = `admin-${stamp}@example.org`;
-  const ownerEmail = options.isOwnerPlatformAdmin
-    ? administratorEmail
-    : `owner-${stamp}@example.org`;
+  const ownerEmail = `owner-${stamp}@example.org`;
   runInApi('pnpm', ['prisma:seed'], {
     ...environment,
     SEED_ADMIN_EMAIL: administratorEmail,
     SEED_ADMIN_PASSWORD: TEST_PASSWORD,
-    ...(options.isOwnerPlatformAdmin
-      ? {}
-      : { SEED_USER_EMAIL: ownerEmail, SEED_USER_PASSWORD: TEST_PASSWORD }),
+    SEED_USER_EMAIL: ownerEmail,
+    SEED_USER_PASSWORD: TEST_PASSWORD,
   });
 
   let server: ChildProcess | null = null;
@@ -184,7 +183,6 @@ export async function startTestApi(
 
   await start();
 
-  // The owner's one workspace.
   const send = async <Result>(
     method: string,
     path: string,
@@ -205,15 +203,20 @@ export async function startTestApi(
     }
     return (text ? JSON.parse(text) : undefined) as Result;
   };
-  const login = await send<{ accessToken: string }>('POST', '/api/auth/login', {
-    identifier: ownerEmail,
-    password: TEST_PASSWORD,
-  });
+  const signIn = (identifier: string) =>
+    send<{ accessToken: string }>('POST', '/api/auth/login', {
+      identifier,
+      password: TEST_PASSWORD,
+    });
+  const adminLogin = await signIn(administratorEmail);
+  const login = await signIn(ownerEmail);
+  // The owner's one workspace: only the administrator creates one, naming
+  // its owner.
   const workspace = await send<TestWorkspace>(
     'POST',
     '/api/workspaces',
-    { name: 'Grace Church', slug: `grace-${process.pid}` },
-    login.accessToken,
+    { name: 'Grace Church', slug: `grace-${process.pid}`, ownerEmail },
+    adminLogin.accessToken,
   );
 
   return {
@@ -223,6 +226,8 @@ export async function startTestApi(
     workspace,
     request: (method, path, body) =>
       send(method, path, body, login.accessToken),
+    adminRequest: (method, path, body) =>
+      send(method, path, body, adminLogin.accessToken),
     stop,
     start,
     dispose: async () => {

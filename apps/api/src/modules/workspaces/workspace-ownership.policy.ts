@@ -8,6 +8,7 @@ import {
   lockWorkspaceRows,
   lockUserRow,
 } from '../../common/util/row-lock.util';
+import { PlatformAccountPolicy } from '../authorization/platform-account.policy';
 
 /** A live workspace whose only remaining active owner is the user in question. */
 export interface SolelyOwnedWorkspace {
@@ -50,6 +51,8 @@ export interface ClosedWorkspacesResult {
  */
 @Injectable()
 export class WorkspaceOwnershipPolicy {
+  constructor(private readonly platformAccountPolicy: PlatformAccountPolicy) {}
+
   /**
    * Serialize every change that could affect a workspace's owner count.
    *
@@ -93,6 +96,11 @@ export class WorkspaceOwnershipPolicy {
    * Reports the SAME 404 an unknown user gets. A caller who may add members is
    * not thereby entitled to learn that a particular address belongs to a
    * deactivated account.
+   *
+   * A live account holding a platform role is refused with
+   * `PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE` (`PlatformAccountPolicy`): platform
+   * accounts never belong to a workspace. Under the same lock, so a platform
+   * role granted concurrently is seen.
    */
   async assertUserMayHoldActiveMembership(
     transaction: Prisma.TransactionClient,
@@ -108,6 +116,10 @@ export class WorkspaceOwnershipPolicy {
     if (!user) {
       throw Errors.resourceNotFound('User');
     }
+    await this.platformAccountPolicy.assertMayJoinWorkspace(
+      transaction,
+      userId,
+    );
   }
 
   /**

@@ -191,8 +191,8 @@ export class PermissionsGuard implements CanActivate {
   }
 
   // True when at least one granting rule is not conditioned on the subject's
-  // owner column. `manage all` resolves here with no conditions at all, so a
-  // platform admin always qualifies.
+  // owner column. A platform role's ANY rule resolves here with no conditions
+  // at all, so it always qualifies.
   private hasNonOwnerScopedRule(
     ability: AppAbility,
     action: AuthorizationAction,

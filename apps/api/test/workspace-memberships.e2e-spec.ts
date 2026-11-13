@@ -365,8 +365,8 @@ describe('Workspace memberships (e2e)', () => {
         },
       });
 
-      // `platform_admin` holds `manage all`. If this membership conferred it,
-      // this person would own the platform.
+      // `platform_admin` governs every account. If this membership conferred
+      // it, this person would run the platform.
       await request(app.getHttpServer())
         .get('/api/users')
         .set('Authorization', `Bearer ${person.token}`)
@@ -450,17 +450,29 @@ describe('Workspace memberships (e2e)', () => {
         .expect(409);
     });
 
-    it('binds a PLATFORM_ADMIN too — it is data integrity, not authorization', async () => {
-      // `manage all` bypasses the rank ceiling, which is an authorization
-      // control. It must NOT bypass this one: an ownerless workspace is
-      // unadministrable no matter who created that state.
+    it('a PLATFORM_ADMIN sees the roster but cannot change it (403)', async () => {
+      // Roster writes belong to the church's owner and admins. The platform
+      // admin reads "who belongs where" and replaces an owner through
+      // `PUT /workspaces/:id/owner`; it never ends a membership.
       const platformAdmin = await createPlatformAdmin(app);
       const membership = await ownerMembership();
 
       await request(app.getHttpServer())
+        .get(membershipsUrl())
+        .set('Authorization', `Bearer ${platformAdmin.token}`)
+        .expect(200);
+      const response = await request(app.getHttpServer())
         .delete(`${membershipsUrl()}/${membership.id}`)
         .set('Authorization', `Bearer ${platformAdmin.token}`)
-        .expect(409);
+        .expect(403);
+      expect((response.body as { errorCode: string }).errorCode).toBe(
+        'PERMISSION_DENIED',
+      );
+      const prisma = app.get(PrismaService);
+      const unchanged = await prisma.workspaceMembership.findUniqueOrThrow({
+        where: { id: membership.id },
+      });
+      expect(unchanged.status).toBe(WorkspaceMembershipStatus.ACTIVE);
     });
 
     it('an owner may leave once a co-owner exists', async () => {
@@ -613,7 +625,7 @@ describe('Workspace memberships (e2e)', () => {
 
     it('demotes the INCUMBENT owner when a platform admin transfers', async () => {
       // Regression: the demotion used to key off the ACTOR's own membership.
-      // A platform admin holds `manage all` and no membership, so nothing was
+      // A platform admin holds no membership, so nothing was
       // demoted and the workspace came out of a "transfer" with TWO owners —
       // while the audit line claimed ownership had moved.
       const platformAdmin = await createPlatformAdmin(app);
@@ -866,11 +878,16 @@ describe('Workspace memberships (e2e)', () => {
     it('the founding owner membership is audited as a join', async () => {
       const prisma = app.get(PrismaService);
       const founder = await createRegularUser(app, 'founder@example.com');
+      const platformAdmin = await createPlatformAdmin(app);
 
       const created = await request(app.getHttpServer())
         .post('/api/workspaces')
-        .set('Authorization', `Bearer ${founder.token}`)
-        .send({ name: 'Founded Co', slug: 'founded-co' })
+        .set('Authorization', `Bearer ${platformAdmin.token}`)
+        .send({
+          name: 'Founded Co',
+          slug: 'founded-co',
+          ownerEmail: founder.email,
+        })
         .expect(201);
       const createdWorkspaceId = (created.body as { id: string }).id;
 

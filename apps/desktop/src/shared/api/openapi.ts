@@ -396,6 +396,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/workspaces/{workspaceId}/owner': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['WorkspaceOwnerController_replace'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/workspaces/{workspaceId}/accounts': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['WorkspaceAccountsController_create'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/workspaces/{workspaceId}/invitations': {
     parameters: {
       query?: never;
@@ -1419,6 +1451,14 @@ export interface components {
       slug: string;
       description?: string;
       isActive?: boolean;
+      /**
+       * Format: email
+       * @description The email of the existing account that will own the workspace. It must be
+       *     an ordinary account: a platform account never belongs to a workspace
+       *     (`PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE`). An unknown email is
+       *     `RESOURCE_NOT_FOUND`. The creator does not become a member.
+       */
+      ownerEmail: string;
     };
     WorkspaceResponseDto: {
       id: string;
@@ -1482,6 +1522,37 @@ export interface components {
     ChangeMembershipRoleDto: {
       /** Format: uuid */
       roleId: string;
+    };
+    ReplaceWorkspaceOwnerDto: {
+      /**
+       * Format: email
+       * @description The email of the existing account that becomes the workspace's sole owner.
+       *     It must be an ordinary account (`PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE`).
+       *     Every current owner becomes `workspace_admin`.
+       */
+      email: string;
+    };
+    CreateWorkspaceAccountDto: {
+      /** @description At least 8 characters and at most 72 bytes in UTF-8 (a character such as ñ takes 2, an emoji 4), with a letter and a digit. */
+      password: string;
+      /**
+       * Format: uuid
+       * @description The workspace role the new account joins with. Bounded like adding a
+       *     member: at or below the creator's own rank, and only `workspace_staff`
+       *     without role-assignment authority (`ROLE_NOT_ASSIGNABLE`).
+       */
+      roleId: string;
+      /** Format: email */
+      email: string;
+      username?: string;
+      firstName: string;
+      middleName?: string;
+      lastName: string;
+      /** @enum {string} */
+      gender?: 'male' | 'female' | 'non_binary' | 'other' | 'prefer_not_to_say';
+      /** Format: date-time */
+      birthday?: string;
+      timezone?: string;
     };
     CreateWorkspaceInvitationDto: {
       /**
@@ -3412,6 +3483,84 @@ export interface operations {
         content?: never;
       };
       /** @description Authenticated, but no permission grants `transferOwnership` on `Workspace` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  WorkspaceOwnerController_replace: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ReplaceWorkspaceOwnerDto'];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceMembershipResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `transferOwnership` on `Workspace` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  WorkspaceAccountsController_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateWorkspaceAccountDto'];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceMembershipResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `createAccount` on `WorkspaceMembership` */
       403: {
         headers: {
           [name: string]: unknown;

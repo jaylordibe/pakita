@@ -16,8 +16,15 @@ import {
 // how the runtime app bootstraps via @nestjs/config + prisma.config.ts.
 expand(dotenv.config({ override: false }));
 
+type SeedPrefix =
+  | 'ADMIN'
+  | 'ENGINEER'
+  | 'TECHNICAL_SUPPORT'
+  | 'APP_SUPPORT'
+  | 'USER';
+
 function readSeedUser(
-  prefix: 'ADMIN' | 'USER',
+  prefix: SeedPrefix,
   firstName: string,
   lastName: string,
   platformRoles: readonly SeededRoleName[],
@@ -61,12 +68,32 @@ async function main(): Promise<void> {
   const admin = readSeedUser('ADMIN', 'Admin', 'User', [
     SeededRoleName.PLATFORM_ADMIN,
   ]);
-  // The ordinary seed user is for development; a church server seeds only
-  // its first administrator (deploy/create-admin.sh), so it is optional.
-  const user =
-    process.env.SEED_USER_EMAIL || process.env.SEED_USER_PASSWORD
-      ? readSeedUser('USER', 'Regular', 'User', [])
+  // Everyone below is for development, and optional: a church server seeds
+  // only its first administrator (deploy/create-admin.sh). One account per
+  // remaining platform role, each a separate person who never joins a church,
+  // and one ordinary account with no role at all.
+  const optional = (
+    prefix: SeedPrefix,
+    firstName: string,
+    lastName: string,
+    platformRoles: readonly SeededRoleName[],
+  ): SeedUser | null =>
+    process.env[`SEED_${prefix}_EMAIL`] ||
+    process.env[`SEED_${prefix}_PASSWORD`]
+      ? readSeedUser(prefix, firstName, lastName, platformRoles)
       : null;
+  const others = [
+    optional('ENGINEER', 'Platform', 'Engineer', [
+      SeededRoleName.PLATFORM_ENGINEER,
+    ]),
+    optional('TECHNICAL_SUPPORT', 'Technical', 'Support', [
+      SeededRoleName.PLATFORM_TECHNICAL_SUPPORT,
+    ]),
+    optional('APP_SUPPORT', 'App', 'Support', [
+      SeededRoleName.PLATFORM_APP_SUPPORT,
+    ]),
+    optional('USER', 'Regular', 'User', []),
+  ].filter((seedUser): seedUser is SeedUser => seedUser !== null);
 
   const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
   const prisma = new PrismaClient({ adapter });
@@ -76,7 +103,9 @@ async function main(): Promise<void> {
     await seedPermissions(prisma);
     await seedRoles(prisma);
     await upsertSeedUser(prisma, admin);
-    if (user) await upsertSeedUser(prisma, user);
+    for (const seedUser of others) {
+      await upsertSeedUser(prisma, seedUser);
+    }
   } finally {
     await prisma.$disconnect();
   }

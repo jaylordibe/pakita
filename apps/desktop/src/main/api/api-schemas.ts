@@ -147,6 +147,22 @@ export const issuedInvitationSchema: z.ZodType<
   token: z.string().min(1),
 });
 
+/** A membership, as creating a member's account returns it. */
+export const membershipSchema: z.ZodType<
+  Pick<Schemas['WorkspaceMembershipResponseDto'], 'id' | 'userId'> & {
+    user: Schemas['WorkspaceMembershipUserDto'];
+  }
+> = z.object({
+  id: z.string(),
+  userId: z.string(),
+  user: z.object({
+    id: z.string(),
+    email: z.string(),
+    firstName: z.string(),
+    lastName: z.string(),
+  }),
+});
+
 export const acceptedInvitationSchema: z.ZodType<
   Schemas['AcceptedInvitationResponseDto']
 > = z.object({ workspaceId: z.string(), membershipId: z.string() });

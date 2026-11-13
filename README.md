@@ -96,8 +96,14 @@ that church. These are the sample church's, all with the password
 
 | Platform role | Email | Password | What it is for |
 |---|---|---|---|
-| Platform admin | `admin@example.com` | `admin-local-dev-1` | Server staff: imports and publishes Bibles for every church, administers users and churches |
-| None | `user@example.com` | `user-local-dev-1` | An account with no church yet: try creating a church from scratch |
+| Platform admin | `admin@example.com` | `admin-local-dev-1` | Server staff, on the Server screen: creates accounts, creates churches and names their owners, imports and publishes Bibles for every church |
+| Platform engineer | `engineer@example.com` | `engineer-local-dev-1` | Server staff: diagnostics and background jobs, in the API |
+| Platform technical support | `tech-support@example.com` | `tech-support-local-dev-1` | Server staff: incident investigation and retries, in the API |
+| Platform app support | `app-support@example.com` | `app-support-local-dev-1` | Server staff: account status and signing accounts out, in the API |
+| None | `user@example.com` | `user-local-dev-1` | An account with no church yet: join one with an invitation code |
+
+Platform accounts never join a church; someone who is both uses two accounts.
+In the desktop app they land on the **Server** screen instead of a church.
 
 To try a service, sign in as the **staff** or **manager** account.
 
@@ -118,8 +124,10 @@ Then walk through a Sunday as the media team would:
 6. Stop the API and present again: everything still works offline.
 
 Managers and above also add songs and build playlists; staff see the same
-library but cannot change it. Importing a full Bible from USFM files
-(eBible.org downloads work) is the platform admin's job.
+library but cannot change it. The owner and admins also bring people in:
+they invite existing accounts, or create accounts that arrive already in the
+church. Importing a full Bible from USFM files (eBible.org downloads work) is
+the platform admin's job, on the Server screen.
 
 Tests, lint and the other commands, and which of them each change must
 pass, are listed in each app's `AGENTS.md`:

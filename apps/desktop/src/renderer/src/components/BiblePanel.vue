@@ -13,7 +13,6 @@ import { formatReference } from '../../../shared/slides';
 import { messageOf } from '../errors';
 import AddToPlaylist from './AddToPlaylist.vue';
 import AppIcon from './AppIcon.vue';
-import BibleImport from './BibleImport.vue';
 
 const translations = ref<BibleTranslation[]>([]);
 const translationId = ref<string | null>(null);
@@ -26,9 +25,6 @@ const start = ref<number | null>(null);
 const end = ref<number | null>(null);
 const search = ref('');
 const results = ref<BibleSearchHit[]>([]);
-const isImportShown = ref(false);
-// Only the platform administrator may import; nobody else is offered it.
-const canImport = ref(false);
 const errorMessage = ref<string | null>(null);
 
 const book = computed(
@@ -142,37 +138,6 @@ async function goLive(): Promise<void> {
   }
 }
 
-const importedNotice = ref<string | null>(null);
-const existingCodes = computed(() =>
-  translations.value.map((translation) => translation.code),
-);
-
-// Each opening starts a fresh form, even over one already open.
-const importFormKey = ref(0);
-const isImportRunning = ref(false);
-
-function openImport(): void {
-  importedNotice.value = null;
-  importFormKey.value += 1;
-  isImportShown.value = true;
-}
-
-async function onImported(imported: {
-  code: string;
-  name: string;
-}): Promise<void> {
-  isImportShown.value = false;
-  isImportRunning.value = false;
-  await loadTranslations();
-  const added = translations.value.find(
-    (translation) => translation.code === imported.code,
-  );
-  if (added) translationId.value = added.id;
-  importedNotice.value = added
-    ? `${added.name} is imported and published: ${added.verseCount.toLocaleString()} verses. Everyone in this church receives it when their laptop next synchronises.`
-    : `${imported.name} is imported and published. It appears here once this laptop has synchronised.`;
-}
-
 watch(translationId, async () => {
   await loadBooks();
   await loadChapter();
@@ -202,9 +167,6 @@ onMounted(async () => {
     if (status.state === 'idle') void loadTranslations();
   });
   await loadTranslations();
-  canImport.value = (
-    await window.pakita.account.getCapabilities()
-  ).canImportBibles;
 });
 onUnmounted(() => unsubscribe?.());
 </script>
@@ -215,22 +177,6 @@ onUnmounted(() => unsubscribe?.());
       <div class="panel-head">
         <h1>Bible</h1>
       </div>
-      <p
-        v-if="importedNotice"
-        class="imported"
-        role="status"
-        data-testid="bible-imported"
-      >
-        <AppIcon name="check" class="imported-icon" />
-        <span class="grow">{{ importedNotice }}</span>
-        <button
-          class="ghost sm"
-          aria-label="Dismiss"
-          @click="importedNotice = null"
-        >
-          <AppIcon name="x" />
-        </button>
-      </p>
       <select
         v-model="translationId"
         aria-label="Translation"
@@ -297,28 +243,10 @@ onUnmounted(() => unsubscribe?.());
           </button>
         </li>
       </ul>
-      <button
-        v-if="canImport"
-        class="import-open"
-        data-testid="bible-import-open"
-        :disabled="isImportRunning"
-        @click="openImport"
-      >
-        <AppIcon name="upload" />
-        Import a translation…
-      </button>
     </aside>
 
     <main class="panel-content">
-      <BibleImport
-        v-if="isImportShown && canImport"
-        :key="importFormKey"
-        :existing-codes="existingCodes"
-        @importing="isImportRunning = $event"
-        @imported="onImported"
-        @close="isImportShown = false"
-      />
-      <template v-else-if="translations.length > 0">
+      <template v-if="translations.length > 0">
         <div class="page-head">
           <div class="titles">
             <h2>
@@ -375,35 +303,6 @@ onUnmounted(() => unsubscribe?.());
 </template>
 
 <style scoped>
-.imported {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0.6rem 0.4rem 0.6rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
-  border-radius: var(--radius);
-  background: var(--success-soft);
-  font-size: 0.82rem;
-  line-height: 1.45;
-}
-
-.imported-icon {
-  margin-top: 0.15rem;
-  color: var(--success);
-}
-
-.import-open {
-  border-style: dashed;
-  background: transparent;
-  color: var(--text-muted);
-}
-
-.import-open:hover:not(:disabled) {
-  border-style: dashed;
-  color: var(--text);
-}
-
 .reference {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 4.75rem;

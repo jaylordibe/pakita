@@ -68,7 +68,15 @@ const pakita: PakitaApi = {
   workspaces: {
     list: () => invoke(IpcChannel.workspacesList),
     select: (workspaceId) => invoke(IpcChannel.workspaceSelect, workspaceId),
-    create: (name) => invoke(IpcChannel.workspacesCreate, name),
+    create: (input) => invoke(IpcChannel.workspacesCreate, input),
+    rename: (workspaceId, name) =>
+      invoke(IpcChannel.workspacesRename, { workspaceId, name }),
+    delete: (workspaceId) => invoke(IpcChannel.workspacesDelete, workspaceId),
+    replaceOwner: (workspaceId, email) =>
+      invoke(IpcChannel.workspacesReplaceOwner, { workspaceId, email }),
+  },
+  members: {
+    createAccount: (input) => invoke(IpcChannel.membersCreateAccount, input),
   },
   sync: {
     now: () => invoke(IpcChannel.syncNow),
@@ -98,6 +106,8 @@ const pakita: PakitaApi = {
       invoke(IpcChannel.bibleSearch, { translationId, search }),
     chooseImportFolder: () => invoke(IpcChannel.bibleChooseImportFolder),
     import: (input) => invoke(IpcChannel.bibleImport, input),
+    listServerTranslations: () =>
+      invoke(IpcChannel.bibleListServerTranslations),
     onImportProgress: (listener) =>
       subscribe(IpcEvent.bibleImportProgress, listener),
   },

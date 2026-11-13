@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Creates the server's first administrator (or gives an existing account the
-# administrator role). Asks for the email and password; neither is stored or
-# printed. Run once after install.sh.
+# administrator role, unless it belongs to a church: staff never do). Asks for
+# the email and password; neither is stored or printed. Run once after
+# install.sh.
 source "$(dirname "$0")/lib.sh"
 
 require_docker
@@ -18,4 +19,4 @@ echo
 SEED_ADMIN_EMAIL="$email" SEED_ADMIN_PASSWORD="$password" \
   compose run --rm --no-deps -e SEED_ADMIN_EMAIL -e SEED_ADMIN_PASSWORD \
   migrate pnpm prisma:seed
-echo "Done. Sign in with that email in the desktop app, then create your church."
+echo "Done. Sign in with that email in the desktop app; on the Server screen, create your church's owner under People, then the church under Churches."

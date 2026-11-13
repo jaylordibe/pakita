@@ -568,7 +568,7 @@ describe('Ownership promotion races (e2e)', () => {
 
       // A deactivated owner cannot authenticate, so the workspace would be as
       // stranded as if the account had been deleted. A platform admin is not
-      // exempt: `manage all` bypasses authorization, not data integrity.
+      // exempt: their authority is authorization, not data integrity.
       const refused = await request(app.getHttpServer())
         .patch(`/api/users/${owner.id}`)
         .set('Authorization', `Bearer ${admin.token}`)

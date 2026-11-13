@@ -37,7 +37,8 @@ describe('AbilityFactory', () => {
       expect(ability.can('read', taggedSubject('User', { id: USER_ID }))).toBe(
         true,
       );
-      expect(ability.can('create', 'Workspace')).toBe(true);
+      // Starting a workspace is the platform admin's alone, never intrinsic.
+      expect(ability.can('create', 'Workspace')).toBe(false);
       expect(ability.can('read', 'Role')).toBe(true);
     });
 

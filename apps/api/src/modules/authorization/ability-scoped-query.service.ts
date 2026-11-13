@@ -37,7 +37,8 @@ export interface WhereInputBySubject {
 
 export type ScopableSubject = keyof WhereInputBySubject;
 
-// An `accessibleBy` fragment is either `{}` (unrestricted — `manage all`) or
+// An `accessibleBy` fragment is either `{}` (unrestricted — an unconditional
+// platform rule, such as the staff's `read any workspace`) or
 // `{ OR: [...] }`. Typed loosely because CASL builds it dynamically.
 interface AccessibleFragment {
   OR?: unknown[];

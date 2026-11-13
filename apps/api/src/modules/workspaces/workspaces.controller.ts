@@ -30,9 +30,9 @@ import { UpdateWorkspaceDto } from './dto/update-workspace.dto';
 export class WorkspacesController {
   constructor(private readonly workspacesService: WorkspacesService) {}
 
-  // Any authenticated caller may start a workspace — `create Workspace` is one of
-  // the intrinsic AUTHENTICATED_USER_PERMISSIONS. The creator becomes its
-  // WORKSPACE_OWNER in the same transaction.
+  // Only the platform admin starts a workspace, naming its owner (`ownerEmail`),
+  // who becomes WORKSPACE_OWNER in the same transaction. The admin does not
+  // become a member.
   @Post()
   @RequirePermission('create', 'Workspace')
   @ApiCreatedResponse({ type: WorkspaceResponseDto })

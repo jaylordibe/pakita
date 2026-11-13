@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 import type {
+  AccountCapabilities,
   AppState,
   AvailableUpdate,
   LiveState,
@@ -13,6 +14,7 @@ import LivePanel from './components/LivePanel.vue';
 import ChangePasswordView from './views/ChangePasswordView.vue';
 import ConnectView from './views/ConnectView.vue';
 import MainView from './views/MainView.vue';
+import ServerView from './views/ServerView.vue';
 import SignInView from './views/SignInView.vue';
 import WorkspaceView from './views/WorkspaceView.vue';
 
@@ -22,9 +24,13 @@ type Screen =
   | 'sign-in'
   | 'change-password'
   | 'workspace'
-  | 'main';
+  | 'main'
+  | 'server';
 
 const state = ref<AppState | null>(null);
+// What the signed-in person may do; asked of the server after each sign-in.
+// Null offline or signed out.
+const capabilities = ref<AccountCapabilities | null>(null);
 const screen = ref<Screen>('loading');
 const isChangingServer = ref(false);
 // The operator asked for the church list ("Change church"): show it even
@@ -50,6 +56,10 @@ function screenFor(appState: AppState): Screen {
   // until the person picks their own.
   if (appState.account.isSignedIn && appState.account.isPasswordChangeRequired)
     return 'change-password';
+  // The server's staff never belong to a church: they get the Server screen,
+  // never the church list.
+  if (appState.account.isSignedIn && capabilities.value?.isPlatformAccount)
+    return 'server';
   if (!appState.workspaceId) {
     // Choosing a workspace needs the server, and so a live session.
     return appState.account.isSignedIn ? 'workspace' : 'sign-in';
@@ -86,6 +96,11 @@ async function onChurchSelected(): Promise<void> {
 
 async function refresh(): Promise<void> {
   state.value = await window.pakita.app.getState();
+  const account = state.value.account;
+  capabilities.value =
+    account?.isSignedIn && !account.isPasswordChangeRequired
+      ? await window.pakita.account.getCapabilities()
+      : null;
   screen.value = screenFor(state.value);
 }
 
@@ -168,6 +183,12 @@ onUnmounted(() => {
         :opens-only-church="!isChurchListRequested"
         @selected="onChurchSelected"
         @back="backToLibrary"
+      />
+      <ServerView
+        v-else-if="screen === 'server' && state?.account && capabilities"
+        :account="state.account"
+        :capabilities="capabilities"
+        @signed-out="refresh"
       />
       <MainView
         v-else-if="screen === 'main' && state?.account"

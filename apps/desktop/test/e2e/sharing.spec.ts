@@ -25,10 +25,17 @@ let branchId: string;
 
 test.beforeAll(async () => {
   api = await startTestApi();
-  const branch = await api.request<{ id: string }>('POST', '/api/workspaces', {
-    name: 'Grace Church North',
-    slug: `grace-north-${process.pid}`,
-  });
+  // Only the administrator starts a church; the owner of the first owns this
+  // one too.
+  const branch = await api.adminRequest<{ id: string }>(
+    'POST',
+    '/api/workspaces',
+    {
+      name: 'Grace Church North',
+      slug: `grace-north-${process.pid}`,
+      ownerEmail: api.owner.identifier,
+    },
+  );
   branchId = branch.id;
   await api.request('POST', `/api/workspaces/${api.workspace.id}/songs`, {
     title: 'Amazing Grace',
@@ -96,19 +103,12 @@ test('downloads everything again: the library stays, and a stray copy goes', asy
   );
 });
 
-test('creates a new church and opens it', async () => {
+test('the church list offers no way to start a church', async () => {
+  // Starting a church is the server administrator's, on the Server screen.
   await operator.getByRole('button', { name: 'Change church' }).click();
-  await operator.getByTestId('workspace-new-name').fill('Grace Church South');
-  await operator.getByTestId('workspace-create').click();
-  await expect(operator.getByTestId('sync-status')).toContainText(
-    'Synchronised',
-  );
-  await expect(operator.getByText('No songs yet.')).toBeVisible();
-  const workspaces = await api.request<{ data: Array<{ slug: string }> }>(
-    'GET',
-    '/api/workspaces?perPage=100',
-  );
-  expect(workspaces.data.map((workspace) => workspace.slug)).toContain(
-    'grace-church-south',
-  );
+  await expect(
+    operator.getByTestId(`workspace-${api.workspace.slug}`),
+  ).toBeVisible();
+  await expect(operator.getByTestId('workspace-create')).toHaveCount(0);
+  await expect(operator.getByTestId('invitation-code')).toBeVisible();
 });

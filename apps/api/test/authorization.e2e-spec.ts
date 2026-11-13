@@ -39,11 +39,13 @@ describe('Authorization (e2e)', () => {
     return response.body as PermissionsBody;
   };
 
+  // Only the platform admin creates a workspace, naming its owner.
   const createWorkspace = async (owner: SeededUser, slug: string) => {
+    const admin = await createPlatformAdmin(app, `admin-${slug}@example.com`);
     const response = await request(app.getHttpServer())
       .post('/api/workspaces')
-      .set('Authorization', `Bearer ${owner.token}`)
-      .send({ name: slug, slug })
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ name: slug, slug, ownerEmail: owner.email })
       .expect(201);
     return (response.body as { id: string }).id;
   };
@@ -85,7 +87,7 @@ describe('Authorization (e2e)', () => {
     expect(body.workspaceMemberships).toEqual([]);
   });
 
-  it('reports workspace memberships after creating a workspace', async () => {
+  it('reports workspace memberships once the account owns a workspace', async () => {
     const owner = await createRegularUser(app, 'owner@example.com');
     const workspaceId = await createWorkspace(owner, 'acme');
     const body = await fetchPermissions(owner);
@@ -153,17 +155,33 @@ describe('Authorization (e2e)', () => {
     ).toBe(false);
   });
 
-  it('a platform admin’s rebuilt ability is unrestricted', async () => {
+  it('a platform admin’s rebuilt ability governs workspaces but not their content', async () => {
     const admin = await createPlatformAdmin(app);
     const body = await fetchPermissions(admin);
     const clientAbility = createMongoAbility(
       unpackRules(body.rules as never) as never,
     );
+    // A fresh object per check: CASL tags an object with one subject type.
+    const anyWorkspace = () => ({ workspaceId: 'anything' });
 
-    expect(clientAbility.can('manage', 'all')).toBe(true);
+    expect(clientAbility.can('manage', 'all')).toBe(false);
     expect(
       clientAbility.can('delete', subject('Workspace', { id: 'anything' })),
     ).toBe(true);
+    expect(clientAbility.can('create', 'Workspace')).toBe(true);
+    expect(clientAbility.can('create', 'User')).toBe(true);
+    expect(clientAbility.can('create', 'BibleTranslation')).toBe(true);
+    for (const contentSubject of ['Song', 'Theme', 'Playlist'] as const) {
+      expect(
+        clientAbility.can('read', subject(contentSubject, anyWorkspace())),
+      ).toBe(false);
+    }
+    expect(
+      clientAbility.can(
+        'create',
+        subject('WorkspaceInvitation', anyWorkspace()),
+      ),
+    ).toBe(false);
   });
 
   // ── the seeded roles, against representative endpoints ──────────────────

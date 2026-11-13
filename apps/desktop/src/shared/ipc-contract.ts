@@ -34,6 +34,10 @@ export const IpcChannel = {
   workspacesList: 'workspaces:list',
   workspaceSelect: 'workspace:select',
   workspacesCreate: 'workspaces:create',
+  workspacesRename: 'workspaces:rename',
+  workspacesDelete: 'workspaces:delete',
+  workspacesReplaceOwner: 'workspaces:replace-owner',
+  membersCreateAccount: 'members:create-account',
   syncNow: 'sync:now',
   syncGetStatus: 'sync:get-status',
   syncRebuild: 'sync:rebuild',
@@ -50,6 +54,7 @@ export const IpcChannel = {
   bibleSearch: 'bible:search',
   bibleChooseImportFolder: 'bible:choose-import-folder',
   bibleImport: 'bible:import',
+  bibleListServerTranslations: 'bible:list-server-translations',
   themesList: 'themes:list',
   themesGet: 'themes:get',
   themesCreate: 'themes:create',
@@ -118,12 +123,21 @@ export interface AccountSummary {
  * offline or signed out: each needs the server.
  */
 export interface AccountCapabilities {
+  /**
+   * The server's staff (a platform role): runs the server and never belongs
+   * to a church, so the app opens the Server screen instead of a church.
+   */
+  readonly isPlatformAccount: boolean;
   /** Import a Bible translation (the platform administrator). */
   readonly canImportBibles: boolean;
   /** Create accounts and set their passwords (the platform administrator). */
   readonly canManageAccounts: boolean;
+  /** Create, rename and delete churches, and name their owners (the platform administrator). */
+  readonly canManageChurches: boolean;
   /** Invite people to the open church. */
   readonly canInviteMembers: boolean;
+  /** Create accounts for new people who join the open church (its owner and admins). */
+  readonly canCreateMemberAccounts: boolean;
 }
 
 /** An account on the church server, as an administrator sees it. */
@@ -142,6 +156,26 @@ export interface NewAccountInput {
   readonly username: string | null;
   readonly firstName: string;
   readonly lastName: string;
+}
+
+/** A new person's account, created by the open church's owner or admins. */
+export interface NewMemberAccountInput extends NewAccountInput {
+  /** The role they join the church with. */
+  readonly roleId: string;
+}
+
+/** A new church and the existing account that will own it. */
+export interface NewChurchInput {
+  readonly name: string;
+  readonly ownerEmail: string;
+}
+
+/** A Bible translation published on the server. */
+export interface ServerBibleTranslation {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly languageCode: string;
 }
 
 /**
@@ -433,10 +467,21 @@ export interface PakitaApi {
     accept(code: string): Promise<string>;
   };
   readonly workspaces: {
+    /** The person's churches; every church, for the server's staff. */
     list(): Promise<WorkspaceSummary[]>;
     select(workspaceId: string): Promise<void>;
-    /** Creates a church (workspace) the person then owns. */
-    create(name: string): Promise<WorkspaceSummary>;
+    /** Creates a church owned by an existing account (the platform administrator). */
+    create(input: NewChurchInput): Promise<WorkspaceSummary>;
+    rename(workspaceId: string, name: string): Promise<WorkspaceSummary>;
+    /** Deletes a church for everyone (the platform administrator). */
+    delete(workspaceId: string): Promise<void>;
+    /** Makes an existing account the church's sole owner; former owners become admins. */
+    replaceOwner(workspaceId: string, email: string): Promise<void>;
+  };
+  /** The open church's people. */
+  readonly members: {
+    /** Creates an account that joins the open church, with a one-time password. */
+    createAccount(input: NewMemberAccountInput): Promise<IssuedPassword>;
   };
   readonly sync: {
     now(): Promise<SyncStatus>;
@@ -468,6 +513,8 @@ export interface PakitaApi {
     chooseImportFolder(): Promise<BibleImportPreview | null>;
     /** Imports and publishes the chosen folder, then synchronises. */
     import(input: BibleTranslationInput): Promise<void>;
+    /** The translations published on the server (online). */
+    listServerTranslations(): Promise<ServerBibleTranslation[]>;
     onImportProgress(
       listener: (progress: BibleImportProgress) => void,
     ): () => void;

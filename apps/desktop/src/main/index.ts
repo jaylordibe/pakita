@@ -78,6 +78,12 @@ const newAccountInputSchema = z
       .max(newAccountLimits.lastName.maxLength),
   })
   .strict();
+const churchNameLimits = apiConstraints.CreateWorkspaceDto.name;
+const churchName = z
+  .string()
+  .trim()
+  .min(churchNameLimits.minLength)
+  .max(churchNameLimits.maxLength);
 const invitationLimits = apiConstraints.CreateWorkspaceInvitationDto;
 const invitationCodeLimits = apiConstraints.AcceptWorkspaceInvitationDto.token;
 const songInputSchema = z
@@ -311,8 +317,27 @@ async function start(): Promise<void> {
   );
   handle(
     IpcChannel.workspacesCreate,
-    z.string().trim().min(2).max(120),
-    (name) => controller.createWorkspace(name),
+    z.object({ name: churchName, ownerEmail: z.email().max(254) }).strict(),
+    (input) => controller.createWorkspace(input),
+  );
+  handle(
+    IpcChannel.workspacesRename,
+    z.object({ workspaceId: uuid, name: churchName }).strict(),
+    ({ workspaceId, name }) => controller.renameWorkspace(workspaceId, name),
+  );
+  handle(IpcChannel.workspacesDelete, uuid, (workspaceId) =>
+    controller.deleteWorkspace(workspaceId),
+  );
+  handle(
+    IpcChannel.workspacesReplaceOwner,
+    z.object({ workspaceId: uuid, email: z.email().max(254) }).strict(),
+    ({ workspaceId, email }) =>
+      controller.replaceWorkspaceOwner(workspaceId, email),
+  );
+  handle(
+    IpcChannel.membersCreateAccount,
+    newAccountInputSchema.extend({ roleId: uuid }).strict(),
+    (input) => controller.createMemberAccount(input),
   );
   handle(IpcChannel.syncNow, noPayload, () => controller.syncNow());
   handle(IpcChannel.syncGetStatus, noPayload, () => controller.getSyncStatus());
@@ -370,6 +395,9 @@ async function start(): Promise<void> {
   );
   handle(IpcChannel.bibleImport, bibleTranslationInputSchema, (input) =>
     controller.importBible(input),
+  );
+  handle(IpcChannel.bibleListServerTranslations, noPayload, () =>
+    controller.listServerBibleTranslations(),
   );
   handle(IpcChannel.themesList, noPayload, () => controller.listThemes());
   handle(IpcChannel.themesGet, uuid, (themeId) => controller.getTheme(themeId));

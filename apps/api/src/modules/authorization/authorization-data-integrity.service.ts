@@ -4,6 +4,7 @@ import { WorkspaceInvitationStatus } from '../../common/enums/workspace-invitati
 import { WorkspaceMembershipStatus } from '../../common/enums/workspace-membership-status.enum';
 import { RoleScope } from '../../common/enums/role-scope.enum';
 import { PrismaService } from '../../prisma/prisma.service';
+import { HELD_MEMBERSHIP_OF_LIVE_WORKSPACE } from './platform-account.policy';
 
 /** One class of corruption, with enough detail to act on and no personal data. */
 export interface AuthorizationDataDefect {
@@ -11,6 +12,7 @@ export interface AuthorizationDataDefect {
     | 'workspace_role_assigned_platform_wide'
     | 'platform_role_in_membership'
     | 'platform_role_in_invitation'
+    | 'platform_account_holds_membership'
     | 'unknown_membership_status'
     | 'unknown_invitation_status';
   /** How many rows are affected. Never which users. */
@@ -84,6 +86,7 @@ export class AuthorizationDataIntegrityService implements OnApplicationBootstrap
       workspaceRolesHeldPlatformWide,
       platformRolesInMemberships,
       platformRolesInInvitations,
+      platformRolesOfMembers,
       membershipStatuses,
       invitationStatuses,
     ] = await Promise.all([
@@ -100,6 +103,16 @@ export class AuthorizationDataIntegrityService implements OnApplicationBootstrap
       this.prisma.workspaceInvitation.groupBy({
         by: ['roleId'],
         where: { role: { scope: RoleScope.PLATFORM } },
+        _count: { _all: true },
+      }),
+      // Platform accounts never belong to a workspace (`PlatformAccountPolicy`).
+      // Grouped by the platform role held, so the diagnostic names roles, not
+      // people.
+      this.prisma.userRole.groupBy({
+        by: ['roleId'],
+        where: {
+          user: { memberships: { some: HELD_MEMBERSHIP_OF_LIVE_WORKSPACE } },
+        },
         _count: { _all: true },
       }),
       this.prisma.workspaceMembership.groupBy({
@@ -133,6 +146,11 @@ export class AuthorizationDataIntegrityService implements OnApplicationBootstrap
       defects,
       'platform_role_in_invitation',
       platformRolesInInvitations,
+    );
+    await this.collectRoleDefect(
+      defects,
+      'platform_account_holds_membership',
+      platformRolesOfMembers,
     );
     collectStatusDefect(
       defects,
@@ -194,6 +212,8 @@ const DEFECT_DESCRIPTIONS: Record<AuthorizationDataDefect['kind'], string> = {
     'PLATFORM-scoped role(s) attached to a workspace membership',
   platform_role_in_invitation:
     'PLATFORM-scoped role(s) attached to a workspace invitation',
+  platform_account_holds_membership:
+    'platform role assignment(s) on accounts that also hold an active or suspended workspace membership',
   unknown_membership_status:
     'workspace membership(s) carrying a status outside `WorkspaceMembershipStatus`',
   unknown_invitation_status:

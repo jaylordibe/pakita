@@ -20,8 +20,11 @@ import { toSnakeCase } from '../util/string-case.util';
 // ─────────────────────────────────────────────────────────────────────────
 
 // `manage` is CASL's wildcard: it matches every other action on the subject,
-// including ones added later. It is granted to exactly ONE role in this file
-// (PLATFORM_ADMIN, as `manage all`) and nowhere else.
+// including ones added later. It is granted only on subjects whose every verb
+// belongs together (app versions, device tokens), and never on `all`: no role
+// holds `manage all`, the platform admin included. Platform accounts run the
+// server and never see a church's content, so the admin's authority is listed
+// verb by verb like every other role's (`permission-catalog.spec.ts` asserts it).
 //
 // Every action below `delete` exists because `manage` would otherwise swallow
 // it. That is the whole reason the list is this long: `manage
@@ -60,6 +63,10 @@ export const AUTHORIZATION_ACTIONS = [
   'readPayload',
   // Signing an account out everywhere.
   'revokeSession',
+  // Creating an account that joins the workspace in the same step. Separate
+  // from `create WorkspaceMembership` (adding an EXISTING account), because
+  // choosing someone's first password is a stronger act than adding them.
+  'createAccount',
 ] as const;
 export type AuthorizationAction = (typeof AUTHORIZATION_ACTIONS)[number];
 
@@ -151,12 +158,6 @@ const workspace = (
 const { OWN, ANY } = PermissionOwnership;
 
 // ── Platform scope: governance ───────────────────────────────────────────
-const MANAGE_EVERYTHING = platform(
-  'manage',
-  'all',
-  ANY,
-  'Unrestricted control over every resource on the platform',
-);
 const READ_ANY_USER = platform('read', 'User', ANY, 'View any user account');
 const CREATE_ANY_USER = platform('create', 'User', ANY, 'Create user accounts');
 const UPDATE_ANY_USER = platform(
@@ -200,6 +201,32 @@ const READ_ANY_WORKSPACE = platform(
   'Workspace',
   ANY,
   'View any workspace on the platform',
+);
+// The workspace RECORD only — its name, its owner. A platform account never
+// holds a membership, so none of these reaches a workspace's content.
+const CREATE_ANY_WORKSPACE = platform(
+  'create',
+  'Workspace',
+  ANY,
+  'Create a workspace and name its owner',
+);
+const UPDATE_ANY_WORKSPACE = platform(
+  'update',
+  'Workspace',
+  ANY,
+  "Edit any workspace's profile",
+);
+const DELETE_ANY_WORKSPACE = platform(
+  'delete',
+  'Workspace',
+  ANY,
+  'Delete any workspace',
+);
+const TRANSFER_ANY_WORKSPACE_OWNERSHIP = platform(
+  'transferOwnership',
+  'Workspace',
+  ANY,
+  "Replace any workspace's owner",
 );
 const MANAGE_ANY_APP_VERSION = platform(
   'manage',
@@ -255,12 +282,6 @@ const READ_PERMISSION = platform(
   'Permission',
   ANY,
   'List the permissions a role grants',
-);
-const CREATE_WORKSPACE = platform(
-  'create',
-  'Workspace',
-  ANY,
-  'Create a new workspace (the creator becomes its owner)',
 );
 
 // ── Platform scope: cross-tenant investigation ───────────────────────────
@@ -360,6 +381,11 @@ const SUSPEND_WORKSPACE_MEMBERSHIP = workspace(
   'WorkspaceMembership',
   "Suspend or reactivate a member's access without ending the membership",
 );
+const CREATE_ACCOUNT_WORKSPACE_MEMBERSHIP = workspace(
+  'createAccount',
+  'WorkspaceMembership',
+  'Create an account for a new person, who joins the workspace (bounded by the rank guard)',
+);
 
 const READ_WORKSPACE_INVITATION = workspace(
   'read',
@@ -379,13 +405,25 @@ const DELETE_WORKSPACE_INVITATION = workspace(
 
 // ── Platform scope: Bible translations ───────────────────────────────────
 // Shared by the whole installation (a church's licence covers its branches),
-// so every signed-in person reads them. Importing and deleting one is an
-// administrator's job: the platform admin's `manage all` covers it.
+// so every signed-in person reads them. Importing and deleting one is the
+// platform admin's job.
 const READ_BIBLE_TRANSLATION = platform(
   'read',
   'BibleTranslation',
   ANY,
   'View and download the installation’s published Bible translations',
+);
+const CREATE_BIBLE_TRANSLATION = platform(
+  'create',
+  'BibleTranslation',
+  ANY,
+  'Import a Bible translation for the whole installation',
+);
+const DELETE_BIBLE_TRANSLATION = platform(
+  'delete',
+  'BibleTranslation',
+  ANY,
+  'Delete a Bible translation from the installation',
 );
 
 // ── Workspace scope: worship content ─────────────────────────────────────
@@ -433,7 +471,6 @@ const UPDATE_PLAYLIST = workspace(
 const DELETE_PLAYLIST = workspace('delete', 'Playlist', 'Delete playlists');
 
 export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
-  MANAGE_EVERYTHING,
   READ_ANY_USER,
   CREATE_ANY_USER,
   UPDATE_ANY_USER,
@@ -443,6 +480,10 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   MANAGE_ANY_DEVICE_TOKEN,
   READ_ANY_AUDIT_LOG,
   READ_ANY_WORKSPACE,
+  CREATE_ANY_WORKSPACE,
+  UPDATE_ANY_WORKSPACE,
+  DELETE_ANY_WORKSPACE,
+  TRANSFER_ANY_WORKSPACE_OWNERSHIP,
   MANAGE_ANY_APP_VERSION,
   REVOKE_ANY_USER_SESSION,
   READ_ANY_QUEUE_JOB,
@@ -451,7 +492,6 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   CANCEL_ANY_QUEUE_JOB,
   READ_ROLE,
   READ_PERMISSION,
-  CREATE_WORKSPACE,
   READ_ANY_WORKSPACE_MEMBERSHIP,
   READ_ANY_WORKSPACE_INVITATION,
   READ_OWN_USER,
@@ -469,6 +509,7 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   DELETE_WORKSPACE_MEMBERSHIP,
   ASSIGN_ROLE_WORKSPACE_MEMBERSHIP,
   SUSPEND_WORKSPACE_MEMBERSHIP,
+  CREATE_ACCOUNT_WORKSPACE_MEMBERSHIP,
   READ_WORKSPACE_INVITATION,
   CREATE_WORKSPACE_INVITATION,
   DELETE_WORKSPACE_INVITATION,
@@ -485,6 +526,8 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   UPDATE_PLAYLIST,
   DELETE_PLAYLIST,
   READ_BIBLE_TRANSLATION,
+  CREATE_BIBLE_TRANSLATION,
+  DELETE_BIBLE_TRANSLATION,
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -508,9 +551,8 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
 //
 // NOTHING TENANT-SCOPED BELONGS HERE. Every entry is ownership-scoped to the
 // caller's own id, or is a read of the shared role/permission vocabulary.
-// `CREATE_WORKSPACE` is the one judgement call: this template lets anyone start
-// a workspace. A project that gates workspace creation removes that line, and
-// grants it to a platform role instead.
+// Creating a workspace is NOT here: on a Pakita server only the platform admin
+// starts a church, naming its owner (`CREATE_ANY_WORKSPACE`).
 // ─────────────────────────────────────────────────────────────────────────
 export const AUTHENTICATED_USER_PERMISSIONS: readonly PermissionDefinition[] = [
   READ_OWN_USER,
@@ -518,7 +560,6 @@ export const AUTHENTICATED_USER_PERMISSIONS: readonly PermissionDefinition[] = [
   DELETE_OWN_USER,
   MANAGE_OWN_DEVICE_TOKEN,
   READ_OWN_WORKSPACE_MEMBERSHIP,
-  CREATE_WORKSPACE,
   // Needed to pick a `roleId` when inviting someone to a workspace.
   READ_ROLE,
   READ_PERMISSION,
@@ -544,9 +585,39 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
   [SeededRoleName.PLATFORM_ADMIN]: {
     scope: RoleScope.PLATFORM,
     rank: 100,
+    // Every verb named, and nothing inside a workspace: no songs, themes or
+    // playlists, and no roster or invitation writes. A platform account never
+    // belongs to a church; its owner and admins run it. What the admin keeps
+    // over a workspace is its record — create it naming an owner, rename it,
+    // replace its owner, delete it — and the read-only roster view every
+    // platform role has for "who belongs where".
     description:
-      'Platform governance: access control, user and workspace administration, audit',
-    permissions: [MANAGE_EVERYTHING],
+      'Platform governance: accounts, platform roles, workspaces and their owners, Bible translations, audit',
+    permissions: [
+      READ_ANY_USER,
+      CREATE_ANY_USER,
+      UPDATE_ANY_USER,
+      DELETE_ANY_USER,
+      RESET_ANY_USER_PASSWORD,
+      ASSIGN_PLATFORM_ROLE,
+      REVOKE_ANY_USER_SESSION,
+      MANAGE_ANY_DEVICE_TOKEN,
+      READ_ANY_AUDIT_LOG,
+      MANAGE_ANY_APP_VERSION,
+      READ_ANY_QUEUE_JOB,
+      READ_ANY_QUEUE_JOB_PAYLOAD,
+      RETRY_ANY_QUEUE_JOB,
+      CANCEL_ANY_QUEUE_JOB,
+      READ_ANY_WORKSPACE,
+      CREATE_ANY_WORKSPACE,
+      UPDATE_ANY_WORKSPACE,
+      DELETE_ANY_WORKSPACE,
+      TRANSFER_ANY_WORKSPACE_OWNERSHIP,
+      READ_ANY_WORKSPACE_MEMBERSHIP,
+      READ_ANY_WORKSPACE_INVITATION,
+      CREATE_BIBLE_TRANSLATION,
+      DELETE_BIBLE_TRANSLATION,
+    ],
   },
   [SeededRoleName.PLATFORM_ENGINEER]: {
     scope: RoleScope.PLATFORM,
@@ -649,6 +720,7 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       DELETE_WORKSPACE_MEMBERSHIP,
       ASSIGN_ROLE_WORKSPACE_MEMBERSHIP,
       SUSPEND_WORKSPACE_MEMBERSHIP,
+      CREATE_ACCOUNT_WORKSPACE_MEMBERSHIP,
       READ_WORKSPACE_INVITATION,
       CREATE_WORKSPACE_INVITATION,
       DELETE_WORKSPACE_INVITATION,
@@ -682,6 +754,7 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       DELETE_WORKSPACE_MEMBERSHIP,
       ASSIGN_ROLE_WORKSPACE_MEMBERSHIP,
       SUSPEND_WORKSPACE_MEMBERSHIP,
+      CREATE_ACCOUNT_WORKSPACE_MEMBERSHIP,
       READ_WORKSPACE_INVITATION,
       CREATE_WORKSPACE_INVITATION,
       DELETE_WORKSPACE_INVITATION,

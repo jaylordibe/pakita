@@ -106,7 +106,8 @@ export const Errors = {
   // ── Workspace membership + invitations ──────────────────────────────
   // A workspace without an active owner is unadministrable: nobody can grow the
   // roster, and nobody can delete it. This fires for every caller, platform
-  // admins included — `manage all` bypasses AUTHORIZATION, not data integrity.
+  // admins included — their authority is AUTHORIZATION, not an exemption from data
+  // integrity.
   // `soleOwnedWorkspaces` is supplied by the ACCOUNT-deletion path, where the
   // caller has no way to guess which of their workspaces is blocking them — and
   // where the remedy differs (transfer or close the workspace, rather than
@@ -123,6 +124,18 @@ export const Errors = {
       ...(soleOwnedWorkspaces?.length
         ? { details: { workspaces: soleOwnedWorkspaces } }
         : {}),
+    }),
+  platformAccountCannotJoinWorkspace: (): ConflictException =>
+    new ConflictException({
+      errorCode: ErrorCode.PLATFORM_ACCOUNT_CANNOT_JOIN_WORKSPACE,
+      message:
+        'A platform account cannot belong to a workspace. Use a separate account for church work.',
+    }),
+  workspaceMemberCannotHoldPlatformRole: (): ConflictException =>
+    new ConflictException({
+      errorCode: ErrorCode.WORKSPACE_MEMBER_CANNOT_HOLD_PLATFORM_ROLE,
+      message:
+        'This account belongs to a workspace, so it cannot hold a platform role. Platform staff use a separate account.',
     }),
   membershipNotActive: (status: string): ConflictException =>
     new ConflictException({

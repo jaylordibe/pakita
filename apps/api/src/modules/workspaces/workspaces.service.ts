@@ -28,12 +28,13 @@ export class WorkspacesService {
   ) {}
 
   /**
-   * Creates a workspace and makes the creator its owner, atomically.
+   * Creates a workspace owned by the account the caller names, atomically.
    *
-   * A workspace without an owner is unadministrable — nobody could add members
-   * or delete it — so the two writes are one transaction. `create Workspace` is
-   * intrinsic to every authenticated caller; the WORKSPACE_OWNER membership is
-   * what grants authority *inside* the new workspace.
+   * Only the platform admin holds `create Workspace`. The admin never becomes a
+   * member — a platform account never belongs to a workspace — so the owner is
+   * an existing ordinary account, named by email. A workspace without an owner
+   * is unadministrable, so the workspace and the owner's membership are one
+   * transaction.
    */
   async create(dto: CreateWorkspaceDto, actorId: string): Promise<Workspace> {
     // `slug` is unique only among live rows (partial index), so a soft-deleted
@@ -46,16 +47,23 @@ export class WorkspacesService {
     if (slugTaken) {
       throw Errors.uniqueConstraintViolation('slug');
     }
+    const owner = await this.prisma.scoped.user.findFirst({
+      where: { email: dto.ownerEmail },
+      select: { id: true },
+    });
+    if (!owner) {
+      throw Errors.resourceNotFound('User');
+    }
 
     const { workspace, membershipId } = await this.prisma.$transaction(
       async (transaction) => {
         // The founding owner's user row. No workspace row exists yet to lock, so
         // this is the only rendezvous point — and it is the one that matters: an
-        // account being deleted concurrently must not come out of the race owning
-        // a brand-new workspace nobody can administer.
+        // account being deleted, or given a platform role, concurrently must not
+        // come out of the race owning a brand-new workspace.
         await this.workspaceOwnershipPolicy.assertUserMayHoldActiveMembership(
           transaction,
-          actorId,
+          owner.id,
         );
 
         const created = await transaction.workspace.create({
@@ -76,12 +84,13 @@ export class WorkspacesService {
         const membership = await transaction.workspaceMembership.create({
           data: {
             workspaceId: created.id,
-            userId: actorId,
+            userId: owner.id,
             roleId: ownerRole.id,
             status: WorkspaceMembershipStatus.ACTIVE,
-            // `joined_at` is NOT NULL, and the creator joins the instant the
+            // `joined_at` is NOT NULL, and the owner joins the instant the
             // workspace exists.
             joinedAt: new Date(),
+            invitedBy: actorId,
             createdBy: actorId,
             updatedBy: actorId,
           },
@@ -92,14 +101,15 @@ export class WorkspacesService {
       },
     );
 
-    // The creator's authorization just changed — they now hold WORKSPACE_OWNER
+    // The owner's authorization just changed — they now hold WORKSPACE_OWNER
     // in a workspace that did not exist a moment ago. Drop their cached grants
-    // so the very next request sees it.
-    await this.permissionLoaderService.invalidateUser(actorId);
+    // so their very next request sees it.
+    await this.permissionLoaderService.invalidateUser(owner.id);
 
     await this.auditService.record({
       action: 'workspace.created',
       actorId,
+      targetUserId: owner.id,
       metadata: { workspaceId: workspace.id, slug: workspace.slug },
     });
     // The founding membership is a JOIN, and audit events are this template's
@@ -109,7 +119,7 @@ export class WorkspacesService {
     await this.auditService.record({
       action: 'workspace_membership.added',
       actorId,
-      targetUserId: actorId,
+      targetUserId: owner.id,
       metadata: {
         workspaceId: workspace.id,
         membershipId,
@@ -122,8 +132,8 @@ export class WorkspacesService {
   }
 
   // Lists only the workspaces the caller may `read`: their own memberships,
-  // or every workspace for a platform admin (`manage all` widens the filter to
-  // nothing). No `@RequirePermission(..., { isAdministrative: true })` needed —
+  // or every workspace for the platform staff (their unconditional
+  // `read any workspace` widens the filter to nothing). No `@RequirePermission(..., { isAdministrative: true })` needed —
   // the query does the scoping.
   async findPaginated(
     query: MetaQueryDto,

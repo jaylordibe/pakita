@@ -8,11 +8,15 @@ import { WorkspaceInvitationAcceptanceController } from './invitations/workspace
 import { WorkspaceInvitationsService } from './invitations/workspace-invitations.service';
 import { WorkspaceMembershipsController } from './memberships/workspace-memberships.controller';
 import { WorkspaceMembershipsService } from './memberships/workspace-memberships.service';
+import { WorkspaceAccountsController } from './memberships/workspace-accounts.controller';
+import { WorkspaceOwnerController } from './memberships/workspace-owner.controller';
 
 @Module({
   controllers: [
     WorkspacesController,
     WorkspaceMembershipsController,
+    WorkspaceOwnerController,
+    WorkspaceAccountsController,
     WorkspaceInvitationsController,
     WorkspaceInvitationAcceptanceController,
   ],

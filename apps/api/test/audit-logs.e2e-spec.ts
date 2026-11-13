@@ -69,13 +69,14 @@ describe('Audit logs (e2e)', () => {
    */
   const AUDIT_ROWS_PER_WORKSPACE_CREATION = 2;
 
-  // Exercises the real write path: creating a workspace records `workspace.created`
-  // plus the founding owner's join.
+  // Exercises the real write path: the platform admin creating a workspace
+  // records `workspace.created` plus the founding owner's join — both with the
+  // admin as actor and the named owner as target.
   const generateAuditRow = async (owner: SeededUser): Promise<void> => {
     await request(app.getHttpServer())
       .post('/api/workspaces')
-      .set('Authorization', `Bearer ${owner.token}`)
-      .send({ name: 'Acme', slug: 'acme' })
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ name: 'Acme', slug: 'acme', ownerEmail: owner.email })
       .expect(201);
   };
 
@@ -147,10 +148,10 @@ describe('Audit logs (e2e)', () => {
       .expect(200);
     const actionBody = byAction.body as PageBody<AuditLogBody>;
     expect(actionBody.meta.total).toBe(1);
-    expect(actionBody.data[0]?.actorId).toBe(owner.id);
+    expect(actionBody.data[0]?.actorId).toBe(admin.id);
 
     const byActor = await request(app.getHttpServer())
-      .get(`/api/audit-logs?actorId=${owner.id}`)
+      .get(`/api/audit-logs?actorId=${admin.id}`)
       .set('Authorization', `Bearer ${admin.token}`)
       .expect(200);
     // Every row this actor produced, which is both of the creation's events.
@@ -227,9 +228,11 @@ describe('Audit logs (e2e)', () => {
         .expect(200);
       const body = response.body as PageBody<AuditLogBody>;
       // The address matches on BOTH of the creation's events, since this person
-      // is the actor on each.
+      // is the target of each (the platform admin is the actor).
       expect(body.meta.total).toBe(AUDIT_ROWS_PER_WORKSPACE_CREATION);
-      expect(body.data.every((row) => row.actorId === owner.id)).toBe(true);
+      expect(body.data.every((row) => row.targetUser?.id === owner.id)).toBe(
+        true,
+      );
     });
 
     it('returns nothing for a term that matches no signal', async () => {
@@ -392,7 +395,7 @@ describe('Audit logs (e2e)', () => {
         (response.body as PageBody<AuditLogBody>).data,
         'audit log',
       );
-      expect(auditLog.actor).toMatchObject({ id: owner.id });
+      expect(auditLog.targetUser).toMatchObject({ id: owner.id });
     });
 
     // Explicit null rather than a missing key, so a client can branch on it.
@@ -431,6 +434,9 @@ describe('Audit logs (e2e)', () => {
         .set('Authorization', `Bearer ${admin.token}`)
         .expect(200);
       expect((response.body as AuditLogBody).actor).toMatchObject({
+        id: admin.id,
+      });
+      expect((response.body as AuditLogBody).targetUser).toMatchObject({
         id: owner.id,
       });
     });

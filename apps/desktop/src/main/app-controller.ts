@@ -31,6 +31,8 @@ import {
   type IssuedPassword,
   type ManagedAccount,
   type NewAccountInput,
+  type NewChurchInput,
+  type NewMemberAccountInput,
   type LiveState,
   type PassageRequest,
   type PlaylistInput,
@@ -39,6 +41,7 @@ import {
   type Theme,
   type ThemeInput,
   type ThemeSummary,
+  type ServerBibleTranslation,
   type ServerConnection,
   type Song,
   type SongInput,
@@ -65,6 +68,7 @@ import {
   invitationPageSchema,
   type invitationSchema,
   issuedInvitationSchema,
+  membershipSchema,
   playlistSchema,
   rolePageSchema,
   serverInfoSchema,
@@ -521,17 +525,98 @@ export class AppController {
     return page.data;
   }
 
-  /** Creates a church; its web-address name is derived from its name. */
-  async createWorkspace(name: string): Promise<WorkspaceSummary> {
+  /**
+   * Creates a church owned by an existing account (the platform
+   * administrator, who does not join it). Its web-address name is derived
+   * from its name.
+   */
+  async createWorkspace(input: NewChurchInput): Promise<WorkspaceSummary> {
     await this.sessionReady;
-    const session = this.requireSession();
-    const workspace = await session.request({
+    const workspace = await this.requireSession().request({
       method: 'POST',
       path: '/api/workspaces',
       schema: workspaceSchema,
-      body: { name: name.trim(), slug: slugOf(name) },
+      body: {
+        name: input.name.trim(),
+        slug: slugOf(input.name),
+        ownerEmail: input.ownerEmail.trim(),
+      },
     });
     return { id: workspace.id, name: workspace.name, slug: workspace.slug };
+  }
+
+  async renameWorkspace(
+    workspaceId: string,
+    name: string,
+  ): Promise<WorkspaceSummary> {
+    await this.sessionReady;
+    const workspace = await this.requireSession().request({
+      method: 'PATCH',
+      path: `/api/workspaces/${workspaceId}`,
+      schema: workspaceSchema,
+      body: { name: name.trim() },
+    });
+    return { id: workspace.id, name: workspace.name, slug: workspace.slug };
+  }
+
+  /** Deletes a church for everyone on the server. */
+  async deleteWorkspace(workspaceId: string): Promise<void> {
+    await this.sessionReady;
+    await this.requireSession().request<void>({
+      method: 'DELETE',
+      path: `/api/workspaces/${workspaceId}`,
+    });
+  }
+
+  /** Makes an existing account the church's sole owner. */
+  async replaceWorkspaceOwner(
+    workspaceId: string,
+    email: string,
+  ): Promise<void> {
+    await this.sessionReady;
+    await this.requireSession().request({
+      method: 'PUT',
+      path: `/api/workspaces/${workspaceId}/owner`,
+      schema: membershipSchema,
+      body: { email: email.trim() },
+    });
+  }
+
+  /**
+   * Creates an account for a new person who joins the open church, with a
+   * generated one-time password returned once to pass on.
+   */
+  async createMemberAccount(
+    input: NewMemberAccountInput,
+  ): Promise<IssuedPassword> {
+    await this.sessionReady;
+    const workspaceId = this.requireWorkspace();
+    const temporaryPassword = generateTemporaryPassword();
+    const membership = await this.requireSession().request({
+      method: 'POST',
+      path: `/api/workspaces/${workspaceId}/accounts`,
+      schema: membershipSchema,
+      body: {
+        email: input.email,
+        ...(input.username ? { username: input.username } : {}),
+        firstName: input.firstName,
+        lastName: input.lastName,
+        password: temporaryPassword,
+        roleId: input.roleId,
+      },
+    });
+    const { user } = membership;
+    return {
+      account: {
+        id: user.id,
+        email: user.email,
+        username: input.username,
+        displayName: `${user.firstName} ${user.lastName}`.trim(),
+        isActive: true,
+        isPasswordChangeRequired: true,
+      },
+      temporaryPassword,
+    };
   }
 
   async selectWorkspace(workspaceId: string): Promise<void> {
@@ -696,6 +781,24 @@ export class AppController {
   }
 
   /** Imports the chosen folder as a new translation, publishes it, then syncs. */
+  /** The translations published on the server, for its administrator. */
+  async listServerBibleTranslations(): Promise<ServerBibleTranslation[]> {
+    await this.sessionReady;
+    const translations = await this.requireSession().request({
+      method: 'GET',
+      path: '/api/bible-translations',
+      schema: bibleTranslationListSchema,
+    });
+    return translations
+      .filter((translation) => translation.isPublished)
+      .map(({ id, code, name, languageCode }) => ({
+        id,
+        code,
+        name,
+        languageCode,
+      }));
+  }
+
   async importBible(input: BibleTranslationInput): Promise<void> {
     await this.sessionReady;
     const session = this.requireSession();

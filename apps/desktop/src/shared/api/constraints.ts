@@ -66,6 +66,18 @@ export const apiConstraints = {
     lastName: { minLength: 1, maxLength: 100 },
     timezone: { maxLength: 64 },
   },
+  CreateWorkspaceAccountDto: {
+    password: {
+      minLength: 8,
+      maxLength: 72,
+      pattern: '^(?=.*[A-Za-z])(?=.*\\d).+$',
+    },
+    username: { minLength: 3, maxLength: 30, pattern: '^[a-zA-Z0-9._-]+$' },
+    firstName: { minLength: 1, maxLength: 100 },
+    middleName: { maxLength: 100 },
+    lastName: { minLength: 1, maxLength: 100 },
+    timezone: { maxLength: 64 },
+  },
   CreateWorkspaceDto: {
     name: { minLength: 2, maxLength: 120 },
     slug: { minLength: 2, maxLength: 60 },
