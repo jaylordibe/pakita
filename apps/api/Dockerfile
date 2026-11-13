@@ -27,6 +27,8 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat openssl && corepack enable pnpm
 # Manifests first, so a source-only change reuses the installed layer.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Dependency patches (`patchedDependencies` in pnpm-workspace.yaml).
+COPY patches patches
 COPY apps/api/package.json apps/api/
 RUN pnpm install --frozen-lockfile --filter @pakita/api...
 

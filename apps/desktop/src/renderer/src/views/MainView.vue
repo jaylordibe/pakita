@@ -6,22 +6,37 @@ import type {
   Song,
   SongSummary,
   SyncStatus,
+  WorkspaceSummary,
 } from '../../../shared/ipc-contract';
 import { buildSongSlides } from '../../../shared/slides';
 import AddToPlaylist from '../components/AddToPlaylist.vue';
 import BiblePanel from '../components/BiblePanel.vue';
+import CopyToWorkspace from '../components/CopyToWorkspace.vue';
 import PlaylistsPanel from '../components/PlaylistsPanel.vue';
 import SongEditor from '../components/SongEditor.vue';
 import ThemesPanel from '../components/ThemesPanel.vue';
 import { messageOf } from '../errors';
 
-const props = defineProps<{ account: AccountSummary }>();
+const props = defineProps<{ account: AccountSummary; workspaceId: string }>();
 const emit = defineEmits<{
   signedOut: [];
   signIn: [];
   changeWorkspace: [];
   stateChanged: [];
 }>();
+
+// The person's other churches, for copying songs (needs the server).
+const otherWorkspaces = ref<WorkspaceSummary[]>([]);
+async function loadOtherWorkspaces(): Promise<void> {
+  if (!props.account.isSignedIn) return;
+  try {
+    otherWorkspaces.value = (await window.pakita.workspaces.list()).filter(
+      (workspace) => workspace.id !== props.workspaceId,
+    );
+  } catch {
+    // Offline: copying is not offered until the next time this view opens.
+  }
+}
 
 const tab = ref<'songs' | 'bible' | 'playlists' | 'themes'>('songs');
 const search = ref('');
@@ -112,6 +127,17 @@ async function syncNow(): Promise<void> {
   syncStatus.value = await window.pakita.sync.now();
 }
 
+// For a laptop whose copy seems wrong: everything is downloaded again, and
+// the current copy stays presentable until the new one is complete.
+async function rebuild(): Promise<void> {
+  errorMessage.value = null;
+  try {
+    syncStatus.value = await window.pakita.sync.rebuild();
+  } catch (error) {
+    errorMessage.value = messageOf(error);
+  }
+}
+
 async function onSaved(song: Song): Promise<void> {
   editing.value = null;
   await refreshLibrary();
@@ -144,6 +170,7 @@ onMounted(async () => {
   );
   syncStatus.value = await window.pakita.sync.getStatus();
   await refreshLibrary();
+  void loadOtherWorkspaces();
 });
 onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 </script>
@@ -190,6 +217,15 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
         @click="syncNow"
       >
         Sync now
+      </button>
+      <button
+        v-if="props.account.isSignedIn"
+        data-testid="sync-rebuild"
+        title="Download this church's content again"
+        :disabled="syncStatus.state === 'syncing'"
+        @click="rebuild"
+      >
+        Re-download all
       </button>
       <button
         v-if="
@@ -260,6 +296,11 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
             </option>
           </select>
           <AddToPlaylist :entry="songEntry" />
+          <CopyToWorkspace
+            :key="selectedSong.id"
+            :song-id="selectedSong.id"
+            :workspaces="otherWorkspaces"
+          />
           <button @click="editing = 'existing'">Edit</button>
           <button class="live" data-testid="go-live" @click="goLive">
             Go live

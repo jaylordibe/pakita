@@ -44,6 +44,7 @@ const pakita: PakitaApi = {
   sync: {
     now: () => invoke(IpcChannel.syncNow),
     getStatus: () => invoke(IpcChannel.syncGetStatus),
+    rebuild: () => invoke(IpcChannel.syncRebuild),
     onStatus: (listener) => subscribe(IpcEvent.syncStatus, listener),
   },
   library: {
@@ -55,6 +56,8 @@ const pakita: PakitaApi = {
     create: (input) => invoke(IpcChannel.songsCreate, input),
     update: (songId, input) =>
       invoke(IpcChannel.songsUpdate, { songId, input }),
+    copy: (songId, targetWorkspaceId) =>
+      invoke(IpcChannel.songsCopy, { songId, targetWorkspaceId }),
   },
   bible: {
     listTranslations: () => invoke(IpcChannel.bibleListTranslations),

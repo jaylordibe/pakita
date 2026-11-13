@@ -229,4 +229,36 @@ describe('SyncEngine', () => {
     expect(server.requests).toHaveLength(2);
     expect(store.getSong('workspace', 'b')).not.toBeNull();
   });
+
+  it('rebuilds only between runs, so a page in flight never defeats the sweep', async () => {
+    const { server, fetchChanges } = fakeServer(
+      'epoch-1',
+      Array.from({ length: 120 }, (_unused, index) =>
+        song(`song-${index}`, index + 1, `Song ${index}`),
+      ),
+    );
+    const engine = engineFor(fetchChanges);
+    await engine.syncWorkspace('workspace');
+
+    // A stray row the server's history does not contain.
+    store.applySyncPage('workspace', {
+      epoch: 'epoch-1',
+      nextCursor: 120,
+      songs: [song('stray', 500, 'Stray')],
+      themes: [],
+      playlists: [],
+    });
+    // A sync is paging when the rebuild is asked for.
+    const running = engine.syncWorkspace('workspace');
+    const rebuilt = engine.rebuildWorkspace('workspace');
+    await running;
+    await expect(rebuilt).resolves.toMatchObject({ state: 'idle' });
+
+    const titles = store
+      .listSongs('workspace', '', false)
+      .map((row) => row.title);
+    expect(titles).toHaveLength(120);
+    expect(titles).not.toContain('Stray');
+    expect(server.requests.at(-3)).toBe(0);
+  });
 });

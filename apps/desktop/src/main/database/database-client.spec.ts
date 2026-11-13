@@ -21,6 +21,28 @@ describe('DatabaseClient', () => {
     expect(logError.mock.calls[0]?.[0]).toContain('newer Pakita');
   });
 
+  it('reports an unexpected stop once, and a requested close never', async () => {
+    const onUnexpectedStop = vi.fn();
+    const failing = new DatabaseClient(
+      fixture('failing-worker.mjs'),
+      ':memory:',
+      () => {},
+      onUnexpectedStop,
+    );
+    await expect(failing.getHealth()).rejects.toThrow();
+    await vi.waitFor(() => expect(onUnexpectedStop).toHaveBeenCalledTimes(1));
+
+    const onClosedStop = vi.fn();
+    const closing = new DatabaseClient(
+      fixture('closing-worker.mjs'),
+      ':memory:',
+      () => {},
+      onClosedStop,
+    );
+    await closing.close();
+    expect(onClosedStop).not.toHaveBeenCalled();
+  });
+
   it('closes through the worker without logging an error', async () => {
     const logError = vi.fn();
     const client = new DatabaseClient(

@@ -129,6 +129,10 @@ test/fixtures/ shared test data (a tiny USFM translation)
   (`src/main/database/database-worker.ts`), never on the main thread: its
   calls are synchronous, and a long write there would freeze the operator's
   controls.
+- **A crashed database worker is reopened**, at most once a minute
+  (`AppController.reopenDatabase`); a presentation continues meanwhile from
+  memory. **"Re-download all"** (`rebuildLocalCopy`) is the operator's repair:
+  a full resynchronisation that keeps the current copy until it completes.
 - **Migrations are append-only** (`src/main/database/migrations.ts`): laptops
   have already run every migration that shipped. A database written by a
   newer app version is refused, not modified.

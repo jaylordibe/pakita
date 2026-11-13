@@ -4,12 +4,14 @@ import { randomUUID } from 'node:crypto';
 import type { AppAbility } from '../../common/authorization/app-ability';
 import { buildOrderBy } from '../../common/dto/meta-query.dto';
 import { PaginationMeta } from '../../common/dto/paginated-response.dto';
+import { AuditService } from '../../common/audit/audit.service';
 import { Errors } from '../../common/errors/errors';
 import { rejectNullFields } from '../../common/util/reject-null-fields.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AbilityScopedQueryService } from '../authorization/ability-scoped-query.service';
 import { PermissionCheckService } from '../authorization/permission-check.service';
 import { SyncVersionService } from '../sync/sync-version.service';
+import { SongSectionKind } from '../../common/enums/song-section-kind.enum';
 import { CreateSongDto } from './dto/create-song.dto';
 import {
   SongArrangementInputDto,
@@ -40,6 +42,7 @@ export class SongsService {
     private readonly abilityScopedQueryService: AbilityScopedQueryService,
     private readonly permissionCheckService: PermissionCheckService,
     private readonly syncVersionService: SyncVersionService,
+    private readonly auditService: AuditService,
   ) {}
 
   async create(
@@ -173,6 +176,79 @@ export class SongsService {
       }
     });
     return this.loadById(workspaceId, songId);
+  }
+
+  /**
+   * Copies a song into another workspace (a church sharing with its other
+   * branches). The copy is independent: editing either never changes the
+   * other. The caller must read the song here and add songs there; a
+   * workspace they do not belong to is not found (404).
+   */
+  async copy(
+    workspaceId: string,
+    songId: string,
+    targetWorkspaceId: string,
+    ability: AppAbility,
+    actorId: string,
+  ): Promise<SongWithContent> {
+    const source = await this.findById(workspaceId, songId, ability);
+    this.abilityScopedQueryService.assertWorkspaceReachable(
+      ability,
+      'read',
+      'Song',
+      targetWorkspaceId,
+    );
+    this.permissionCheckService.assertCan(ability, 'create', 'Song', {
+      workspaceId: targetWorkspaceId,
+    });
+    // A platform administrator holds every grant, even over a workspace that
+    // no longer exists: the target must be a live workspace.
+    const target = await this.prisma.scoped.workspace.findFirst({
+      where: { id: targetWorkspaceId },
+      select: { id: true },
+    });
+    if (!target) throw Errors.resourceNotFound('Workspace');
+    // The source's section ids serve as the keys its arrangements refer to.
+    const sections = [...source.sections]
+      .sort((first, second) => first.position - second.position)
+      .map((section) => ({
+        key: section.id,
+        kind: section.kind as SongSectionKind,
+        label: section.label,
+        lyrics: section.lyrics,
+      }));
+    const arrangements = [...source.arrangements]
+      .sort((first, second) => first.position - second.position)
+      .map((arrangement) => ({
+        name: arrangement.name,
+        isDefault: arrangement.isDefault,
+        sectionKeys: [...arrangement.items]
+          .sort((first, second) => first.position - second.position)
+          .map((arrangementItem) => arrangementItem.songSectionId),
+      }));
+    const copy = await this.create(
+      targetWorkspaceId,
+      {
+        title: source.title,
+        ...(source.artist !== null && { artist: source.artist }),
+        sections,
+        arrangements,
+      },
+      actorId,
+    );
+    // Content crossing between workspaces leaves a record of where it came
+    // from (never the lyrics themselves).
+    await this.auditService.record({
+      action: 'song.copied',
+      actorId,
+      metadata: {
+        sourceWorkspaceId: workspaceId,
+        sourceSongId: source.id,
+        targetWorkspaceId,
+        songId: copy.id,
+      },
+    });
+    return copy;
   }
 
   /** Soft delete, so the deletion still reaches desktops as a tombstone. */

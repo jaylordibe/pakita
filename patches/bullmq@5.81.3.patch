@@ -1,0 +1,40 @@
+diff --git a/dist/cjs/classes/redis-connection.js b/dist/cjs/classes/redis-connection.js
+index 72245fd1ef644a39e89a0b58ce1d09b4eaef417f..19e0f5ef4f87482e87b4168cdc56f0ff4fb7b4c3 100644
+--- a/dist/cjs/classes/redis-connection.js
++++ b/dist/cjs/classes/redis-connection.js
+@@ -84,7 +84,14 @@ class RedisConnection extends events_1.EventEmitter {
+             this.emit('ready');
+         };
+         this.initializing = this.init();
+-        this.initializing.catch(err => this.emit('error', err));
++        this.initializing.catch(err => {
++            // Backport of BullMQ 6's guard: close() removes every listener,
++            // so an init that fails after it ("Connection is closed") must
++            // not emit 'error' with none attached, which throws.
++            if (this.listenerCount('error') > 0) {
++                this.emit('error', err);
++            }
++        });
+     }
+     checkBlockingOptions(msg, options, throwError = false) {
+         if (this.extraOptions.blocking && options && options.maxRetriesPerRequest) {
+diff --git a/dist/esm/classes/redis-connection.js b/dist/esm/classes/redis-connection.js
+index 4d26462548aa0e86b7aad56b3b3dbd2447b903e4..d306b0ff4a01c15aa5fce4349b4d9de409ecb7cd 100644
+--- a/dist/esm/classes/redis-connection.js
++++ b/dist/esm/classes/redis-connection.js
+@@ -81,7 +81,14 @@ export class RedisConnection extends EventEmitter {
+             this.emit('ready');
+         };
+         this.initializing = this.init();
+-        this.initializing.catch(err => this.emit('error', err));
++        this.initializing.catch(err => {
++            // Backport of BullMQ 6's guard: close() removes every listener,
++            // so an init that fails after it ("Connection is closed") must
++            // not emit 'error' with none attached, which throws.
++            if (this.listenerCount('error') > 0) {
++                this.emit('error', err);
++            }
++        });
+     }
+     checkBlockingOptions(msg, options, throwError = false) {
+         if (this.extraOptions.blocking && options && options.maxRetriesPerRequest) {

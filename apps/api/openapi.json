@@ -5168,6 +5168,68 @@
         ]
       }
     },
+    "/api/workspaces/{workspaceId}/songs/{songId}/copy": {
+      "post": {
+        "operationId": "SongsController_copy",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "songId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopySongDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SongResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `read` on `Song`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Songs"
+        ]
+      }
+    },
     "/api/workspaces/{workspaceId}/themes": {
       "post": {
         "operationId": "ThemesController_create",
@@ -8633,6 +8695,19 @@
             }
           }
         }
+      },
+      "CopySongDto": {
+        "type": "object",
+        "properties": {
+          "targetWorkspaceId": {
+            "type": "string",
+            "description": "The workspace that receives the copy (another branch, or this one).",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "targetWorkspaceId"
+        ]
       },
       "CreateThemeDto": {
         "type": "object",

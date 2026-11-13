@@ -101,6 +101,7 @@ onUnmounted(() => unsubscribe?.());
       <MainView
         v-else-if="screen === 'main' && state?.account"
         :account="state.account"
+        :workspace-id="state.workspaceId ?? ''"
         @signed-out="refresh"
         @sign-in="screen = 'sign-in'"
         @state-changed="refresh"

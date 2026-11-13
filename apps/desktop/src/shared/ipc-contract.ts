@@ -21,10 +21,12 @@ export const IpcChannel = {
   workspaceSelect: 'workspace:select',
   syncNow: 'sync:now',
   syncGetStatus: 'sync:get-status',
+  syncRebuild: 'sync:rebuild',
   libraryListSongs: 'library:list-songs',
   libraryGetSong: 'library:get-song',
   songsCreate: 'songs:create',
   songsUpdate: 'songs:update',
+  songsCopy: 'songs:copy',
   displaysList: 'displays:list',
   displaysChoose: 'displays:choose',
   bibleListTranslations: 'bible:list-translations',
@@ -303,6 +305,8 @@ export interface PakitaApi {
   readonly sync: {
     now(): Promise<SyncStatus>;
     getStatus(): Promise<SyncStatus>;
+    /** Downloads everything again, keeping the current copy until done. */
+    rebuild(): Promise<SyncStatus>;
     onStatus(listener: (status: SyncStatus) => void): () => void;
   };
   readonly library: {
@@ -312,6 +316,8 @@ export interface PakitaApi {
   readonly songs: {
     create(input: SongInput): Promise<Song>;
     update(songId: string, input: SongInput): Promise<Song>;
+    /** Copies the song to another workspace the person belongs to. */
+    copy(songId: string, targetWorkspaceId: string): Promise<void>;
   };
   readonly bible: {
     listTranslations(): Promise<BibleTranslation[]>;

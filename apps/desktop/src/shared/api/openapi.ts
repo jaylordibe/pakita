@@ -1194,6 +1194,22 @@ export interface paths {
     patch: operations['SongsController_update'];
     trace?: never;
   };
+  '/api/workspaces/{workspaceId}/songs/{songId}/copy': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['SongsController_copy'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/workspaces/{workspaceId}/themes': {
     parameters: {
       query?: never;
@@ -2158,6 +2174,13 @@ export interface components {
       isArchived?: boolean;
       sections?: components['schemas']['SongSectionInputDto'][];
       arrangements?: components['schemas']['SongArrangementInputDto'][];
+    };
+    CopySongDto: {
+      /**
+       * Format: uuid
+       * @description The workspace that receives the copy (another branch, or this one).
+       */
+      targetWorkspaceId: string;
     };
     CreateThemeDto: {
       background: components['schemas']['ThemeBackground'];
@@ -5781,6 +5804,46 @@ export interface operations {
         content?: never;
       };
       /** @description Authenticated, but no permission grants `update` on `Song` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  SongsController_copy: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        songId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CopySongDto'];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SongResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `Song` */
       403: {
         headers: {
           [name: string]: unknown;

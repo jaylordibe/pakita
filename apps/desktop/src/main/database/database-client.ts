@@ -61,6 +61,8 @@ export class DatabaseClient {
     workerPath: string,
     databasePath: string,
     private readonly logError: (message: string) => void = console.error,
+    /** Called once if the worker stops other than through `close()`. */
+    private readonly onUnexpectedStop: (error: Error) => void = () => {},
   ) {
     this.worker = new Worker(workerPath, { workerData: { databasePath } });
     this.worker.on('message', (message: unknown) => this.settle(message));
@@ -253,6 +255,7 @@ export class DatabaseClient {
       this.stoppedError = error;
       if (!this.isClosing) {
         this.logError(`Local database unavailable: ${error.message}`);
+        this.onUnexpectedStop(error);
       }
     }
     for (const pending of this.pendingRequests.values()) {

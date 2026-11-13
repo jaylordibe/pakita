@@ -45,6 +45,7 @@ export class SyncEngine {
   };
   private running: Promise<SyncStatus> | null = null;
   private isRerunRequested = false;
+  private isRebuildRequested = false;
 
   constructor(
     private readonly dependencies: SyncDependencies,
@@ -71,10 +72,31 @@ export class SyncEngine {
     return this.running;
   }
 
+  /**
+   * Downloads the workspace's whole history again (see
+   * ContentStore.beginResync). It starts only between runs — never under a
+   * run already paging — and, if this run fails, the next one does it.
+   */
+  rebuildWorkspace(workspaceId: string): Promise<SyncStatus> {
+    this.isRebuildRequested = true;
+    return this.syncWorkspace(workspaceId);
+  }
+
   private async runUntilSettled(workspaceId: string): Promise<SyncStatus> {
     let status: SyncStatus;
     do {
       this.isRerunRequested = false;
+      if (this.isRebuildRequested) {
+        const saved =
+          await this.dependencies.database.getSyncState(workspaceId);
+        if (saved) {
+          await this.dependencies.database.beginResync(
+            workspaceId,
+            saved.epoch,
+          );
+        }
+        this.isRebuildRequested = false;
+      }
       status = await this.run(workspaceId);
     } while (this.isRerunRequested && status.state === 'idle');
     return status;

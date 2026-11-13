@@ -20,7 +20,10 @@ comes from the `himoa` plugin. Where it conflicts with an `AGENTS.md`, the
 - **Node:** 24 (`.nvmrc`, `.node-version`, `engines`).
 - **Workspace settings live once, in `pnpm-workspace.yaml`:** the shared tool
   versions (`catalog:`), the 14-day minimum release age, the packages allowed
-  to run install scripts (`allowBuilds`) and dependency overrides. A package
+  to run install scripts (`allowBuilds`), dependency overrides, and
+  dependency patches (`patchedDependencies`, files in `patches/`). A patch
+  only backports an upstream fix that cannot be upgraded to yet, and its
+  comment says when to drop it. A package
   uses `"<name>": "catalog:"` for a catalogued tool, never its own version.
 - **A new install-script entry in `allowBuilds`** needs the same reason the
   existing ones have: the package cannot work without the native binary its

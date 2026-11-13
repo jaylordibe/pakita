@@ -85,6 +85,7 @@ import { SyncEngine } from './sync/sync-engine';
 
 /** How often a signed-in laptop checks for changes in the background. */
 const BACKGROUND_SYNC_INTERVAL_MILLISECONDS = 2 * 60_000;
+const DATABASE_REOPEN_INTERVAL_MILLISECONDS = 60_000;
 /** A whole translation is a few megabytes; allow a slow church connection. */
 const BIBLE_DOWNLOAD_TIMEOUT_MILLISECONDS = 5 * 60_000;
 /** Ten times a complete Bible with every verse at a typical length. */
@@ -125,6 +126,8 @@ export class AppController {
   /** The USFM folder read by `chooseBibleImportFolder`, awaiting import. */
   private pendingBibleImport: UsfmFolder | null = null;
   private isImportingBible = false;
+  private lastDatabaseReopen = 0;
+  private databaseReopenTimer: NodeJS.Timeout | null = null;
   /** Bible downloads that failed verification (see bible-sync). */
   private readonly rejectedBibleContent = new Set<string>();
   /** Settles once the remembered session (and its token) is loaded. */
@@ -238,6 +241,7 @@ export class AppController {
     if (previous && previous.userId !== account.userId) {
       // Someone else signed in on this laptop: the previous account's content
       // and church choice go, exactly as on sign-out.
+      this.cancelDatabaseReopen();
       this.stopBackgroundSync();
       await this.database?.close();
       this.database = null;
@@ -257,6 +261,7 @@ export class AppController {
   async signOut(): Promise<void> {
     await this.sessionReady;
     const account = this.session?.getAccount() ?? null;
+    this.cancelDatabaseReopen();
     this.stopBackgroundSync();
     await this.session?.signOut();
     await this.database?.close();
@@ -306,6 +311,20 @@ export class AppController {
     return this.syncEngine.syncWorkspace(workspaceId);
   }
 
+  /**
+   * Downloads the workspace's whole history again, for a laptop whose copy
+   * seems wrong. The current copy stays presentable until the new one has
+   * fully arrived (see ContentStore.beginResync); Bible translations that
+   * failed verification are tried again.
+   */
+  async rebuildLocalCopy(): Promise<SyncStatus> {
+    await this.sessionReady;
+    const workspaceId = this.requireWorkspace();
+    if (!this.syncEngine) return this.getSyncStatus();
+    this.rejectedBibleContent.clear();
+    return this.syncEngine.rebuildWorkspace(workspaceId);
+  }
+
   // ── Library (offline) and editing (online) ────────────────────────────
 
   async listSongs(search: string, isArchived: boolean): Promise<SongSummary[]> {
@@ -338,6 +357,13 @@ export class AppController {
 
   async createSong(input: SongInput): Promise<Song> {
     return this.writeOnline('POST', 'songs', songSchema, input);
+  }
+
+  /** Copies a song to another of the person's workspaces (online). */
+  async copySong(songId: string, targetWorkspaceId: string): Promise<void> {
+    await this.writeOnline('POST', `songs/${songId}/copy`, songSchema, {
+      targetWorkspaceId,
+    });
   }
 
   async updateSong(songId: string, input: SongInput): Promise<Song> {
@@ -663,6 +689,7 @@ export class AppController {
   }
 
   async shutdown(): Promise<void> {
+    this.cancelDatabaseReopen();
     this.stopBackgroundSync();
     this.projector.close();
     await this.database?.close();
@@ -682,10 +709,46 @@ export class AppController {
   private openDatabase(account: StoredAccount): void {
     const directory = this.accountDirectory(account);
     mkdirSync(directory, { recursive: true });
-    this.database = new DatabaseClient(
+    const client: DatabaseClient = new DatabaseClient(
       this.options.databaseWorkerPath,
       join(directory, 'pakita.sqlite'),
+      console.error,
+      () => this.reopenDatabase(client, account),
     );
+    this.database = client;
+  }
+
+  /**
+   * The database worker stopped by itself (it crashed): open it again, at
+   * most once a minute, so a fault that repeats cannot spin, but always
+   * eventually. A presentation is
+   * unaffected meanwhile — its slides are in memory.
+   */
+  private reopenDatabase(
+    stopped: DatabaseClient,
+    account: StoredAccount,
+  ): void {
+    if (this.databaseReopenTimer) return;
+    const delay = Math.max(
+      1_000,
+      this.lastDatabaseReopen +
+        DATABASE_REOPEN_INTERVAL_MILLISECONDS -
+        Date.now(),
+    );
+    this.databaseReopenTimer = setTimeout(() => {
+      this.databaseReopenTimer = null;
+      // Signed out, replaced or shut down in the meantime: nothing to reopen.
+      if (this.database !== stopped) return;
+      this.lastDatabaseReopen = Date.now();
+      this.openDatabase(account);
+      if (this.syncEngine) this.startSync();
+    }, delay);
+    this.databaseReopenTimer.unref();
+  }
+
+  private cancelDatabaseReopen(): void {
+    if (this.databaseReopenTimer) clearTimeout(this.databaseReopenTimer);
+    this.databaseReopenTimer = null;
   }
 
   /** Wires synchronisation to the open database and current session. */

@@ -230,6 +230,15 @@ async function start(): Promise<void> {
   );
   handle(IpcChannel.syncNow, noPayload, () => controller.syncNow());
   handle(IpcChannel.syncGetStatus, noPayload, () => controller.getSyncStatus());
+  handle(IpcChannel.syncRebuild, noPayload, () =>
+    controller.rebuildLocalCopy(),
+  );
+  handle(
+    IpcChannel.songsCopy,
+    z.object({ songId: uuid, targetWorkspaceId: uuid }).strict(),
+    ({ songId, targetWorkspaceId }) =>
+      controller.copySong(songId, targetWorkspaceId),
+  );
   handle(
     IpcChannel.libraryListSongs,
     z.object({ search: z.string().max(200), isArchived: z.boolean() }).strict(),

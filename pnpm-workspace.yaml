@@ -1,22 +1,45 @@
 packages:
   - apps/*
 
+# Only these packages may run install scripts. Each one compiles or
+# downloads a native binary it cannot work without. A new entry needs the
+# same justification.
+allowBuilds:
+  # Refused: each ships prebuilt binaries as optional dependencies or works
+  # without its script (telemetry, version banners, source-build fallbacks).
+  '@parcel/watcher': false
+  '@prisma/engines': true
+  '@scarf/scarf': false
+  bcrypt: true
+  # The desktop app: Electron downloads its binary.
+  electron: true
+  electron-winstaller: false
+  msgpackr-extract: false
+  prisma: true
+  protobufjs: false
+  sharp: true
+  unrs-resolver: false
+
 # Shared tool versions, declared once. A package uses `"<name>": "catalog:"`.
 catalog:
-  typescript: ~6.0.3
-  prettier: ^3.4.2
-  eslint: ^9.18.0
-  typescript-eslint: ^8.20.0
-  zod: ^4.2.0
   '@eslint/js': ^9.18.0
   '@types/node': ^24.0.0
+  '@types/pg': ^8.20.0
+  dotenv: ^17.4.2
+  dotenv-expand: ^13.0.0
+  eslint: ^9.18.0
   eslint-config-prettier: ^10.0.1
   eslint-plugin-prettier: ^5.2.2
   globals: ^17.0.0
   pg: ^8.20.0
-  '@types/pg': ^8.20.0
-  dotenv: ^17.4.2
-  dotenv-expand: ^13.0.0
+  prettier: ^3.4.2
+  typescript: ~6.0.3
+  typescript-eslint: ^8.20.0
+  zod: ^4.2.0
+
+# `pnpm deploy` (the API image's production dependencies) needs this
+# since pnpm 10.
+injectWorkspacePackages: true
 
 # Supply chain: refuse any version published less than 14 days ago
 # (value in minutes), so a compromised release has time to be caught and
@@ -33,44 +56,28 @@ minimumReleaseAgeExclude:
   - 'hono@4.13.16'
   - '@hono/node-server@2.1.6'
 
-# Only these packages may run install scripts. Each one compiles or
-# downloads a native binary it cannot work without. A new entry needs the
-# same justification.
-allowBuilds:
-  '@prisma/engines': true
-  bcrypt: true
-  prisma: true
-  sharp: true
-  # The desktop app: Electron downloads its binary.
-  electron: true
-  # Refused: each ships prebuilt binaries as optional dependencies or works
-  # without its script (telemetry, version banners, source-build fallbacks).
-  '@parcel/watcher': false
-  '@scarf/scarf': false
-  msgpackr-extract: false
-  protobufjs: false
-  unrs-resolver: false
-  electron-winstaller: false
-
 # Security fixes forced onto transitive dependencies whose parents' ranges
 # do not yet allow them. Why each one exists, and when to remove it, is in
 # `.github/scripts/audit-gate.mjs`.
 overrides:
-  picomatch: ^4.0.4
-  browserslist: ^4.28.7
-  mysql2: ^3.22.0
-  deepmerge-ts: ^8.0.2
-  fast-uri: ^3.1.9
-  fast-xml-builder: ^1.1.7
-  js-yaml: ^5.4.1
   # openapi-typescript's parser is written against js-yaml 4's API (5 removed
   # `types.merge`); it gets the latest 4.x, which carries no advisory.
   '@redocly/openapi-core>js-yaml': ^4.1.1
-  multer: ^2.5.0
-  uuid: ^11.1.1
-  qs: ^6.17.1
+  browserslist: ^4.28.7
+  deepmerge-ts: ^8.0.2
+  fast-uri: ^3.1.9
+  fast-xml-builder: ^1.1.7
   'gaxios@7.1.3': 7.1.4
-
-# `pnpm deploy` (the API image's production dependencies) needs this
-# since pnpm 10.
-injectWorkspacePackages: true
+  js-yaml: ^5.4.1
+  multer: ^2.5.0
+  mysql2: ^3.22.0
+  picomatch: ^4.0.4
+  qs: ^6.17.1
+  uuid: ^11.1.1
+# A dependency patch backports an upstream fix only where upgrading is not
+# yet possible, and names when to drop it.
+patchedDependencies:
+  # BullMQ 6's guard for a connection closed while it is still connecting:
+  # without it, closing the app right after it starts throws "Unhandled error
+  # (Connection is closed)". Drop it when upgrading to bullmq 6.
+  bullmq@5.81.3: patches/bullmq@5.81.3.patch

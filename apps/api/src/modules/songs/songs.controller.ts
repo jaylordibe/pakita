@@ -26,6 +26,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
+import { CopySongDto } from './dto/copy-song.dto';
 import { CreateSongDto } from './dto/create-song.dto';
 import { SongListQueryDto } from './dto/song-list-query.dto';
 import { SongResponseDto } from './dto/song-response.dto';
@@ -97,6 +98,27 @@ export class SongsController {
         workspaceId,
         songId,
         dto,
+        ability,
+        user.id,
+      ),
+    );
+  }
+
+  @Post(':songId/copy')
+  @RequirePermission('read', 'Song', { isDeniedAsNotFound: true })
+  @ApiCreatedResponse({ type: SongResponseDto })
+  async copy(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('songId', ParseUUIDPipe) songId: string,
+    @Body() dto: CopySongDto,
+    @CurrentAbility() ability: AppAbility,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<SongResponseDto> {
+    return new SongResponseDto(
+      await this.songsService.copy(
+        workspaceId,
+        songId,
+        dto.targetWorkspaceId,
         ability,
         user.id,
       ),

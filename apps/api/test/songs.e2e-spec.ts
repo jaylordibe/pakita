@@ -2,9 +2,11 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { SeededRoleName } from '../src/common/enums/seeded-role-name.enum';
+import { PrismaService } from '../src/prisma/prisma.service';
 import { truncateAll } from './setup/db';
 import {
   addMembership,
+  createPlatformAdmin,
   createRegularUser,
   createWorkspaceWithOwner,
   seedRbacCatalog,
@@ -398,6 +400,103 @@ describe('Songs (e2e)', () => {
         .get(`${songsUrl()}/${song.id}`)
         .set('Authorization', `Bearer ${owner.token}`)
         .expect(404);
+    });
+  });
+
+  describe('copy to another branch', () => {
+    const copyUrl = (songId: string, workspaceId = workspace.id) =>
+      `${songsUrl(workspaceId)}/${songId}/copy`;
+    const copy = (songId: string, targetWorkspaceId: string, as: SeededUser) =>
+      request(app.getHttpServer())
+        .post(copyUrl(songId))
+        .set('Authorization', `Bearer ${as.token}`)
+        .send({ targetWorkspaceId });
+
+    it('copies the whole song, arrangements included, as an independent song', async () => {
+      const branch = await createWorkspaceWithOwner(
+        app,
+        owner.id,
+        'second-branch',
+      );
+      const song = await createSong({
+        ...AMAZING_GRACE,
+        arrangements: [
+          { name: 'Short', isDefault: false, sectionKeys: ['c'] },
+          { name: 'Full', isDefault: true, sectionKeys: ['v1', 'c', 'c'] },
+        ],
+      });
+      const copied = (await copy(song.id, branch.id, owner).expect(201))
+        .body as SongBody;
+
+      expect(copied.id).not.toBe(song.id);
+      const audited = await app.get(PrismaService).auditLog.findFirst({
+        where: { action: 'song.copied' },
+      });
+      expect(audited?.metadata).toMatchObject({
+        sourceWorkspaceId: workspace.id,
+        sourceSongId: song.id,
+        targetWorkspaceId: branch.id,
+        songId: copied.id,
+      });
+      expect(copied.workspaceId).toBe(branch.id);
+      expect(copied).toMatchObject({
+        title: 'Amazing Grace',
+        artist: 'John Newton',
+      });
+      expect(
+        copied.sections.map(({ kind, label, lyrics }) => ({
+          kind,
+          label,
+          lyrics,
+        })),
+      ).toEqual(
+        song.sections.map(({ kind, label, lyrics }) => ({
+          kind,
+          label,
+          lyrics,
+        })),
+      );
+      const [verse, chorus] = copied.sections;
+      expect(copied.arrangements).toMatchObject([
+        { name: 'Short', isDefault: false, sectionIds: [chorus?.id] },
+        {
+          name: 'Full',
+          isDefault: true,
+          sectionIds: [verse?.id, chorus?.id, chorus?.id],
+        },
+      ]);
+    });
+
+    it('needs the song here and the right to add songs there', async () => {
+      // Memberships first: a person's grants are cached at their first request.
+      const crossStaff = await createRegularUser(app, 'both@example.com');
+      for (const workspaceId of [workspace.id, otherWorkspace.id]) {
+        await addMembership(
+          app,
+          workspaceId,
+          crossStaff.id,
+          SeededRoleName.WORKSPACE_STAFF,
+        );
+      }
+      const song = await createSong();
+      // Staff of this branch only: the other branch is not found.
+      await copy(song.id, otherWorkspace.id, staff).expect(404);
+      // A member of the target who cannot add songs there: forbidden.
+      await copy(song.id, otherWorkspace.id, crossStaff).expect(403);
+      // Someone who cannot read the song: not found.
+      await request(app.getHttpServer())
+        .post(copyUrl(song.id))
+        .set('Authorization', `Bearer ${stranger.token}`)
+        .send({ targetWorkspaceId: otherWorkspace.id })
+        .expect(404);
+    });
+
+    it('refuses a target workspace that does not exist, even to an administrator', async () => {
+      const admin = await createPlatformAdmin(app);
+      const song = await createSong();
+      await copy(song.id, '00000000-0000-4000-8000-000000000000', admin).expect(
+        404,
+      );
     });
   });
 });
