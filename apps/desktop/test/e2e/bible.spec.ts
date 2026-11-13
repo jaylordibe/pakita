@@ -109,6 +109,11 @@ test('says when the short name is already published, before and after submitting
     'A translation with the short name WEB is already published.',
   );
   await expect(error).toBeInViewport();
+
+  // Asking to import again, with the form open, starts a fresh form.
+  await operator.getByTestId('bible-import-open').click();
+  await expect(operator.getByTestId('bible-import-preview')).toHaveCount(0);
+  await expect(operator.getByTestId('bible-import-error')).toHaveCount(0);
   await operator.getByRole('button', { name: 'Close' }).click();
 });
 

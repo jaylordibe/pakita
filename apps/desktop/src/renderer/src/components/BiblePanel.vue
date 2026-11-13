@@ -147,8 +147,13 @@ const existingCodes = computed(() =>
   translations.value.map((translation) => translation.code),
 );
 
+// Each opening starts a fresh form, even over one already open.
+const importFormKey = ref(0);
+const isImportRunning = ref(false);
+
 function openImport(): void {
   importedNotice.value = null;
+  importFormKey.value += 1;
   isImportShown.value = true;
 }
 
@@ -157,6 +162,7 @@ async function onImported(imported: {
   name: string;
 }): Promise<void> {
   isImportShown.value = false;
+  isImportRunning.value = false;
   await loadTranslations();
   const added = translations.value.find(
     (translation) => translation.code === imported.code,
@@ -293,6 +299,7 @@ onUnmounted(() => unsubscribe?.());
         v-if="canImport"
         class="import-open"
         data-testid="bible-import-open"
+        :disabled="isImportRunning"
         @click="openImport"
       >
         <AppIcon name="upload" />
@@ -303,7 +310,9 @@ onUnmounted(() => unsubscribe?.());
     <main class="panel-content">
       <BibleImport
         v-if="isImportShown && canImport"
+        :key="importFormKey"
         :existing-codes="existingCodes"
+        @importing="isImportRunning = $event"
         @imported="onImported"
         @close="isImportShown = false"
       />

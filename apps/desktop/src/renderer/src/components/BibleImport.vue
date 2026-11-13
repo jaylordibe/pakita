@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue';
 
 import type {
   BibleImportPreview,
@@ -18,12 +26,15 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   imported: [translation: { code: string; name: string }];
+  /** Whether an upload is running, so the panel keeps this form open. */
+  importing: [isImporting: boolean];
   close: [];
 }>();
 
 const preview = ref<BibleImportPreview | null>(null);
 const progress = ref<BibleImportProgress | null>(null);
 const isImporting = ref(false);
+watch(isImporting, (value) => emit('importing', value));
 const errorMessage = ref<string | null>(null);
 const form = reactive({
   code: '',
