@@ -16,6 +16,7 @@ import {
   FONT_LABELS,
 } from '../../../shared/theme-look';
 import { messageOf } from '../errors';
+import AppIcon from './AppIcon.vue';
 import ThemePreview from './ThemePreview.vue';
 
 const themes = ref<ThemeSummary[]>([]);
@@ -104,184 +105,229 @@ onUnmounted(() => unsubscribe?.());
 
 <template>
   <div class="panel">
-    <aside class="list">
-      <button data-testid="theme-new" @click="startNew">New theme</button>
-      <ul>
-        <li
-          v-for="theme in themes"
-          :key="theme.id"
-          :class="{ selected: theme.id === themeId }"
-          :data-testid="`theme-${theme.name}`"
-          @click="open(theme.id)"
-        >
-          {{ theme.name }}
-          <span v-if="theme.isDefault" class="muted">(default)</span>
+    <aside class="panel-list">
+      <div class="panel-head">
+        <h1>Themes</h1>
+        <button class="sm primary" data-testid="theme-new" @click="startNew">
+          <AppIcon name="plus" />
+          New theme
+        </button>
+      </div>
+      <ul class="list">
+        <li v-for="theme in themes" :key="theme.id">
+          <button
+            class="list-item theme-item"
+            :aria-current="theme.id === themeId ? 'true' : undefined"
+            :data-testid="`theme-${theme.name}`"
+            @click="open(theme.id)"
+          >
+            <span class="item-title">{{ theme.name }}</span>
+            <span v-if="theme.isDefault" class="badge">
+              <AppIcon name="star" />
+              <span class="visually-hidden">(</span>default<span
+                class="visually-hidden"
+                >)</span
+              >
+            </span>
+          </button>
         </li>
-        <li v-if="themes.length === 0" class="muted empty">
+        <li v-if="themes.length === 0" class="list-empty">
           No themes yet: slides are white on black.
         </li>
       </ul>
     </aside>
 
-    <main class="content">
+    <main class="panel-content">
       <form v-if="isEditing" class="editor" @submit.prevent="save">
-        <div class="fields">
-          <label class="wide">
-            Name
-            <input
-              v-model="form.name"
-              required
-              maxlength="60"
-              data-testid="theme-name"
-            />
-          </label>
-          <label>
-            Background
-            <select v-model="form.background" data-testid="theme-background">
-              <option
-                v-for="background in themeBackgroundValues"
-                :key="background"
-                :value="background"
-              >
-                {{ BACKGROUND_LABELS[background] }}
-              </option>
-            </select>
-          </label>
-          <label v-if="form.background === 'solid'">
-            Background colour
-            <input v-model="form.backgroundColor" type="color" />
-          </label>
-          <label>
-            Text colour
-            <input
-              v-model="form.textColor"
-              type="color"
-              data-testid="theme-text-colour"
-            />
-          </label>
-          <label>
-            Font
-            <select v-model="form.font" data-testid="theme-font">
-              <option v-for="font in themeFontValues" :key="font" :value="font">
-                {{ FONT_LABELS[font] }}
-              </option>
-            </select>
-          </label>
-          <label>
-            Text size ({{ form.textScale }}%)
-            <input
-              v-model.number="form.textScale"
-              type="range"
-              min="50"
-              max="200"
-              step="5"
-            />
-          </label>
-          <label>
-            Alignment
-            <select v-model="form.textAlign">
-              <option value="center">Centred</option>
-              <option value="left">Left</option>
-            </select>
-          </label>
-          <label class="check">
-            <input
-              v-model="form.isDefault"
-              type="checkbox"
-              data-testid="theme-default"
-            />
-            The church’s default theme
-          </label>
-        </div>
-        <ThemePreview :look="look" />
-        <div class="row">
+        <div class="page-head">
+          <div class="titles">
+            <h2>{{ form.name || 'New theme' }}</h2>
+          </div>
+          <button
+            v-if="themeId"
+            type="button"
+            class="ghost danger"
+            @click="remove"
+          >
+            <AppIcon name="trash" />
+            Delete
+          </button>
           <button
             class="primary"
             type="submit"
             :disabled="isSaving"
             data-testid="theme-save"
           >
+            <AppIcon name="check" />
             {{ isSaving ? 'Saving…' : 'Save theme' }}
           </button>
-          <button v-if="themeId" type="button" @click="remove">Delete</button>
+        </div>
+
+        <div class="layout">
+          <div class="stage">
+            <ThemePreview :look="look" />
+            <p class="faint">As it appears on the projector.</p>
+          </div>
+
+          <div class="sheet field-grid">
+            <label class="wide">
+              Name
+              <input
+                v-model="form.name"
+                required
+                maxlength="60"
+                data-testid="theme-name"
+              />
+            </label>
+            <label :class="{ wide: form.background !== 'solid' }">
+              Background
+              <select v-model="form.background" data-testid="theme-background">
+                <option
+                  v-for="background in themeBackgroundValues"
+                  :key="background"
+                  :value="background"
+                >
+                  {{ BACKGROUND_LABELS[background] }}
+                </option>
+              </select>
+            </label>
+            <label v-if="form.background === 'solid'">
+              Background colour
+              <input v-model="form.backgroundColor" type="color" />
+            </label>
+            <label>
+              Font
+              <select v-model="form.font" data-testid="theme-font">
+                <option
+                  v-for="font in themeFontValues"
+                  :key="font"
+                  :value="font"
+                >
+                  {{ FONT_LABELS[font] }}
+                </option>
+              </select>
+            </label>
+            <label>
+              Text colour
+              <input
+                v-model="form.textColor"
+                type="color"
+                data-testid="theme-text-colour"
+              />
+            </label>
+            <label>
+              Alignment
+              <select v-model="form.textAlign">
+                <option value="center">Centred</option>
+                <option value="left">Left</option>
+              </select>
+            </label>
+            <label>
+              <span class="scale-label">
+                Text size <span class="value">{{ form.textScale }}%</span>
+              </span>
+              <input
+                v-model.number="form.textScale"
+                type="range"
+                min="50"
+                max="200"
+                step="5"
+              />
+            </label>
+            <label class="inline wide check">
+              <input
+                v-model="form.isDefault"
+                type="checkbox"
+                data-testid="theme-default"
+              />
+              The church’s default theme
+            </label>
+          </div>
         </div>
       </form>
-      <p v-else class="muted">
-        A theme sets how slides look on the projector. Choose one, or create
-        one.
+      <div v-else class="empty">
+        <span class="empty-mark"><AppIcon name="themes" /></span>
+        <p>
+          A theme sets how slides look on the projector. Choose one, or create
+          one.
+        </p>
+      </div>
+      <p v-if="errorMessage" class="error" role="alert">
+        <AppIcon name="alert" />
+        <span>{{ errorMessage }}</span>
       </p>
-      <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
     </main>
   </div>
 </template>
 
 <style scoped>
-.panel {
-  display: grid;
-  grid-template-columns: 18rem 1fr;
-  height: 100%;
-  min-height: 0;
-}
-
-.list {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border-right: 1px solid var(--border);
-  overflow: hidden;
-}
-
-.list ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow: auto;
-}
-
-.list li {
-  padding: 0.45rem 0.5rem;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.list li.selected {
-  background: #e3ebf3;
-}
-
-.list li.empty {
-  cursor: default;
-}
-
-.content {
-  padding: 1rem 1.5rem;
-  overflow: auto;
-}
-
-.editor {
-  display: grid;
-  gap: 1rem;
-  max-width: 44rem;
-}
-
-.fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem 1rem;
-}
-
-.fields label {
-  display: grid;
-  gap: 0.25rem;
-}
-
-.fields label.check {
+.theme-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.wide {
-  grid-column: 1 / -1;
+.theme-item .item-title {
+  flex: 1;
+}
+
+.badge .icon {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.panel-content {
+  container-type: inline-size;
+}
+
+.layout {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 48rem;
+}
+
+.stage {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.stage p {
+  font-size: 0.75rem;
+}
+
+.stage :deep(.preview) {
+  box-shadow: var(--shadow);
+}
+
+/* Room for both: the preview stays in view beside the settings. */
+@container (min-width: 58rem) {
+  .layout {
+    max-width: none;
+    grid-template-columns: minmax(0, 1.35fr) minmax(19rem, 1fr);
+    align-items: start;
+  }
+
+  .stage {
+    position: sticky;
+    top: 0;
+  }
+}
+
+.scale-label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.value {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.check {
+  padding-top: 0.25rem;
+}
+
+.error {
+  margin-top: 1rem;
 }
 </style>

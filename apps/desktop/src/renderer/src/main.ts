@@ -1,4 +1,5 @@
 import './fonts.css';
+import './ui-fonts.css';
 import './style.css';
 
 import { createApp } from 'vue';

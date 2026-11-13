@@ -12,6 +12,7 @@ import type {
 import { formatReference } from '../../../shared/slides';
 import { messageOf } from '../errors';
 import AddToPlaylist from './AddToPlaylist.vue';
+import AppIcon from './AppIcon.vue';
 import BibleImport from './BibleImport.vue';
 
 const translations = ref<BibleTranslation[]>([]);
@@ -178,8 +179,11 @@ onUnmounted(() => unsubscribe?.());
 </script>
 
 <template>
-  <div class="bible">
-    <aside class="picker">
+  <div class="panel">
+    <aside class="panel-list">
+      <div class="panel-head">
+        <h1>Bible</h1>
+      </div>
       <select
         v-model="translationId"
         aria-label="Translation"
@@ -194,12 +198,12 @@ onUnmounted(() => unsubscribe?.());
           {{ translation.code }} — {{ translation.name }}
         </option>
       </select>
-      <div class="row">
+      <div class="reference">
         <select
           v-model="bookCode"
           aria-label="Book"
-          class="grow"
           data-testid="bible-book"
+          :disabled="books.length === 0"
         >
           <option v-for="item in books" :key="item.code" :value="item.code">
             {{ item.name }}
@@ -209,141 +213,194 @@ onUnmounted(() => unsubscribe?.());
           v-model="chapter"
           aria-label="Chapter"
           data-testid="bible-chapter"
+          :disabled="chapters.length === 0"
         >
           <option v-for="number in chapters" :key="number" :value="number">
             {{ number }}
           </option>
         </select>
       </div>
-      <input
-        v-model="search"
-        type="search"
-        placeholder="Search this translation"
-        data-testid="bible-search"
-        :disabled="translations.length === 0"
-      />
-      <ul class="results">
+      <div class="search-field">
+        <AppIcon name="search" />
+        <input
+          v-model="search"
+          type="search"
+          placeholder="Search this translation"
+          aria-label="Search this translation"
+          data-testid="bible-search"
+          :disabled="translations.length === 0"
+        />
+      </div>
+      <ul class="list">
         <li
           v-for="result in results"
           :key="`${result.bookCode}-${result.chapter}-${result.verse}`"
-          :data-testid="`bible-result-${result.bookCode}-${result.chapter}-${result.verse}`"
-          @click="openResult(result)"
         >
-          <strong
-            >{{ result.bookName }} {{ result.chapter }}:{{
-              result.verse
-            }}</strong
+          <button
+            class="list-item"
+            :data-testid="`bible-result-${result.bookCode}-${result.chapter}-${result.verse}`"
+            @click="openResult(result)"
           >
-          <span class="muted">{{ result.text }}</span>
+            <span class="item-title"
+              >{{ result.bookName }} {{ result.chapter }}:{{
+                result.verse
+              }}</span
+            >
+            <span class="item-sub">{{ result.text }}</span>
+          </button>
         </li>
       </ul>
-      <button data-testid="bible-import-open" @click="isImportShown = true">
+      <button
+        class="import-open"
+        data-testid="bible-import-open"
+        @click="isImportShown = true"
+      >
+        <AppIcon name="upload" />
         Import a translation…
       </button>
     </aside>
 
-    <main class="content">
+    <main class="panel-content">
       <BibleImport
         v-if="isImportShown"
         @imported="onImported"
         @close="isImportShown = false"
       />
       <template v-else-if="translations.length > 0">
-        <div class="row">
-          <h2 class="grow">
-            {{ selectionLabel ?? `${book?.name ?? ''} ${chapter}` }}
-          </h2>
-          <span class="muted"
-            >Click a verse; shift-click to select a range.</span
-          >
+        <div class="page-head">
+          <div class="titles">
+            <h2>
+              {{ selectionLabel ?? `${book?.name ?? ''} ${chapter}` }}
+            </h2>
+            <p>Click a verse; shift-click to select a range.</p>
+          </div>
           <AddToPlaylist :entry="passageEntry" />
           <button
-            class="live"
+            class="go-live"
             data-testid="bible-go-live"
             :disabled="selection.length === 0"
             @click="goLive"
           >
+            <AppIcon name="play" />
             Go live
           </button>
         </div>
+        <p v-if="errorMessage" class="error" role="alert">
+          <AppIcon name="alert" />
+          <span>{{ errorMessage }}</span>
+        </p>
         <ol class="verses">
-          <li
-            v-for="verse in verses"
-            :key="verse.verse"
-            :class="{ selected: selection.includes(verse) }"
-            :data-testid="`bible-verse-${verse.verse}`"
-            @click="chooseVerse(verse.verse, $event.shiftKey)"
-          >
-            <sup>{{ verse.verse }}</sup> {{ verse.text }}
+          <li v-for="verse in verses" :key="verse.verse">
+            <button
+              class="verse"
+              :aria-pressed="selection.includes(verse)"
+              :data-testid="`bible-verse-${verse.verse}`"
+              @click="chooseVerse(verse.verse, $event.shiftKey)"
+            >
+              <sup>{{ verse.verse }}</sup>
+              <span>{{ verse.text }}</span>
+            </button>
           </li>
         </ol>
       </template>
-      <p v-else class="muted" data-testid="bible-empty">
-        There is no Bible on this laptop yet. Once a translation is imported on
-        the church server, it arrives with the next synchronisation.
+      <div v-else class="empty">
+        <span class="empty-mark"><AppIcon name="bible" /></span>
+        <p data-testid="bible-empty">
+          There is no Bible on this laptop yet. Once a translation is imported
+          on the church server, it arrives with the next synchronisation.
+        </p>
+      </div>
+      <p
+        v-if="errorMessage && translations.length === 0"
+        class="error"
+        role="alert"
+      >
+        <AppIcon name="alert" />
+        <span>{{ errorMessage }}</span>
       </p>
-      <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
     </main>
   </div>
 </template>
 
 <style scoped>
-.bible {
-  display: grid;
-  grid-template-columns: 18rem 1fr;
-  height: 100%;
-  min-height: 0;
+.import-open {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-muted);
 }
 
-.picker {
+.import-open:hover:not(:disabled) {
+  border-style: dashed;
+  color: var(--text);
+}
+
+.reference {
   display: grid;
-  grid-template-rows: auto auto auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr) 4.75rem;
   gap: 0.5rem;
-  padding: 0.75rem;
-  border-right: 1px solid var(--border);
-  overflow: hidden;
 }
 
-.grow {
-  flex: 1;
+.list .item-sub {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
-.results,
+.error {
+  margin-bottom: 1rem;
+}
+
 .verses {
-  list-style: none;
+  display: grid;
+  gap: 1px;
+  max-width: 46rem;
   margin: 0;
   padding: 0;
-  overflow: auto;
+  list-style: none;
 }
 
-.results li {
-  display: grid;
-  gap: 0.15rem;
-  padding: 0.45rem 0.5rem;
-  border-radius: 6px;
-  cursor: pointer;
+.verse {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.7;
+  text-align: left;
+  white-space: normal;
 }
 
-.results li span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.verse:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: transparent;
 }
 
-.content {
-  padding: 1rem 1.5rem;
-  overflow: auto;
+.verse:active:not(:disabled) {
+  transform: none;
 }
 
-.verses li {
-  padding: 0.35rem 0.5rem;
-  border-radius: 6px;
-  cursor: pointer;
-  line-height: 1.5;
+.verse[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: rgb(139 108 255 / 0.3);
 }
 
-.verses li.selected,
-.results li:hover {
-  background: #e3ebf3;
+.verse sup {
+  margin-right: 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  vertical-align: 0.45em;
+  line-height: 0;
+}
+
+.verse[aria-pressed='true'] sup {
+  color: #c9bcff;
 }
 </style>

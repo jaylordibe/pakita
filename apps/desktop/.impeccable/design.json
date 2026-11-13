@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-13T05:52:27+00:00",
+  "title": "Design System: Pakita Desktop",
+  "extensions": {
+    "colorMeta": {
+      "brand-violet": {
+        "role": "primary",
+        "displayName": "Brand Violet"
+      },
+      "brand-indigo": {
+        "role": "primary",
+        "displayName": "Brand Indigo"
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Stage Violet"
+      },
+      "brand-cyan": {
+        "role": "tertiary",
+        "displayName": "Brand Cyan"
+      },
+      "live": {
+        "role": "secondary",
+        "displayName": "On-Air Red"
+      },
+      "live-solid": {
+        "role": "secondary",
+        "displayName": "On-Air Red (solid)"
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Booth Black"
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Console"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Panel"
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "Raised Panel"
+      },
+      "field": {
+        "role": "neutral",
+        "displayName": "Well"
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline"
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Edge"
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Paper White"
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Hymnal Grey"
+      },
+      "text-faint": {
+        "role": "neutral",
+        "displayName": "Faint"
+      }
+    },
+    "typographyMeta": {
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "The \"Pakita\" wordmark only."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Sign-in screen titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "The selected item in a detail area."
+      },
+      "subtitle": {
+        "displayName": "Subtitle",
+        "purpose": "Form-section headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Everything else."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-sm",
+        "value": "var(--shadow-sm)",
+        "purpose": "Minimal lift."
+      },
+      {
+        "name": "shadow",
+        "value": "var(--shadow)",
+        "purpose": "The theme preview."
+      },
+      {
+        "name": "shadow-lg",
+        "value": "var(--shadow-lg)",
+        "purpose": "The sign-in card."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "var(--ease-out)",
+        "purpose": "Every state transition, 120–240 ms."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "icon-rail",
+        "value": "1100px"
+      },
+      {
+        "name": "compact-dock",
+        "value": "1000px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Go Live Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The primary action: violet → indigo gradient with a play icon.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M7.5 4.8v14.4a.8.8 0 0 0 1.2.7l11.3-7.2a.8.8 0 0 0 0-1.4L8.7 4.1a.8.8 0 0 0-1.2.7z\" fill=\"currentColor\"/></svg> Go live</button>",
+      "css": ".ds-btn-primary{font:500 0.85rem var(--font-ui);display:inline-flex;align-items:center;gap:0.45rem;height:var(--control-height);padding:0 0.85rem;border-radius:var(--radius);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),filter 160ms var(--ease-out);border:1px solid transparent;color:#fff;font-weight:600;background:var(--action-gradient);box-shadow:inset 0 1px 0 rgb(255 255 255 / 0.18),0 6px 18px -8px rgb(98 72 255 / 0.9);}.ds-btn-primary:hover{filter:brightness(1.1);}.ds-btn-primary:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}"
+    },
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "The default action on a Raised Panel.",
+      "html": "<button class=\"ds-btn\">Edit</button>",
+      "css": ".ds-btn{font:500 0.85rem var(--font-ui);display:inline-flex;align-items:center;gap:0.45rem;height:var(--control-height);padding:0 0.85rem;border-radius:var(--radius);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),filter 160ms var(--ease-out);border:1px solid var(--border);color:var(--text);background:var(--surface-raised);}.ds-btn:hover{background:var(--surface-hover);border-color:var(--border-strong);}.ds-btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary and icon-only actions.",
+      "html": "<button class=\"ds-btn-ghost\">Re-download all</button>",
+      "css": ".ds-btn-ghost{font:500 0.85rem var(--font-ui);display:inline-flex;align-items:center;gap:0.45rem;height:var(--control-height);padding:0 0.85rem;border-radius:var(--radius);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),filter 160ms var(--ease-out);border:1px solid transparent;color:var(--text-muted);background:transparent;}.ds-btn-ghost:hover{background:var(--surface-hover);color:var(--text);}.ds-btn-ghost:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}"
+    },
+    {
+      "name": "On-Air Button",
+      "kind": "button",
+      "refersTo": "button-on-air",
+      "description": "Blackout while active — the only red button.",
+      "html": "<button class=\"ds-btn-on-air\">Show</button>",
+      "css": ".ds-btn-on-air{font:500 0.85rem var(--font-ui);display:inline-flex;align-items:center;gap:0.45rem;height:var(--control-height);padding:0 0.85rem;border-radius:var(--radius);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),filter 160ms var(--ease-out);border:1px solid transparent;color:#fff;background:var(--live-solid);}.ds-btn-on-air:hover{background:#e5384f;}.ds-btn-on-air:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A recessed Well with a violet focus ring.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search songs\" />",
+      "css": ".ds-input{font:0.875rem var(--font-ui);height:var(--control-height);padding:0 0.7rem;color:var(--text);background:var(--field);border:1px solid var(--border);border-radius:var(--radius);transition:border-color 160ms var(--ease-out),box-shadow 160ms var(--ease-out);}.ds-input::placeholder{color:var(--text-faint);}.ds-input:hover{border-color:var(--border-strong);}.ds-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgb(139 108 255 / 0.22);}"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Icon and label; the current section is a filled violet pill.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item\" aria-current=\"page\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9 18V5.5l11-2.5v12.5\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><circle cx=\"17\" cy=\"15.5\" r=\"3\"/></svg> Songs</a><a class=\"ds-nav-item\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2.5 4.5H8a4 4 0 0 1 4 4V21a3 3 0 0 0-3-3H2.5z\"/><path d=\"M21.5 4.5H16a4 4 0 0 0-4 4V21a3 3 0 0 1 3-3h6.5z\"/></svg> Bible</a></nav>",
+      "css": ".ds-nav{display:grid;gap:0.2rem;width:13rem;padding:0.5rem;background:var(--bg);}.ds-nav-item{display:flex;align-items:center;gap:0.75rem;height:2.5rem;padding:0 0.75rem;border-radius:var(--radius);font:500 0.9rem var(--font-ui);color:var(--text-muted);cursor:pointer;}.ds-nav-item:hover{background:var(--surface);color:var(--text);}.ds-nav-item[aria-current=page]{color:#fff;background:linear-gradient(135deg,rgb(122 77 255 / 0.9),rgb(77 98 255 / 0.75));box-shadow:inset 0 1px 0 rgb(255 255 255 / 0.14),0 8px 20px -10px rgb(98 72 255 / 0.95);}"
+    },
+    {
+      "name": "List Row",
+      "kind": "custom",
+      "refersTo": "list-item-selected",
+      "description": "Title and muted subline; current row tinted violet.",
+      "html": "<div class=\"ds-list\"><button class=\"ds-row\" aria-current=\"true\"><span>Amazing Grace</span><small>John Newton</small></button><button class=\"ds-row\"><span>In Christ Alone</span><small>Keith Getty</small></button></div>",
+      "css": ".ds-list{display:grid;gap:2px;width:16rem;padding:0.5rem;background:var(--canvas);}.ds-row{display:grid;gap:0.1rem;text-align:left;padding:0.55rem 0.7rem;border:1px solid transparent;border-radius:var(--radius);background:transparent;color:var(--text);font:500 0.875rem var(--font-ui);cursor:pointer;}.ds-row small{font-size:0.78rem;font-weight:400;color:var(--text-muted);}.ds-row:hover{background:var(--surface);}.ds-row[aria-current=true]{background:var(--accent-soft);border-color:rgb(139 108 255 / 0.28);}"
+    },
+    {
+      "name": "Live Pill",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "The on-air marker in the live dock.",
+      "html": "<span class=\"ds-live\"><span class=\"ds-dot\"></span>Live</span>",
+      "css": ".ds-live{display:inline-flex;align-items:center;gap:0.4rem;height:1.5rem;padding:0 0.6rem;border-radius:999px;font:700 0.68rem var(--font-ui);letter-spacing:0.08em;text-transform:uppercase;color:#fff;background:var(--live-solid);}.ds-dot{width:0.45rem;height:0.45rem;border-radius:50%;background:#fff;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Booth by Stage Light",
+    "overview": "Pakita's operator sits in a dim booth at the back of the sanctuary, beside a projector, during a live service. The interface is the dark booth: indigo-black surfaces, quiet text, nothing that glows for its own sake. The brand's stage light — the violet → indigo → cyan of the mark (`src/renderer/src/assets/pakita-mark.png`) — falls only on what the operator must act on: the current selection, the next action, and the on-air state.\n\nThe feel is calm and precise. Surfaces are flat and closely stepped; alignment is exact; density is that of a desktop tool, not a web page. One sans family carries the whole interface. The only expressive moments are the brand mark and wordmark, the stage-light glow behind the sign-in card, and the live dock when something is on screen.\n\nThe projector output is not part of this system: it is drawn by each church's theme (`src/shared/theme-look.ts`).",
+    "keyCharacteristics": [
+      "Dark-only, indigo-tinted neutrals; never neutral grey.",
+      "Colour is spent on selection, the primary action and the live state — nothing else.",
+      "A left sidebar for the four content areas, a list column, a detail area, and a live dock that is always present.",
+      "Hand-drawn line icons on one 24-unit grid with a 1.75 stroke.",
+      "State transitions of 120–240 ms on an exponential ease-out; no entrance choreography inside the app."
+    ],
+    "rules": [
+      {
+        "name": "The Stage Light Rule",
+        "body": "Brand colour lands on at most three things per screen: the current selection, the primary action, and (when live) the on-air state. Everything else stays in the neutrals.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Red Rule",
+        "body": "Red is reserved for \"on air\". Errors and destructive actions use `danger` (a pinker red, always as text or a soft tint), never `live-solid`.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Slide numbers, verse numbers, positions and percentages use tabular numerals.",
+        "section": "typography"
+      },
+      {
+        "name": "The Recessed Field Rule",
+        "body": "Inputs are darker than the surface they sit on; panels are lighter. Never invert this.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do take every colour, radius and easing from the `:root` tokens in `style.css`.",
+      "Do draw icons with `AppIcon` (24-unit grid, 1.75 stroke, round caps).",
+      "Do give every icon-only button an accessible name.",
+      "Do keep slide previews 16:9 and draw themed previews with `ThemePreview`, which shares the projector's drawing."
+    ],
+    "donts": [
+      "Don't use Unicode glyphs or emoji as icons.",
+      "Don't put white text on the cyan end of the brand gradient.",
+      "Don't use red for anything that is not on air.",
+      "Don't use gradient text, glass, or coloured left borders on rows or cards.",
+      "Don't add a light theme without a design decision: the booth is dark."
+    ]
+  }
+}

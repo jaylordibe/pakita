@@ -6,7 +6,7 @@ import { defineConfig } from 'vitest/config';
 // the Playwright tests in test/e2e, which run the real app.
 export default defineConfig({
   test: {
-    include: ['src/**/*.spec.ts'],
+    include: ['src/**/*.spec.ts', 'scripts/**/*.spec.ts'],
     environment: 'node',
   },
 });

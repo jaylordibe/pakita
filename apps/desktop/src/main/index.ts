@@ -379,7 +379,12 @@ function createOperatorWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
     height: 800,
+    minWidth: 900,
+    minHeight: 600,
     title: 'Pakita',
+    // The interface's darkest surface (--bg in the renderer's style.css), so
+    // the window never flashes white before the page paints.
+    backgroundColor: '#0b0a18',
     show: false,
     webPreferences: createSecureWebPreferences(
       join(__dirname, '../preload/index.js'),

@@ -137,6 +137,18 @@ test/fixtures/ shared test data (a tiny USFM translation)
   have already run every migration that shipped. A database written by a
   newer app version is refused, not modified.
 
+## Interface design
+
+- **The operator interface follows [`DESIGN.md`](DESIGN.md)** ("The Booth by
+  Stage Light": dark, indigo-tinted, brand colour only on the selection, the
+  primary action and the on-air state). Its tokens and shared controls live
+  once, in `src/renderer/src/style.css`; components keep only what is
+  particular to them. Icons are drawn with `AppIcon`, never Unicode glyphs.
+- **DESIGN.md's colours and radii are checked against `style.css`**
+  (`scripts/design-tokens.spec.ts`, part of `pnpm test`). Change the CSS
+  first, then DESIGN.md. `.impeccable/design.json` is generated from both by
+  `/impeccable document`; regenerate it rather than editing it.
+
 ## Testing notes
 
 - better-sqlite3 ships Node-API binaries, which load under plain Node and

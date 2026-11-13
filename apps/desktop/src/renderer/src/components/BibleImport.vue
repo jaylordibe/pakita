@@ -6,6 +6,7 @@ import type {
   BibleImportProgress,
 } from '../../../shared/ipc-contract';
 import { messageOf } from '../errors';
+import AppIcon from './AppIcon.vue';
 
 const emit = defineEmits<{ imported: []; close: [] }>();
 
@@ -63,37 +64,51 @@ onUnmounted(() => unsubscribe?.());
 </script>
 
 <template>
-  <section class="card import" data-testid="bible-import">
-    <div class="row">
-      <h2 class="grow">Import a Bible translation</h2>
-      <button :disabled="isImporting" @click="emit('close')">Close</button>
+  <section class="import" data-testid="bible-import">
+    <div class="page-head">
+      <div class="titles">
+        <h2>Import a Bible translation</h2>
+      </div>
+      <button class="ghost" :disabled="isImporting" @click="emit('close')">
+        <AppIcon name="x" />
+        Close
+      </button>
     </div>
-    <p class="muted">
+    <p class="intro muted">
       Choose a folder of USFM files (for example, an unzipped download from
       eBible.org). The translation is published to everyone in this church once
       it has been imported. Only import a translation its licence lets you
       share.
     </p>
-    <div class="row">
+
+    <div class="sheet source">
       <button
         data-testid="bible-import-choose"
         :disabled="isImporting"
         @click="chooseFolder"
       >
+        <AppIcon name="folder" />
         Choose folder…
       </button>
-      <span v-if="preview" class="muted" data-testid="bible-import-preview">
-        {{ preview.folderName }}: {{ preview.bookCount }} books ({{
-          preview.firstBook
-        }}
-        to {{ preview.lastBook }}), {{ preview.verseCount }} verses
-        <template v-if="preview.skippedCodes.length > 0">
-          — left out: {{ preview.skippedCodes.join(', ') }}
-        </template>
+      <span
+        v-if="preview"
+        class="source-summary"
+        data-testid="bible-import-preview"
+      >
+        <AppIcon name="check" class="ok" />
+        <span>
+          {{ preview.folderName }}: {{ preview.bookCount }} books ({{
+            preview.firstBook
+          }}
+          to {{ preview.lastBook }}), {{ preview.verseCount }} verses
+          <template v-if="preview.skippedCodes.length > 0">
+            — left out: {{ preview.skippedCodes.join(', ') }}
+          </template>
+        </span>
       </span>
     </div>
 
-    <form v-if="preview" class="fields" @submit.prevent="submit">
+    <form v-if="preview" class="sheet field-grid" @submit.prevent="submit">
       <label>
         Code
         <input
@@ -154,13 +169,14 @@ onUnmounted(() => unsubscribe?.());
           placeholder="https://ebible.org/…"
         />
       </label>
-      <div class="row wide">
+      <div class="row wide submit">
         <button
           class="primary"
           type="submit"
           :disabled="isImporting"
           data-testid="bible-import-submit"
         >
+          <AppIcon name="upload" />
           {{ isImporting ? 'Importing…' : 'Import and publish' }}
         </button>
         <progress
@@ -174,39 +190,52 @@ onUnmounted(() => unsubscribe?.());
         </span>
       </div>
     </form>
-    <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
+    <p v-if="errorMessage" class="error" role="alert">
+      <AppIcon name="alert" />
+      <span>{{ errorMessage }}</span>
+    </p>
   </section>
 </template>
 
 <style scoped>
 .import {
   display: grid;
-  gap: 0.75rem;
+  gap: 1rem;
+  max-width: 46rem;
 }
 
-.fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem 1rem;
+.import .page-head {
+  margin-bottom: 0;
 }
 
-.fields label {
-  display: grid;
-  gap: 0.25rem;
+.intro {
+  max-width: 65ch;
+  line-height: 1.6;
 }
 
-.wide {
-  grid-column: 1 / -1;
+.source {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
 }
 
-.grow {
-  flex: 1;
+.source-summary {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  flex: 1 1 16rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
 }
 
-textarea {
-  font: inherit;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.ok {
+  margin-top: 0.1rem;
+  color: var(--success);
+}
+
+.submit {
+  padding-top: 0.25rem;
+  gap: 0.85rem;
 }
 </style>

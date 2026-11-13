@@ -7,6 +7,8 @@ import type {
   LiveState,
 } from '../../shared/ipc-contract';
 import { DEFAULT_THEME_LOOK } from '../../shared/theme-look';
+import pakitaMark from './assets/pakita-mark.png';
+import AppIcon from './components/AppIcon.vue';
 import LivePanel from './components/LivePanel.vue';
 import ConnectView from './views/ConnectView.vue';
 import MainView from './views/MainView.vue';
@@ -93,12 +95,25 @@ onUnmounted(() => {
 <template>
   <div class="app">
     <p v-if="update" class="update" role="status" data-testid="update-banner">
-      Pakita {{ update.version }} is available.
-      <button @click="openUpdate">Download</button>
-      <button aria-label="Dismiss" @click="update = null">✕</button>
+      <AppIcon name="sparkle" class="update-icon" />
+      <span class="grow">Pakita {{ update.version }} is available.</span>
+      <button class="sm primary" @click="openUpdate">
+        <AppIcon name="download" />
+        Download
+      </button>
+      <button
+        class="sm ghost icon-only"
+        aria-label="Dismiss"
+        @click="update = null"
+      >
+        <AppIcon name="x" />
+      </button>
     </p>
     <div class="screen">
-      <p v-if="screen === 'loading'" class="muted card">Loading…</p>
+      <div v-if="screen === 'loading'" class="loading">
+        <img :src="pakitaMark" alt="" width="56" height="56" />
+        <p class="muted">Loading…</p>
+      </div>
       <ConnectView
         v-else-if="screen === 'connect'"
         :initial-address="state?.serverOrigin ?? null"
@@ -137,21 +152,49 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background: var(--bg);
 }
 
 .update {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0.4rem 1rem;
-  background: #e3ebf3;
+  gap: 0.6rem;
+  padding: 0.45rem 0.75rem 0.45rem 1rem;
+  font-weight: 500;
+  color: var(--text);
+  background:
+    linear-gradient(90deg, rgb(122 77 255 / 0.22), rgb(34 211 238 / 0.1)),
+    var(--canvas);
   border-bottom: 1px solid var(--border);
+}
+
+.update-icon {
+  color: var(--brand-cyan);
 }
 
 .screen {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+.loading {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1rem;
+}
+
+.loading img {
+  animation: breathe 1.6s var(--ease-out) infinite alternate;
+  filter: drop-shadow(0 12px 28px rgb(98 72 255 / 0.55));
+}
+
+@keyframes breathe {
+  from {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
 }
 </style>

@@ -1,0 +1,11 @@
+/* The operator interface's own type, separate from the theme fonts
+   (fonts.css). Inter for the interface, Nunito's heaviest cut for the
+   wordmark — both already bundled under SIL OFL 1.1, so nothing loads
+   from the network and no new licence ships. */
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-ext-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-ext-500.css';
+@import '@fontsource/inter/latin-700.css';
+@import '@fontsource/inter/latin-ext-700.css';
+@import '@fontsource/nunito/latin-800.css';
