@@ -219,7 +219,11 @@ test('reorders a song’s arrangement by dragging its chips', async () => {
   await operator.getByTestId('library-song-Amazing Grace').click();
   await operator.getByRole('button', { name: 'Edit', exact: true }).click();
   await operator.getByRole('button', { name: 'Add section' }).click();
-  await operator.getByTestId('section-label-1').fill('Chorus');
+  // A new section is named after its kind, counting those already there…
+  await expect(operator.getByTestId('section-label-1')).toHaveValue('Verse 2');
+  // …and follows a change of kind while it keeps that name.
+  await operator.getByTestId('section-kind-1').selectOption('chorus');
+  await expect(operator.getByTestId('section-label-1')).toHaveValue('Chorus 1');
   await operator.getByTestId('section-lyrics-1').fill('My chains are gone');
   await expect(operator.getByTestId('arrangement-0-chip-1')).toContainText(
     'Chorus',
@@ -251,5 +255,5 @@ test('reorders a song’s arrangement by dragging its chips', async () => {
       .find((entry) => entry.isDefault)!
       .sectionIds.map(labelOf);
   };
-  await expect.poll(savedOrder).toEqual(['Chorus', 'Verse 1']);
+  await expect.poll(savedOrder).toEqual(['Chorus 1', 'Verse 1']);
 });

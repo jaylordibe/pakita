@@ -2,11 +2,14 @@
 import { computed, reactive, ref } from 'vue';
 
 import type { Song, SongInput } from '../../../shared/ipc-contract';
+import {
+  automaticLabel,
+  isAutomaticLabel,
+  type SectionKind,
+} from '../../../shared/song-sections';
 import { focusFirstEnabled, moveItem, useDragReorder } from '../drag-reorder';
 import { messageOf } from '../errors';
 import AppIcon from './AppIcon.vue';
-
-type SectionKind = SongInput['sections'][number]['kind'];
 
 interface EditableSection {
   key: string;
@@ -44,7 +47,14 @@ const sections = reactive<EditableSection[]>(
     kind: section.kind,
     label: section.label,
     lyrics: section.lyrics,
-  })) ?? [{ key: nextKey(), kind: 'verse', label: 'Verse 1', lyrics: '' }],
+  })) ?? [
+    {
+      key: nextKey(),
+      kind: 'verse',
+      label: automaticLabel('verse', []),
+      lyrics: '',
+    },
+  ],
 );
 const arrangements = reactive<EditableArrangement[]>(
   props.song?.arrangements.map((arrangement) => ({
@@ -83,11 +93,26 @@ function addSection(): void {
   const section: EditableSection = {
     key: nextKey(),
     kind: 'verse',
-    label: `Section ${sections.length + 1}`,
+    label: automaticLabel('verse', sections),
     lyrics: '',
   };
   sections.push(section);
   arrangements[defaultIndex.value]?.sectionKeys.push(section.key);
+}
+
+/**
+ * Changes a section's kind. A name still given automatically ("Verse 2")
+ * follows the new kind ("Chorus 1"); a name the person typed is kept.
+ */
+function changeKind(section: EditableSection, event: Event): void {
+  const kind = (event.target as HTMLSelectElement).value as SectionKind;
+  if (isAutomaticLabel(section.label, section.kind)) {
+    section.label = automaticLabel(
+      kind,
+      sections.filter((other) => other.key !== section.key),
+    );
+  }
+  section.kind = kind;
 }
 
 function removeSection(index: number): void {
@@ -218,7 +243,13 @@ async function save(): Promise<void> {
         class="sheet section"
       >
         <div class="section-head">
-          <select v-model="section.kind" class="kind" aria-label="Section kind">
+          <select
+            :value="section.kind"
+            class="kind"
+            aria-label="Section kind"
+            :data-testid="`section-kind-${index}`"
+            @change="changeKind(section, $event)"
+          >
             <option v-for="kind in SECTION_KINDS" :key="kind" :value="kind">
               {{ kind }}
             </option>
