@@ -12,6 +12,7 @@ import {
   roleLabel,
 } from '../../../shared/role-labels';
 import { messageOf } from '../errors';
+import { useServerList } from '../server-list';
 import AppIcon from './AppIcon.vue';
 import IssuedSecret from './IssuedSecret.vue';
 
@@ -20,12 +21,14 @@ import IssuedSecret from './IssuedSecret.vue';
 // person replaces at their first sign-in. A forgotten password is replaced
 // the same way. Each account shows what it belongs to: the server's staff
 // hold platform roles; everyone else belongs to churches, or to none yet.
+// The list is searched and paged on the server.
 
 const limits = apiConstraints.CreateUserDto;
 
-const accounts = ref<ListedAccount[]>([]);
-const search = ref('');
-const selectedId = ref<string | null>(null);
+const people = useServerList((query) => window.pakita.accounts.list(query));
+const { search, items: accounts, hasMore, isLoading } = people;
+/** Kept apart from the list: a new search must not close the open account. */
+const selected = ref<ListedAccount | null>(null);
 const isCreating = ref(false);
 const isBusy = ref(false);
 const errorMessage = ref<string | null>(null);
@@ -34,40 +37,20 @@ const issued = ref<IssuedPassword | null>(null);
 const blank = () => ({ email: '', username: '', firstName: '', lastName: '' });
 const form = reactive(blank());
 
-const visibleAccounts = computed(() => {
-  const term = search.value.trim().toLowerCase();
-  if (!term) return accounts.value;
-  return accounts.value.filter((account) =>
-    [account.displayName, account.email, account.username ?? '']
-      .join(' ')
-      .toLowerCase()
-      .includes(term),
-  );
-});
-
-const selected = computed(
-  () =>
-    accounts.value.find((account) => account.id === selectedId.value) ?? null,
+const shownError = computed(
+  () => errorMessage.value ?? people.errorMessage.value,
 );
-
-async function load(): Promise<void> {
-  try {
-    accounts.value = await window.pakita.accounts.list();
-  } catch (error) {
-    errorMessage.value = messageOf(error);
-  }
-}
 
 function startNew(): void {
   Object.assign(form, blank());
-  selectedId.value = null;
+  selected.value = null;
   issued.value = null;
   errorMessage.value = null;
   isCreating.value = true;
 }
 
-function open(accountId: string): void {
-  selectedId.value = accountId;
+function open(account: ListedAccount): void {
+  selected.value = account;
   isCreating.value = false;
   issued.value = null;
   errorMessage.value = null;
@@ -84,8 +67,13 @@ async function create(): Promise<void> {
       lastName: form.lastName.trim(),
     });
     isCreating.value = false;
-    selectedId.value = issued.value.account.id;
-    await load();
+    // Just created: it belongs to nothing yet.
+    selected.value = {
+      ...issued.value.account,
+      platformRoles: [],
+      churches: [],
+    };
+    await people.reload();
   } catch (error) {
     errorMessage.value = messageOf(error);
   } finally {
@@ -94,14 +82,14 @@ async function create(): Promise<void> {
 }
 
 async function resetPassword(): Promise<void> {
-  if (!selected.value) return;
+  const account = selected.value;
+  if (!account) return;
   errorMessage.value = null;
   isBusy.value = true;
   try {
-    issued.value = await window.pakita.accounts.resetPassword(
-      selected.value.id,
-    );
-    await load();
+    issued.value = await window.pakita.accounts.resetPassword(account.id);
+    selected.value = { ...account, ...issued.value.account };
+    await people.reload();
   } catch (error) {
     errorMessage.value = messageOf(error);
   } finally {
@@ -109,7 +97,7 @@ async function resetPassword(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => void people.reload());
 </script>
 
 <template>
@@ -132,12 +120,12 @@ onMounted(load);
         />
       </div>
       <ul class="list">
-        <li v-for="account in visibleAccounts" :key="account.id">
+        <li v-for="account in accounts" :key="account.id">
           <button
             class="list-item"
-            :aria-current="account.id === selectedId ? 'true' : undefined"
+            :aria-current="account.id === selected?.id ? 'true' : undefined"
             :data-testid="`account-${account.email}`"
-            @click="open(account.id)"
+            @click="open(account)"
           >
             <span class="item-title">{{ account.displayName }}</span>
             <span class="item-sub">{{ account.email }}</span>
@@ -153,8 +141,18 @@ onMounted(load);
             >
           </button>
         </li>
-        <li v-if="visibleAccounts.length === 0" class="list-empty">
-          {{ search ? 'Nobody matches.' : 'No accounts yet.' }}
+        <li v-if="accounts.length === 0 && !isLoading" class="list-empty">
+          {{ search.trim() ? 'Nobody matches.' : 'No accounts yet.' }}
+        </li>
+        <li v-if="hasMore">
+          <button
+            class="ghost sm list-more"
+            :disabled="isLoading"
+            data-testid="accounts-show-more"
+            @click="people.loadMore"
+          >
+            {{ isLoading ? 'Loading…' : 'Show more' }}
+          </button>
         </li>
       </ul>
     </aside>
@@ -289,9 +287,9 @@ onMounted(load);
         @done="issued = null"
       />
 
-      <p v-if="errorMessage" class="error" role="alert">
+      <p v-if="shownError" class="error" role="alert">
         <AppIcon name="alert" />
-        <span>{{ errorMessage }}</span>
+        <span>{{ shownError }}</span>
       </p>
     </main>
   </div>

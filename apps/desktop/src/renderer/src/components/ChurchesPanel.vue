@@ -2,50 +2,84 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import { apiConstraints } from '../../../shared/api/constraints';
-import type { WorkspaceSummary } from '../../../shared/ipc-contract';
+import type {
+  ChurchOwner,
+  ListedAccount,
+  WorkspaceSummary,
+} from '../../../shared/ipc-contract';
 import { messageOf } from '../errors';
+import { useServerList } from '../server-list';
+import AccountPicker from './AccountPicker.vue';
 import AppIcon from './AppIcon.vue';
 
 // Every church on the server, for its administrator. The administrator never
 // joins a church: a new church is owned by an existing account named here,
 // and that owner runs it — its people, songs and services. When an owner's
-// account is lost, or they leave, the administrator names a new one.
+// account is lost, or they leave, the administrator names a new one. Owners
+// are chosen from the server's accounts, searched on the server as the
+// administrator types: only an active account outside the server's staff can
+// own a church. The list itself is searched and paged on the server.
 
 const nameLimits = apiConstraints.CreateWorkspaceDto.name;
 
-const churches = ref<WorkspaceSummary[]>([]);
-const search = ref('');
-const selectedId = ref<string | null>(null);
+const OWNER_ROLE = 'workspace_owner';
+
+const churchList = useServerList((query) =>
+  window.pakita.workspaces.browse(query),
+);
+const { search, items: churches, hasMore, isLoading } = churchList;
+/** Kept apart from the list: a new search must not close the open church. */
+const selected = ref<WorkspaceSummary | null>(null);
+const selectedId = computed(() => selected.value?.id ?? null);
+const currentOwner = ref<ChurchOwner | null>(null);
+const isOwnerLoading = ref(false);
 const isCreating = ref(false);
 const isBusy = ref(false);
 const errorMessage = ref<string | null>(null);
 const notice = ref<string | null>(null);
 
-const newChurch = reactive({ name: '', ownerEmail: '' });
+const newChurch = reactive<{ name: string; owner: ListedAccount | null }>({
+  name: '',
+  owner: null,
+});
 const renameTo = ref('');
-const newOwnerEmail = ref('');
+const newOwner = ref<ListedAccount | null>(null);
+/** Remounts the new-owner picker, clearing what was typed. */
+const newOwnerPickerKey = ref(0);
 /** Deleting asks once more, on the same button. */
 const isDeleteArmed = ref(false);
 
-const visibleChurches = computed(() => {
-  const term = search.value.trim().toLowerCase();
-  if (!term) return churches.value;
-  return churches.value.filter((church) =>
-    `${church.name} ${church.slug}`.toLowerCase().includes(term),
-  );
-});
-
-const selected = computed(
-  () => churches.value.find((church) => church.id === selectedId.value) ?? null,
+const shownError = computed(
+  () => errorMessage.value ?? churchList.errorMessage.value,
 );
 
-async function load(): Promise<void> {
+const searchPossibleOwners = (term: string) =>
+  window.pakita.workspaces.searchPossibleOwners(term);
+
+/** Who may not take over the selected church: its owner, or someone suspended in it. */
+function isExcludedAsNewOwner(account: ListedAccount): boolean {
+  const churchId = selectedId.value;
+  const membership = account.churches.find((church) => church.id === churchId);
+  return (
+    account.id === currentOwner.value?.id ||
+    membership?.roleName === OWNER_ROLE ||
+    membership?.isSuspended === true
+  );
+}
+
+/** Looks up the selected church's owner on the server. */
+async function loadOwner(): Promise<void> {
+  const churchId = selectedId.value;
+  currentOwner.value = null;
+  if (!churchId) return;
+  isOwnerLoading.value = true;
   try {
-    churches.value = (await window.pakita.workspaces.list()).sort(
-      (first, second) => first.name.localeCompare(second.name),
-    );
+    const owner = await window.pakita.workspaces.getOwner(churchId);
+    if (selectedId.value === churchId) currentOwner.value = owner;
   } catch (error) {
     errorMessage.value = messageOf(error);
+  } finally {
+    if (selectedId.value === churchId) isOwnerLoading.value = false;
   }
 }
 
@@ -57,17 +91,23 @@ function reset(): void {
 
 function startNew(): void {
   reset();
-  Object.assign(newChurch, { name: '', ownerEmail: '' });
-  selectedId.value = null;
+  Object.assign(newChurch, { name: '', owner: null });
+  selected.value = null;
   isCreating.value = true;
 }
 
 function open(church: WorkspaceSummary): void {
   reset();
-  selectedId.value = church.id;
+  selected.value = church;
   isCreating.value = false;
   renameTo.value = church.name;
-  newOwnerEmail.value = '';
+  clearNewOwner();
+  void loadOwner();
+}
+
+function clearNewOwner(): void {
+  newOwner.value = null;
+  newOwnerPickerKey.value += 1;
 }
 
 /** Runs one server action, showing its error or `success` when it finishes. */
@@ -81,7 +121,7 @@ async function act(
   try {
     await action();
     notice.value = success;
-    await load();
+    await Promise.all([churchList.reload(), loadOwner()]);
   } catch (error) {
     errorMessage.value = messageOf(error);
   } finally {
@@ -90,34 +130,38 @@ async function act(
 }
 
 async function create(): Promise<void> {
-  const ownerEmail = newChurch.ownerEmail.trim();
+  const owner = newChurch.owner;
+  if (!owner) return;
   await act(async () => {
     const church = await window.pakita.workspaces.create({
       name: newChurch.name.trim(),
-      ownerEmail,
+      ownerEmail: owner.email,
     });
     isCreating.value = false;
-    selectedId.value = church.id;
+    selected.value = church;
     renameTo.value = church.name;
-  }, `Created. ${ownerEmail} owns it and can now open it in Pakita.`);
+  }, `Created. ${owner.displayName} (${owner.email}) owns it and can now open it in Pakita.`);
 }
 
 async function rename(): Promise<void> {
   const church = selected.value;
   if (!church) return;
   await act(async () => {
-    await window.pakita.workspaces.rename(church.id, renameTo.value.trim());
+    selected.value = await window.pakita.workspaces.rename(
+      church.id,
+      renameTo.value.trim(),
+    );
   }, 'Renamed.');
 }
 
 async function replaceOwner(): Promise<void> {
   const church = selected.value;
-  const email = newOwnerEmail.value.trim();
-  if (!church || !email) return;
+  const owner = newOwner.value;
+  if (!church || !owner) return;
   await act(async () => {
-    await window.pakita.workspaces.replaceOwner(church.id, email);
-    newOwnerEmail.value = '';
-  }, `${email} now owns ${church.name}. Its former owner stays on as an administrator.`);
+    await window.pakita.workspaces.replaceOwner(church.id, owner.email);
+    clearNewOwner();
+  }, `${owner.email} now owns ${church.name}. Its former owner stays on as an administrator.`);
 }
 
 async function remove(): Promise<void> {
@@ -129,12 +173,12 @@ async function remove(): Promise<void> {
   }
   await act(async () => {
     await window.pakita.workspaces.delete(church.id);
-    selectedId.value = null;
+    selected.value = null;
   }, `${church.name} is deleted.`);
   isDeleteArmed.value = false;
 }
 
-onMounted(load);
+onMounted(() => void churchList.reload());
 </script>
 
 <template>
@@ -157,7 +201,7 @@ onMounted(load);
         />
       </div>
       <ul class="list">
-        <li v-for="church in visibleChurches" :key="church.id">
+        <li v-for="church in churches" :key="church.id">
           <button
             class="list-item"
             :aria-current="church.id === selectedId ? 'true' : undefined"
@@ -168,8 +212,18 @@ onMounted(load);
             <span class="item-sub">{{ church.slug }}</span>
           </button>
         </li>
-        <li v-if="visibleChurches.length === 0" class="list-empty">
-          {{ search ? 'No church matches.' : 'No churches yet.' }}
+        <li v-if="churches.length === 0 && !isLoading" class="list-empty">
+          {{ search.trim() ? 'No church matches.' : 'No churches yet.' }}
+        </li>
+        <li v-if="hasMore">
+          <button
+            class="ghost sm list-more"
+            :disabled="isLoading"
+            data-testid="churches-show-more"
+            @click="churchList.loadMore"
+          >
+            {{ isLoading ? 'Loading…' : 'Show more' }}
+          </button>
         </li>
       </ul>
     </aside>
@@ -187,7 +241,7 @@ onMounted(load);
           <button
             class="primary"
             type="submit"
-            :disabled="isBusy"
+            :disabled="isBusy || !newChurch.owner"
             data-testid="church-create"
           >
             <AppIcon name="check" />
@@ -205,16 +259,14 @@ onMounted(load);
               required
             />
           </label>
-          <label>
-            Owner's email
-            <input
-              v-model="newChurch.ownerEmail"
-              data-testid="church-owner-email"
-              type="email"
-              spellcheck="false"
-              required
-            />
-          </label>
+          <AccountPicker
+            v-model="newChurch.owner"
+            label="Owner"
+            :search="searchPossibleOwners"
+            test-id="church-owner-email"
+            no-match-hint="No account matches. Create the owner's account in People first."
+            is-required
+          />
         </div>
       </form>
 
@@ -225,6 +277,15 @@ onMounted(load);
             <p>{{ selected.slug }}</p>
           </div>
         </div>
+
+        <p class="owner" data-testid="church-owner">
+          <span class="muted">Owner</span>
+          <template v-if="currentOwner">
+            {{ currentOwner.displayName }}
+            <span class="muted">({{ currentOwner.email }})</span>
+          </template>
+          <span v-else class="muted">{{ isOwnerLoading ? '…' : 'None' }}</span>
+        </p>
 
         <form class="row" @submit.prevent="rename">
           <label class="grow">
@@ -247,19 +308,20 @@ onMounted(load);
         </form>
 
         <form class="row" @submit.prevent="replaceOwner">
-          <label class="grow">
-            New owner's email
-            <input
-              v-model="newOwnerEmail"
-              data-testid="church-new-owner"
-              type="email"
-              spellcheck="false"
-              required
-            />
-          </label>
+          <AccountPicker
+            :key="newOwnerPickerKey"
+            v-model="newOwner"
+            class="grow"
+            label="New owner"
+            :search="searchPossibleOwners"
+            :is-excluded="isExcludedAsNewOwner"
+            test-id="church-new-owner"
+            no-match-hint="No account matches. Create their account in People first."
+            is-required
+          />
           <button
             type="submit"
-            :disabled="isBusy"
+            :disabled="isBusy || !newOwner"
             data-testid="church-replace-owner"
           >
             <AppIcon name="key" />
@@ -267,9 +329,8 @@ onMounted(load);
           </button>
         </form>
         <p class="muted hint">
-          For when the owner's account is lost, or they leave. The person must
-          already have an account; the current owner stays on as an
-          administrator.
+          For when the owner's account is lost, or they leave. Choose someone
+          with an account; the current owner stays on as an administrator.
         </p>
 
         <div class="delete">
@@ -302,9 +363,9 @@ onMounted(load);
         <AppIcon name="check" />
         <span>{{ notice }}</span>
       </p>
-      <p v-if="errorMessage" class="error" role="alert">
+      <p v-if="shownError" class="error" role="alert">
         <AppIcon name="alert" />
-        <span>{{ errorMessage }}</span>
+        <span>{{ shownError }}</span>
       </p>
     </main>
   </div>
@@ -332,6 +393,12 @@ onMounted(load);
   align-items: flex-end;
   gap: 0.6rem;
   margin-bottom: 1rem;
+}
+
+.owner {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0 0 1.25rem;
 }
 
 .hint {

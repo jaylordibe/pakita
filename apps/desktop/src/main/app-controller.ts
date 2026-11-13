@@ -29,7 +29,10 @@ import {
   IpcEvent,
   type IssuedInvitation,
   type IssuedPassword,
+  type ChurchOwner,
   type ListedAccount,
+  type ListPage,
+  type ListPageQuery,
   type ManagedAccount,
   type NewAccountInput,
   type NewChurchInput,
@@ -70,6 +73,7 @@ import {
   invitationPageSchema,
   type invitationSchema,
   issuedInvitationSchema,
+  membershipPageSchema,
   membershipSchema,
   playlistSchema,
   rolePageSchema,
@@ -82,6 +86,7 @@ import {
   type userSchema,
   userSchema as managedUserSchema,
   workspaceSchema,
+  workspaceListPageSchema,
   workspacePageSchema,
 } from './api/api-schemas';
 import { parseServerAddress } from './api/server-address';
@@ -127,6 +132,10 @@ const MAX_BIBLE_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 /** Publishing hashes the whole translation on the server. */
 const PUBLISH_TIMEOUT_MILLISECONDS = 2 * 60_000;
 /** A chapter refused for rate limiting is retried this often, this late. */
+/** How many rows a page of a server-searched list holds. */
+const SERVER_LIST_PAGE_SIZE = 50;
+/** How many accounts an owner picker suggests at once. */
+const POSSIBLE_OWNER_SUGGESTIONS = 8;
 const RATE_LIMIT_RETRIES = 5;
 const RATE_LIMIT_DELAY_MILLISECONDS = 15_000;
 /** Verses in a chapter are at most this many (Psalm 119 has 176). */
@@ -376,22 +385,15 @@ export class AppController {
 
   // ── Accounts (the platform administrator) ─────────────────────────────
 
-  async listAccounts(): Promise<ListedAccount[]> {
+  async listAccounts(query: ListPageQuery): Promise<ListPage<ListedAccount>> {
     await this.sessionReady;
-    const users = await this.fetchAllPages(
-      '/api/users?isDeleted=false&sortBy=firstName&sortOrder=asc',
+    const page = await this.requestListPage(
+      '/api/users',
+      { isDeleted: 'false', sortBy: 'firstName', sortOrder: 'asc' },
+      query,
       userPageSchema,
     );
-    return users.map((user) => ({
-      ...toManagedAccount(user),
-      platformRoles: user.platformRoles,
-      churches: user.workspaceMemberships.map((membership) => ({
-        id: membership.workspaceId,
-        name: membership.workspaceName,
-        roleName: membership.roleName,
-        isSuspended: membership.status === 'suspended',
-      })),
-    }));
+    return { items: page.data.map(toListedAccount), hasMore: page.hasMore };
   }
 
   /**
@@ -525,6 +527,20 @@ export class AppController {
     this.settings.update({ workspaceId: null });
   }
 
+  /** Every church on the server, for its staff: searched and paged there. */
+  async browseWorkspaces(
+    query: ListPageQuery,
+  ): Promise<ListPage<WorkspaceSummary>> {
+    await this.sessionReady;
+    const page = await this.requestListPage(
+      '/api/workspaces',
+      { sortBy: 'name', sortOrder: 'asc' },
+      query,
+      workspaceListPageSchema,
+    );
+    return { items: page.data, hasMore: page.hasMore };
+  }
+
   async listWorkspaces(): Promise<WorkspaceSummary[]> {
     await this.sessionReady;
     const session = this.requireSession();
@@ -591,6 +607,44 @@ export class AppController {
       schema: membershipSchema,
       body: { email: email.trim() },
     });
+  }
+
+  /** The church's owner; null when it has none. */
+  async getWorkspaceOwner(workspaceId: string): Promise<ChurchOwner | null> {
+    await this.sessionReady;
+    const page = await this.requireSession().request({
+      method: 'GET',
+      path: `/api/workspaces/${workspaceId}/memberships?roleName=workspace_owner&perPage=1`,
+      schema: membershipPageSchema,
+    });
+    const owner = page.data[0]?.user;
+    return owner
+      ? {
+          id: owner.id,
+          displayName: `${owner.firstName} ${owner.lastName}`.trim(),
+          email: owner.email,
+        }
+      : null;
+  }
+
+  /** Active accounts outside the server's staff that match every word of `term`. */
+  async searchPossibleOwners(term: string): Promise<ListedAccount[]> {
+    await this.sessionReady;
+    const query = new URLSearchParams({
+      search: term,
+      isDeleted: 'false',
+      isActive: 'true',
+      isPlatformAccount: 'false',
+      sortBy: 'firstName',
+      sortOrder: 'asc',
+      perPage: String(POSSIBLE_OWNER_SUGGESTIONS),
+    });
+    const page = await this.requireSession().request({
+      method: 'GET',
+      path: `/api/users?${query.toString()}`,
+      schema: userPageSchema,
+    });
+    return page.data.map(toListedAccount);
   }
 
   /**
@@ -1385,6 +1439,31 @@ export class AppController {
   }
 
   /** Every row of a list endpoint, page by page (the API caps a page at 100). */
+  /** One page of a server list, searched by `query.search` on the server. */
+  private async requestListPage<Row>(
+    path: string,
+    filters: Record<string, string>,
+    query: ListPageQuery,
+    schema: z.ZodType<{ data: Row[]; meta: { totalPages: number } }>,
+  ): Promise<{ data: Row[]; hasMore: boolean }> {
+    const parameters = new URLSearchParams({
+      ...filters,
+      page: String(query.page),
+      perPage: String(SERVER_LIST_PAGE_SIZE),
+    });
+    const search = query.search.trim();
+    if (search) parameters.set('search', search);
+    const result = await this.requireSession().request({
+      method: 'GET',
+      path: `${path}?${parameters.toString()}`,
+      schema,
+    });
+    return {
+      data: result.data,
+      hasMore: query.page < result.meta.totalPages,
+    };
+  }
+
   private async fetchAllPages<Row>(
     path: string,
     schema: z.ZodType<{ data: Row[]; meta: { totalPages: number } }>,
@@ -1441,6 +1520,21 @@ async function retryWhenRateLimited<Result>(
       );
     }
   }
+}
+
+function toListedAccount(
+  user: z.infer<typeof userPageSchema>['data'][number],
+): ListedAccount {
+  return {
+    ...toManagedAccount(user),
+    platformRoles: user.platformRoles,
+    churches: user.workspaceMemberships.map((membership) => ({
+      id: membership.workspaceId,
+      name: membership.workspaceName,
+      roleName: membership.roleName,
+      isSuspended: membership.status === 'suspended',
+    })),
+  };
 }
 
 function toManagedAccount(user: z.infer<typeof userSchema>): ManagedAccount {

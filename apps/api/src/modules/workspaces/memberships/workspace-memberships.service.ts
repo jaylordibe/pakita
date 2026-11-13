@@ -233,6 +233,7 @@ export class WorkspaceMembershipsService {
       {
         workspaceId,
         status: query.status ?? WorkspaceMembershipStatus.ACTIVE,
+        ...(query.roleName ? { role: { name: query.roleName } } : {}),
         ...MEMBERSHIP_OF_LIVE_USER,
         ...MEMBERSHIP_OF_LIVE_WORKSPACE,
       },

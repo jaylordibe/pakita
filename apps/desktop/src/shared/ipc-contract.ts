@@ -32,11 +32,14 @@ export const IpcChannel = {
   invitationsRevoke: 'invitations:revoke',
   invitationsAccept: 'invitations:accept',
   workspacesList: 'workspaces:list',
+  workspacesBrowse: 'workspaces:browse',
   workspaceSelect: 'workspace:select',
   workspacesCreate: 'workspaces:create',
   workspacesRename: 'workspaces:rename',
   workspacesDelete: 'workspaces:delete',
   workspacesReplaceOwner: 'workspaces:replace-owner',
+  workspacesGetOwner: 'workspaces:get-owner',
+  workspacesSearchPossibleOwners: 'workspaces:search-possible-owners',
   membersCreateAccount: 'members:create-account',
   syncNow: 'sync:now',
   syncGetStatus: 'sync:get-status',
@@ -151,6 +154,20 @@ export interface ManagedAccount {
   readonly isPasswordChangeRequired: boolean;
 }
 
+/** One page of a list the server searches, for the server's administrator. */
+export interface ListPageQuery {
+  /** Words to search for; empty lists everything. */
+  readonly search: string;
+  /** 1-based. */
+  readonly page: number;
+}
+
+export interface ListPage<Item> {
+  readonly items: readonly Item[];
+  /** Another page follows this one. */
+  readonly hasMore: boolean;
+}
+
 /** A church an account belongs to, as the server's administrator sees it. */
 export interface AccountChurch {
   readonly id: string;
@@ -168,6 +185,13 @@ export interface ListedAccount extends ManagedAccount {
   readonly platformRoles: readonly string[];
   /** In church name order; empty for an account in no church yet. */
   readonly churches: readonly AccountChurch[];
+}
+
+/** A church's owner, as the server's administrator sees it. */
+export interface ChurchOwner {
+  readonly id: string;
+  readonly displayName: string;
+  readonly email: string;
 }
 
 export interface NewAccountInput {
@@ -472,7 +496,8 @@ export interface PakitaApi {
   };
   /** The church server's accounts (the platform administrator only). */
   readonly accounts: {
-    list(): Promise<ListedAccount[]>;
+    /** The server's accounts, searched and paged on the server. */
+    list(query: ListPageQuery): Promise<ListPage<ListedAccount>>;
     /** Creates the account with a generated one-time password. */
     create(input: NewAccountInput): Promise<IssuedPassword>;
     /** Gives the account a new one-time password and ends its sessions. */
@@ -494,6 +519,8 @@ export interface PakitaApi {
   readonly workspaces: {
     /** The person's churches; every church, for the server's staff. */
     list(): Promise<WorkspaceSummary[]>;
+    /** Every church on the server, searched and paged on the server (its staff). */
+    browse(query: ListPageQuery): Promise<ListPage<WorkspaceSummary>>;
     select(workspaceId: string): Promise<void>;
     /** Creates a church owned by an existing account (the platform administrator). */
     create(input: NewChurchInput): Promise<WorkspaceSummary>;
@@ -502,6 +529,14 @@ export interface PakitaApi {
     delete(workspaceId: string): Promise<void>;
     /** Makes an existing account the church's sole owner; former owners become admins. */
     replaceOwner(workspaceId: string, email: string): Promise<void>;
+    /** The church's owner, looked up on the server; null when it has none. */
+    getOwner(workspaceId: string): Promise<ChurchOwner | null>;
+    /**
+     * Accounts that could own a church (active, not the server's staff) whose
+     * name, email or username contains every word of `term`. Searched on the
+     * server, a few at a time, as the administrator types.
+     */
+    searchPossibleOwners(term: string): Promise<ListedAccount[]>;
   };
   /** The open church's people. */
   readonly members: {

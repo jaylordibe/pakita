@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { MetaQueryDto } from '../../../../common/dto/meta-query.dto';
 import { WorkspaceMembershipStatus } from '../../../../common/enums/workspace-membership-status.enum';
 
@@ -11,4 +11,10 @@ export class WorkspaceMembershipQueryDto extends MetaQueryDto {
   @IsOptional()
   @IsEnum(WorkspaceMembershipStatus)
   status?: WorkspaceMembershipStatus;
+
+  /** Only memberships with this role, e.g. `workspace_owner`. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  roleName?: string;
 }

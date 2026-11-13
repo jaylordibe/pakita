@@ -2759,6 +2759,13 @@ export interface operations {
          *     Absent means both, so a deleted account stays findable for recovery.
          */
         isDeleted?: boolean;
+        /** @description `true`: enabled accounts only; `false`: disabled ones only. */
+        isActive?: boolean;
+        /**
+         * @description `true`: the server's staff only (accounts holding a platform role);
+         *     `false`: everyone else, the accounts that may belong to a workspace.
+         */
+        isPlatformAccount?: boolean;
         search?: string;
         sortBy?: string;
         sortOrder?: 'asc' | 'desc';
@@ -3209,6 +3216,8 @@ export interface operations {
         sortBy?: string;
         sortOrder?: 'asc' | 'desc';
         status?: 'active' | 'suspended' | 'left';
+        /** @description Only memberships with this role, e.g. `workspace_owner`. */
+        roleName?: string;
       };
       header?: never;
       path: {

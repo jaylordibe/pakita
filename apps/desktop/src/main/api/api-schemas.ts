@@ -200,6 +200,8 @@ export const membershipSchema: z.ZodType<
   }),
 });
 
+export const membershipPageSchema = pageSchemaOf(membershipSchema);
+
 export const acceptedInvitationSchema: z.ZodType<
   Schemas['AcceptedInvitationResponseDto']
 > = z.object({ workspaceId: z.string(), membershipId: z.string() });
@@ -212,6 +214,8 @@ export type Workspace = z.infer<typeof workspaceSchema>;
 export const workspacePageSchema = z.object({
   data: z.array(workspaceSchema),
 });
+
+export const workspaceListPageSchema = pageSchemaOf(workspaceSchema);
 
 type SongSectionKind = Schemas['SongSectionResponseDto']['kind'];
 const KNOWN_SECTION_KINDS: readonly string[] = [

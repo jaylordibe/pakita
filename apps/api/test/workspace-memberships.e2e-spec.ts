@@ -213,6 +213,27 @@ describe('Workspace memberships (e2e)', () => {
     });
   });
 
+  describe('filtering the roster', () => {
+    it('lists only the memberships with a given role', async () => {
+      const staff = await createRegularUser(app, 'staff@example.com');
+      await addMembership(
+        app,
+        workspace.id,
+        staff.id,
+        SeededRoleName.WORKSPACE_STAFF,
+      );
+      const response = await request(app.getHttpServer())
+        .get(`${membershipsUrl()}?roleName=${SeededRoleName.WORKSPACE_OWNER}`)
+        .set('Authorization', `Bearer ${owner.token}`)
+        .expect(200);
+      const page = response.body as PageBody<MembershipBody>;
+      expect(page.data.map((membership) => membership.userId)).toEqual([
+        owner.id,
+      ]);
+      expect(page.meta.total).toBe(1);
+    });
+  });
+
   describe('tenant isolation', () => {
     it('a member of another workspace gets an empty page, not a 403', async () => {
       const other = await createRegularUser(app, 'other@example.com');

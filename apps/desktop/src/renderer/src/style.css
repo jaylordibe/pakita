@@ -643,6 +643,12 @@ progress::-webkit-progress-value {
   white-space: nowrap;
 }
 
+/* "Show more" at the end of a list the server pages. */
+.list-more {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
 .list-empty {
   padding: 1.5rem 0.75rem;
   text-align: center;

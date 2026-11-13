@@ -196,18 +196,58 @@ test('the administrator starts a church, naming its owner, and later replaces th
   await signIn(api.administrator.identifier, api.administrator.password);
   await operator.getByTestId('church-new').click();
   await operator.getByTestId('church-name').fill('Grace Church East');
+  // The owner is chosen from the server's accounts; until one is, there is
+  // nothing to create. The server's own staff are never offered.
+  await expect(operator.getByTestId('church-create')).toBeDisabled();
+  // Suggestions come from the server as the administrator types: an account
+  // created after this screen opened is offered too.
+  const LATE_EMAIL = `late-${process.pid}@example.org`;
+  await api.adminRequest('POST', '/api/users', {
+    email: LATE_EMAIL,
+    firstName: 'Lena',
+    lastName: 'Latecomer',
+    password: 'first-password-1',
+  });
+  await operator.getByTestId('church-owner-email').fill('latecomer');
+  await expect(operator.getByTestId('church-owner-email-option')).toHaveText([
+    new RegExp(LATE_EMAIL),
+  ]);
+  await operator.getByTestId('church-owner-email').fill('example');
+  await expect(
+    operator
+      .getByTestId('church-owner-email-option')
+      .filter({ hasText: api.owner.identifier }),
+  ).toHaveCount(1);
+  await expect(
+    operator
+      .getByTestId('church-owner-email-option')
+      .filter({ hasText: api.administrator.identifier }),
+  ).toHaveCount(0);
+  // Typing a whole address chooses its account.
   await operator.getByTestId('church-owner-email').fill(api.owner.identifier);
   await operator.getByTestId('church-create').click();
   await expect(operator.getByTestId('church-notice')).toContainText(
-    `${api.owner.identifier} owns it`,
+    `(${api.owner.identifier}) owns it`,
   );
   await expect(operator.getByTestId('church-grace-church-east')).toBeVisible();
+  await expect(operator.getByTestId('church-owner')).toContainText(
+    api.owner.identifier,
+  );
 
-  await operator.getByTestId('church-new-owner').fill(NEW_EMAIL);
+  // Part of a name is enough: choose from the suggestions.
+  await operator.getByTestId('church-new-owner').fill('Nora');
+  await operator
+    .getByTestId('church-new-owner-option')
+    .filter({ hasText: NEW_EMAIL })
+    .click();
+  await expect(operator.getByTestId('church-new-owner')).toHaveValue(NEW_EMAIL);
   await operator.getByTestId('church-replace-owner').click();
   await expect(operator.getByTestId('church-notice')).toContainText(
     `${NEW_EMAIL} now owns Grace Church East`,
   );
+  await expect(operator.getByTestId('church-owner')).toContainText(NEW_EMAIL);
+  // The picker is cleared for the next change.
+  await expect(operator.getByTestId('church-new-owner')).toHaveValue('');
 
   const churches = await api.adminRequest<{
     data: Array<{ id: string; slug: string }>;

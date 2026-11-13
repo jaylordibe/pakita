@@ -13,4 +13,21 @@ export class UserListQueryDto extends MetaQueryDto {
   @Transform(toOptionalBoolean)
   @IsBoolean()
   isDeleted?: boolean;
+
+  /** `true`: enabled accounts only; `false`: disabled ones only. */
+  @IsOptional()
+  @Type(() => String)
+  @Transform(toOptionalBoolean)
+  @IsBoolean()
+  isActive?: boolean;
+
+  /**
+   * `true`: the server's staff only (accounts holding a platform role);
+   * `false`: everyone else, the accounts that may belong to a workspace.
+   */
+  @IsOptional()
+  @Type(() => String)
+  @Transform(toOptionalBoolean)
+  @IsBoolean()
+  isPlatformAccount?: boolean;
 }

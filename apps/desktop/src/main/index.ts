@@ -55,6 +55,12 @@ function pageUrl(page: 'index' | 'projector'): string {
 
 // ── IPC payload schemas: the shape and size of what a renderer may send ──
 const uuid = z.uuid();
+const listPageQuerySchema = z
+  .object({
+    search: z.string().max(100),
+    page: z.number().int().min(1).max(100_000),
+  })
+  .strict();
 const newPasswordLimits = apiConstraints.UpdateAuthUserPasswordDto.newPassword;
 const newAccountLimits = apiConstraints.CreateUserDto;
 const newAccountInputSchema = z
@@ -267,7 +273,9 @@ async function start(): Promise<void> {
   handle(IpcChannel.accountGetCapabilities, noPayload, () =>
     controller.getCapabilities(),
   );
-  handle(IpcChannel.accountsList, noPayload, () => controller.listAccounts());
+  handle(IpcChannel.accountsList, listPageQuerySchema, (query) =>
+    controller.listAccounts(query),
+  );
   handle(IpcChannel.accountsCreate, newAccountInputSchema, (input) =>
     controller.createAccount(input),
   );
@@ -309,6 +317,9 @@ async function start(): Promise<void> {
       .max(invitationCodeLimits.maxLength),
     (code) => controller.acceptInvitation(code),
   );
+  handle(IpcChannel.workspacesBrowse, listPageQuerySchema, (query) =>
+    controller.browseWorkspaces(query),
+  );
   handle(IpcChannel.workspacesList, noPayload, () =>
     controller.listWorkspaces(),
   );
@@ -333,6 +344,14 @@ async function start(): Promise<void> {
     z.object({ workspaceId: uuid, email: z.email().max(254) }).strict(),
     ({ workspaceId, email }) =>
       controller.replaceWorkspaceOwner(workspaceId, email),
+  );
+  handle(IpcChannel.workspacesGetOwner, uuid, (workspaceId) =>
+    controller.getWorkspaceOwner(workspaceId),
+  );
+  handle(
+    IpcChannel.workspacesSearchPossibleOwners,
+    z.string().max(100),
+    (term) => controller.searchPossibleOwners(term),
   );
   handle(
     IpcChannel.membersCreateAccount,

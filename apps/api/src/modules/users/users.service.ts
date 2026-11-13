@@ -217,19 +217,43 @@ export class UsersService {
     };
   }
 
+  /**
+   * `search` matches people as they are typed: every word must appear, in any
+   * order, in the first name, last name, email or username ("nora new" finds
+   * Nora Newcomer).
+   */
+  private buildSearchFilters(
+    search: string | undefined,
+  ): Prisma.UserWhereInput[] {
+    const words = (search ?? '').split(/\s+/).filter(Boolean);
+    return words.map((word) => ({
+      OR: (['firstName', 'lastName', 'email', 'username'] as const).map(
+        (field) => ({ [field]: { contains: word, mode: 'insensitive' } }),
+      ),
+    }));
+  }
+
   // Single source of truth for findPaginated's sort allowlist and default
   // ordering. Pass-through for the buildOrderBy() 400 on disallowed sortBy.
-  // Extend this with a `where` clause built from `query.search` when adding
-  // search to a resource.
   private buildListArgs(query: UserListQueryDto): {
     where: Prisma.UserWhereInput;
     orderBy: Prisma.UserOrderByWithRelationInput;
   } {
+    const filters: Prisma.UserWhereInput[] = [];
+    if (query.isDeleted !== undefined) {
+      filters.push({ deletedAt: query.isDeleted ? { not: null } : null });
+    }
+    if (query.isActive !== undefined) {
+      filters.push({ isActive: query.isActive });
+    }
+    if (query.isPlatformAccount !== undefined) {
+      filters.push({
+        userRoles: query.isPlatformAccount ? { some: {} } : { none: {} },
+      });
+    }
+    filters.push(...this.buildSearchFilters(query.search));
     return {
-      where:
-        query.isDeleted === undefined
-          ? {}
-          : { deletedAt: query.isDeleted ? { not: null } : null },
+      where: { AND: filters },
       orderBy: buildOrderBy(
         query,
         ['email', 'firstName', 'lastName', 'createdAt', 'updatedAt'] as const,

@@ -502,6 +502,64 @@ describe('Users (e2e)', () => {
       );
     });
 
+    // The owner pickers search as the administrator types.
+    it('GET /api/users searches every word across name, email and username', async () => {
+      await createUser(app, {
+        email: 'nora@example.org',
+        firstName: 'Nora',
+        lastName: 'Newcomer',
+      });
+      await createUser(app, {
+        email: 'nate@example.org',
+        firstName: 'Nate',
+        lastName: 'Other',
+      });
+      const search = async (term: string) => {
+        const res = await request(app.getHttpServer())
+          .get(`/api/users?search=${encodeURIComponent(term)}`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .expect(200);
+        return (res.body.data as Array<{ email: string }>)
+          .map((row) => row.email)
+          .sort();
+      };
+      expect(await search('n')).toEqual(
+        ['admin@example.com', 'nate@example.org', 'nora@example.org'].sort(),
+      );
+      expect(await search('NEW nora')).toEqual(['nora@example.org']);
+      expect(await search('nate@example')).toEqual(['nate@example.org']);
+      expect(await search('nora other')).toEqual([]);
+      expect(await search('   ')).toHaveLength(3);
+    });
+
+    it('GET /api/users filters platform accounts and disabled ones', async () => {
+      await createUser(app, { email: 'member@example.org' });
+      const disabled = await createUser(app, { email: 'off@example.org' });
+      await app
+        .get(PrismaService)
+        .user.update({ where: { id: disabled.id }, data: { isActive: false } });
+      const emails = async (filters: string) => {
+        const res = await request(app.getHttpServer())
+          .get(`/api/users?${filters}`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .expect(200);
+        return (res.body.data as Array<{ email: string }>)
+          .map((row) => row.email)
+          .sort();
+      };
+      expect(await emails('isPlatformAccount=true')).toEqual([
+        'admin@example.com',
+      ]);
+      expect(await emails('isPlatformAccount=false')).toEqual([
+        'member@example.org',
+        'off@example.org',
+      ]);
+      expect(await emails('isPlatformAccount=false&isActive=true')).toEqual([
+        'member@example.org',
+      ]);
+      expect(await emails('isActive=false')).toEqual(['off@example.org']);
+    });
+
     it('GET /api/users is refused to a workspace owner, who could otherwise see other churches', async () => {
       const owner = await createUser(app, { email: 'owner@example.com' });
       await createWorkspaceWithOwner(app, owner.id, 'beta');

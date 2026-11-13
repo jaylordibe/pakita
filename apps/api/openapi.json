@@ -624,6 +624,24 @@
             }
           },
           {
+            "name": "isActive",
+            "required": false,
+            "in": "query",
+            "description": "`true`: enabled accounts only; `false`: disabled ones only.",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "isPlatformAccount",
+            "required": false,
+            "in": "query",
+            "description": "`true`: the server's staff only (accounts holding a platform role);\n`false`: everyone else, the accounts that may belong to a workspace.",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "search",
             "required": false,
             "in": "query",
@@ -1309,6 +1327,16 @@
                 "suspended",
                 "left"
               ]
+            }
+          },
+          {
+            "name": "roleName",
+            "required": false,
+            "in": "query",
+            "description": "Only memberships with this role, e.g. `workspace_owner`.",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
             }
           }
         ],

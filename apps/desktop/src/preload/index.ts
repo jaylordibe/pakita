@@ -49,7 +49,7 @@ const pakita: PakitaApi = {
     getCapabilities: () => invoke(IpcChannel.accountGetCapabilities),
   },
   accounts: {
-    list: () => invoke(IpcChannel.accountsList),
+    list: (query) => invoke(IpcChannel.accountsList, query),
     create: (input) => invoke(IpcChannel.accountsCreate, input),
     resetPassword: (accountId) =>
       invoke(IpcChannel.accountsResetPassword, accountId),
@@ -67,6 +67,7 @@ const pakita: PakitaApi = {
   },
   workspaces: {
     list: () => invoke(IpcChannel.workspacesList),
+    browse: (query) => invoke(IpcChannel.workspacesBrowse, query),
     select: (workspaceId) => invoke(IpcChannel.workspaceSelect, workspaceId),
     create: (input) => invoke(IpcChannel.workspacesCreate, input),
     rename: (workspaceId, name) =>
@@ -74,6 +75,10 @@ const pakita: PakitaApi = {
     delete: (workspaceId) => invoke(IpcChannel.workspacesDelete, workspaceId),
     replaceOwner: (workspaceId, email) =>
       invoke(IpcChannel.workspacesReplaceOwner, { workspaceId, email }),
+    getOwner: (workspaceId) =>
+      invoke(IpcChannel.workspacesGetOwner, workspaceId),
+    searchPossibleOwners: (term) =>
+      invoke(IpcChannel.workspacesSearchPossibleOwners, term),
   },
   members: {
     createAccount: (input) => invoke(IpcChannel.membersCreateAccount, input),
