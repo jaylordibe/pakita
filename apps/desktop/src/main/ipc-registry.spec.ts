@@ -1,0 +1,68 @@
+import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+
+import { createIpcHandler, IpcRejectedError } from './ipc-registry';
+import { APP_ORIGIN, createTrustedOrigins } from './security-policy';
+
+function eventFrom(url: string, options: { isMainFrame?: boolean } = {}) {
+  const frame = { url };
+  const mainFrame = options.isMainFrame === false ? { url } : frame;
+  return { senderFrame: frame, sender: { mainFrame } };
+}
+
+describe('createIpcHandler', () => {
+  const handle = vi.fn(
+    (payload: { readonly name: string }) => `hello ${payload.name}`,
+  );
+  const handler = createIpcHandler({
+    schema: z.object({ name: z.string().min(1) }).strict(),
+    trustedOrigins: createTrustedOrigins(),
+    handle,
+  });
+
+  it('runs the handler for a valid payload from the app', async () => {
+    await expect(
+      handler(eventFrom(`${APP_ORIGIN}/index.html`), { name: 'Pakita' }),
+    ).resolves.toBe('hello Pakita');
+  });
+
+  it.each([
+    undefined,
+    null,
+    {},
+    { name: '' },
+    { name: 42 },
+    { name: 'x', extra: true },
+  ])('rejects the payload %j without running the handler', async (payload) => {
+    handle.mockClear();
+    await expect(
+      handler(eventFrom(`${APP_ORIGIN}/index.html`), payload),
+    ).rejects.toThrow(IpcRejectedError);
+    expect(handle).not.toHaveBeenCalled();
+  });
+
+  it('rejects a sender that is not the app', async () => {
+    handle.mockClear();
+    await expect(
+      handler(eventFrom('https://example.com/'), { name: 'x' }),
+    ).rejects.toThrow('untrusted sender');
+    expect(handle).not.toHaveBeenCalled();
+  });
+
+  it('rejects a sender frame that has gone away', async () => {
+    const event = { senderFrame: null, sender: { mainFrame: {} } };
+    await expect(handler(event, { name: 'x' })).rejects.toThrow(
+      'untrusted sender',
+    );
+  });
+
+  it('rejects an embedded frame even on the app origin', async () => {
+    handle.mockClear();
+    await expect(
+      handler(eventFrom(`${APP_ORIGIN}/index.html`, { isMainFrame: false }), {
+        name: 'x',
+      }),
+    ).rejects.toThrow('not the top-level frame');
+    expect(handle).not.toHaveBeenCalled();
+  });
+});

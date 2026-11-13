@@ -1,0 +1,135 @@
+name: Desktop
+
+# The desktop app's merge gate (apps/desktop): type check, lint, unit tests,
+# the real app under Playwright, and an unpacked package on every desktop OS.
+on:
+  push:
+    branches:
+      - main
+      - staging
+      - develop
+  pull_request:
+    branches:
+      - main
+      - staging
+      - develop
+  workflow_call:
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apps/desktop
+
+jobs:
+  quality:
+    name: Type check, lint, unit and app tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # pnpm itself, at the version `packageManager` pins in the root
+      # package.json (the action ignores the pinned hash; corepack verifies it
+      # in the Docker build). Pinned by commit SHA, not a moving tag: it is a
+      # third-party action that runs before the lockfile protects anything.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm typecheck
+
+      # `lint`, never `lint:fix`: a fixing linter exits 0 and the fixes die
+      # with the runner.
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
+      # which Chromium's sandbox needs. Lift the restriction on this
+      # throwaway runner rather than run the app with its sandbox off.
+      - name: Allow Chromium's sandbox on the runner
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # The real app on a virtual display.
+      - name: App tests
+        run: xvfb-run --auto-servernum pnpm test:e2e
+
+      - name: Upload Playwright results on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-playwright-results
+          path: apps/desktop/test-results
+          if-no-files-found: ignore
+
+  # Packaging needs each OS's own toolchain, and it is where a native module
+  # that cannot load on one platform would surface. Unpacked and unsigned:
+  # nothing is published, and signing is a release decision.
+  package:
+    name: Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package (unpacked)
+        run: pnpm package:dir
+        env:
+          # Never sign with whatever identity a runner happens to hold.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # Chromium's sandbox on Ubuntu 24.04 (see the quality job).
+      - name: Allow Chromium's sandbox on the runner
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # The packaged binary must start and open its database: a broken
+      # signature, fuse or asar path only shows up here.
+      - name: Launch the packaged app
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run --auto-servernum pnpm smoke:package
+          else
+            pnpm smoke:package
+          fi

@@ -1,0 +1,43 @@
+# Packaging only — no `publish` settings until Pakita's release tooling
+# (Phase 6). `pnpm package:dir` builds an unpacked app to prove packaging works.
+appId: io.github.jaylordibe.pakita
+productName: Pakita
+copyright: Copyright © 2026 Jay Lord Ibe
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+# better-sqlite3's native addon cannot load from inside the asar archive.
+asarUnpack:
+  - '**/*.node'
+# Electron Fuses, flipped in the packaged binary itself so no command-line
+# flag or environment variable can turn them back on.
+electronFuses:
+  # The app binary must never act as a plain Node.js interpreter.
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  # Load the app only from its (integrity-checked) asar archive.
+  onlyLoadAppFromAsar: true
+  enableEmbeddedAsarIntegrityValidation: true
+  enableCookieEncryption: true
+  # Nothing is served from file://; the renderer uses app://.
+  grantFileProtocolExtraPrivileges: false
+  # Flipping fuses edits the binary, which breaks Electron's ad-hoc macOS
+  # signature, and Apple Silicon kills a binary with a broken signature at
+  # launch. This re-applies an ad-hoc signature (no certificate, no keychain).
+  resetAdHocDarwinSignature: true
+mac:
+  category: public.app-category.productivity
+  target: dir
+  # Never sign. Left unset, electron-builder searches the developer's keychain
+  # and signs with whatever identity it finds. Signing is a release decision
+  # (Phase 6), made with the project's own certificate, never a personal one.
+  identity: null
+win:
+  target: dir
+linux:
+  category: Office
+  target: dir
