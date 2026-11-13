@@ -9,6 +9,7 @@ import type {
   WorkspaceSummary,
 } from '../../../shared/ipc-contract';
 import { buildSongSlides } from '../../../shared/slides';
+import pakitaMark from '../assets/pakita-mark.png';
 import AddToPlaylist from '../components/AddToPlaylist.vue';
 import BiblePanel from '../components/BiblePanel.vue';
 import CopyToWorkspace from '../components/CopyToWorkspace.vue';
@@ -178,7 +179,10 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 <template>
   <div class="layout">
     <header class="row bar">
-      <strong>Pakita</strong>
+      <strong class="brand">
+        <img :src="pakitaMark" alt="" width="24" height="24" />
+        Pakita
+      </strong>
       <nav class="tabs" aria-label="Content">
         <button
           :class="{ active: tab === 'songs' }"
@@ -339,6 +343,12 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 
 .grow {
   flex: 1;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .tabs {

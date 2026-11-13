@@ -94,3 +94,20 @@ test('downloads everything again: the library stays, and a stray copy goes', asy
     'Synchronised',
   );
 });
+
+test('creates a new church and opens it', async () => {
+  await operator.getByRole('button', { name: 'Change church' }).click();
+  await operator.getByTestId('workspace-new-name').fill('Grace Church South');
+  await operator.getByTestId('workspace-create').click();
+  await expect(operator.getByTestId('sync-status')).toContainText(
+    'Synchronised',
+  );
+  await expect(operator.getByText('No songs yet.')).toBeVisible();
+  const workspaces = await api.request<{ data: Array<{ slug: string }> }>(
+    'GET',
+    '/api/workspaces?perPage=100',
+  );
+  expect(workspaces.data.map((workspace) => workspace.slug)).toContain(
+    'grace-church-south',
+  );
+});

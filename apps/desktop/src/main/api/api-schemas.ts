@@ -49,7 +49,7 @@ export const loginResponseSchema: z.ZodType<
 });
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
 
-const workspaceSchema: z.ZodType<
+export const workspaceSchema: z.ZodType<
   Pick<Schemas['WorkspaceResponseDto'], 'id' | 'name' | 'slug'>
 > = z.object({ id: z.string(), name: z.string(), slug: z.string() });
 export type Workspace = z.infer<typeof workspaceSchema>;

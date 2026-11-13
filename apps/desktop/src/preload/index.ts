@@ -25,6 +25,10 @@ const pakita: PakitaApi = {
   app: {
     getVersion: () => invoke(IpcChannel.appGetVersion),
     getState: () => invoke(IpcChannel.appGetState),
+    getUpdate: () => invoke(IpcChannel.appGetUpdate),
+    openUpdate: () => invoke(IpcChannel.appOpenUpdate),
+    onUpdateAvailable: (listener) =>
+      subscribe(IpcEvent.updateAvailable, listener),
   },
   database: {
     getHealth: () => invoke(IpcChannel.databaseGetHealth),
@@ -40,6 +44,7 @@ const pakita: PakitaApi = {
   workspaces: {
     list: () => invoke(IpcChannel.workspacesList),
     select: (workspaceId) => invoke(IpcChannel.workspaceSelect, workspaceId),
+    create: (name) => invoke(IpcChannel.workspacesCreate, name),
   },
   sync: {
     now: () => invoke(IpcChannel.syncNow),

@@ -1,0 +1,131 @@
+name: Desktop release
+
+# Builds the desktop installers for a version tag (v1.2.3) on macOS, Windows
+# and Linux, and attaches them — with SHA-256 checksums and a build provenance
+# attestation — to a DRAFT GitHub release. Nothing is published: a maintainer
+# reviews the draft and publishes it by hand.
+#
+# Only the release job can write to the repository, and it runs no project
+# or dependency code: the builds (which do) hold a read-only token. Every
+# action is pinned by commit SHA, as in publish-image.yml.
+#
+# Installers are not code-signed yet; CSC_IDENTITY_AUTO_DISCOVERY stays off so
+# a runner's stray identity can never sign a release.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+jobs:
+  # A release comes only from a reviewed commit on main whose app version
+  # matches the tag.
+  guard:
+    name: Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The tag is on main and matches the version
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::$GITHUB_REF_NAME is not on main; releases come from main."
+            exit 1
+          }
+          declared="$(node -p "require('./apps/desktop/package.json').version")"
+          if [ "v$declared" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::apps/desktop/package.json says $declared, the tag is $GITHUB_REF_NAME."
+            exit 1
+          fi
+
+  test:
+    name: Test
+    needs: guard
+    uses: ./.github/workflows/desktop.yml
+
+  build:
+    name: Installers (${{ matrix.os }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the installers
+        run: pnpm --filter @pakita/desktop package:release
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Keep the installers
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Collect the installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: installers-*
+          path: installers
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: installers
+        run: sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Attest the installers
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: installers/*
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" installers/* \
+            --draft --verify-tag --title "Pakita ${GITHUB_REF_NAME#v}" \
+            --notes "Draft: review the installers, write the notes, then publish."

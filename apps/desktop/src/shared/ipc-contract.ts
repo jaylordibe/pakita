@@ -13,12 +13,15 @@ export type { Slide, Song };
 export const IpcChannel = {
   appGetVersion: 'app:get-version',
   appGetState: 'app:get-state',
+  appGetUpdate: 'app:get-update',
+  appOpenUpdate: 'app:open-update',
   databaseGetHealth: 'database:get-health',
   serverConnect: 'server:connect',
   accountSignIn: 'account:sign-in',
   accountSignOut: 'account:sign-out',
   workspacesList: 'workspaces:list',
   workspaceSelect: 'workspace:select',
+  workspacesCreate: 'workspaces:create',
   syncNow: 'sync:now',
   syncGetStatus: 'sync:get-status',
   syncRebuild: 'sync:rebuild',
@@ -64,6 +67,7 @@ export const IpcEvent = {
   liveState: 'live:state',
   displaysChanged: 'displays:changed',
   bibleImportProgress: 'bible:import-progress',
+  updateAvailable: 'app:update-available',
 } as const;
 
 export interface DatabaseHealth {
@@ -257,6 +261,12 @@ export interface PlaylistView {
   readonly entries: readonly PlaylistEntry[];
 }
 
+/** A newer published release of Pakita. */
+export interface AvailableUpdate {
+  readonly version: string;
+  readonly url: string;
+}
+
 export interface DisplayInfo {
   readonly id: number;
   readonly label: string;
@@ -287,6 +297,11 @@ export interface PakitaApi {
   readonly app: {
     getVersion(): Promise<string>;
     getState(): Promise<AppState>;
+    /** A newer release, once the background check has found one. */
+    getUpdate(): Promise<AvailableUpdate | null>;
+    /** Opens that release's download page in the browser. */
+    openUpdate(): Promise<void>;
+    onUpdateAvailable(listener: (update: AvailableUpdate) => void): () => void;
   };
   readonly database: {
     getHealth(): Promise<DatabaseHealth | null>;
@@ -301,6 +316,8 @@ export interface PakitaApi {
   readonly workspaces: {
     list(): Promise<WorkspaceSummary[]>;
     select(workspaceId: string): Promise<void>;
+    /** Creates a church (workspace) the person then owns. */
+    create(name: string): Promise<WorkspaceSummary>;
   };
   readonly sync: {
     now(): Promise<SyncStatus>;

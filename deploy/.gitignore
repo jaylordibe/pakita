@@ -1,0 +1,5 @@
+# Secrets and backups stay on the server.
+.env
+.env.*
+!.env.example
+backups/

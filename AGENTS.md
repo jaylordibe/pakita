@@ -64,3 +64,10 @@ Each app's own commands, and which of them count as evidence, are in its
   wait on a server request is a defect.
 - **CI lives at the root** (`.github/workflows/`). GitHub never reads a
   workflow inside an app folder.
+- **A release is a version tag** (`v1.2.3`, equal to every `package.json`
+  version). `publish-image.yml` publishes the server images (opt-in through the
+  `PUBLISH_ENABLED` repository variable); `desktop-release.yml` uploads the
+  installers to a draft GitHub release. Pushing a branch releases nothing.
+- **A church's server is `deploy/`** (Docker Compose and its install, update,
+  backup and restore scripts, `deploy/README.md`). A restore rotates every
+  workspace's sync epoch, so laptops resynchronise.

@@ -3,6 +3,7 @@ import {
   type BrowserWindow,
   dialog,
   net,
+  shell,
   safeStorage,
   screen,
 } from 'electron';
@@ -58,6 +59,7 @@ import {
   songSchema,
   syncChangesSchema,
   themeSchema,
+  workspaceSchema,
   workspacePageSchema,
 } from './api/api-schemas';
 import { parseServerAddress } from './api/server-address';
@@ -80,12 +82,20 @@ import {
 } from './presentation/playlist-deck';
 import { Projector } from './presentation/projector';
 import { AppSettingsStore } from './storage/app-settings';
+import { slugOf } from './slug';
 import { syncBibleTranslations } from './sync/bible-sync';
+import {
+  type AvailableUpdate,
+  findUpdate,
+  isReleasePage,
+} from './updates/update-check';
 import { SyncEngine } from './sync/sync-engine';
 
 /** How often a signed-in laptop checks for changes in the background. */
 const BACKGROUND_SYNC_INTERVAL_MILLISECONDS = 2 * 60_000;
 const DATABASE_REOPEN_INTERVAL_MILLISECONDS = 60_000;
+const UPDATE_CHECK_DELAY_MILLISECONDS = 30_000;
+const UPDATE_CHECK_INTERVAL_MILLISECONDS = 12 * 60 * 60_000;
 /** A whole translation is a few megabytes; allow a slow church connection. */
 const BIBLE_DOWNLOAD_TIMEOUT_MILLISECONDS = 5 * 60_000;
 /** Ten times a complete Bible with every verse at a typical length. */
@@ -127,6 +137,8 @@ export class AppController {
   private pendingBibleImport: UsfmFolder | null = null;
   private isImportingBible = false;
   private lastDatabaseReopen = 0;
+  private availableUpdate: AvailableUpdate | null = null;
+  private updateCheckTimer: NodeJS.Timeout | null = null;
   private databaseReopenTimer: NodeJS.Timeout | null = null;
   /** Bible downloads that failed verification (see bible-sync). */
   private readonly rejectedBibleContent = new Set<string>();
@@ -185,6 +197,41 @@ export class AppController {
       account: account ? this.summarise(account) : null,
       workspaceId: this.settings.get().workspaceId,
     };
+  }
+
+  /**
+   * Checks GitHub for a newer published release now and then, and tells the
+   * operator. Packaged builds only; nothing is downloaded or installed.
+   */
+  startUpdateChecks(): void {
+    if (!app.isPackaged || this.updateCheckTimer) return;
+    const check = async () => {
+      const update = await findUpdate(app.getVersion(), (input, init) =>
+        net.fetch(input, init),
+      );
+      if (update && update.version !== this.availableUpdate?.version) {
+        this.availableUpdate = update;
+        this.send(IpcEvent.updateAvailable, update);
+      }
+    };
+    this.updateCheckTimer = setTimeout(() => {
+      void check();
+      this.updateCheckTimer = setInterval(
+        () => void check(),
+        UPDATE_CHECK_INTERVAL_MILLISECONDS,
+      );
+      this.updateCheckTimer.unref();
+    }, UPDATE_CHECK_DELAY_MILLISECONDS);
+    this.updateCheckTimer.unref();
+  }
+
+  getUpdate(): AvailableUpdate | null {
+    return this.availableUpdate;
+  }
+
+  async openUpdate(): Promise<void> {
+    const url = this.availableUpdate?.url;
+    if (url && isReleasePage(url)) await shell.openExternal(url);
   }
 
   async getDatabaseHealth(): Promise<DatabaseHealth | null> {
@@ -282,6 +329,19 @@ export class AppController {
       schema: workspacePageSchema,
     });
     return page.data;
+  }
+
+  /** Creates a church; its web-address name is derived from its name. */
+  async createWorkspace(name: string): Promise<WorkspaceSummary> {
+    await this.sessionReady;
+    const session = this.requireSession();
+    const workspace = await session.request({
+      method: 'POST',
+      path: '/api/workspaces',
+      schema: workspaceSchema,
+      body: { name: name.trim(), slug: slugOf(name) },
+    });
+    return { id: workspace.id, name: workspace.name, slug: workspace.slug };
   }
 
   async selectWorkspace(workspaceId: string): Promise<void> {
@@ -689,6 +749,7 @@ export class AppController {
   }
 
   async shutdown(): Promise<void> {
+    if (this.updateCheckTimer) clearTimeout(this.updateCheckTimer);
     this.cancelDatabaseReopen();
     this.stopBackgroundSync();
     this.projector.close();

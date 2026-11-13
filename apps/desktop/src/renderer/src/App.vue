@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 
-import type { AppState, LiveState } from '../../shared/ipc-contract';
+import type {
+  AppState,
+  AvailableUpdate,
+  LiveState,
+} from '../../shared/ipc-contract';
 import { DEFAULT_THEME_LOOK } from '../../shared/theme-look';
 import LivePanel from './components/LivePanel.vue';
 import ConnectView from './views/ConnectView.vue';
@@ -64,19 +68,35 @@ async function onConnected(): Promise<void> {
   await refresh();
 }
 
+const update = ref<AvailableUpdate | null>(null);
+const openUpdate = () => void window.pakita.app.openUpdate();
+
 let unsubscribe: (() => void) | null = null;
+let unsubscribeUpdate: (() => void) | null = null;
 onMounted(async () => {
   unsubscribe = window.pakita.live.onState((live) => {
     liveState.value = live;
   });
+  unsubscribeUpdate = window.pakita.app.onUpdateAvailable((available) => {
+    update.value = available;
+  });
+  update.value = await window.pakita.app.getUpdate();
   liveState.value = await window.pakita.live.getState();
   await refresh();
 });
-onUnmounted(() => unsubscribe?.());
+onUnmounted(() => {
+  unsubscribe?.();
+  unsubscribeUpdate?.();
+});
 </script>
 
 <template>
   <div class="app">
+    <p v-if="update" class="update" role="status" data-testid="update-banner">
+      Pakita {{ update.version }} is available.
+      <button @click="openUpdate">Download</button>
+      <button aria-label="Dismiss" @click="update = null">✕</button>
+    </p>
     <div class="screen">
       <p v-if="screen === 'loading'" class="muted card">Loading…</p>
       <ConnectView
@@ -117,6 +137,16 @@ onUnmounted(() => unsubscribe?.());
   display: flex;
   flex-direction: column;
   height: 100vh;
+}
+
+.update {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.4rem 1rem;
+  background: #e3ebf3;
+  border-bottom: 1px solid var(--border);
 }
 
 .screen {

@@ -170,6 +170,7 @@ async function start(): Promise<void> {
     getOperatorWindow: () => operatorWindow,
   });
   controller.initialize();
+  controller.startUpdateChecks();
 
   // Close the database cleanly before the process exits: hold the quit once,
   // let the worker finish its statement and close, then quit for real.
@@ -205,6 +206,8 @@ async function start(): Promise<void> {
 
   handle(IpcChannel.appGetVersion, noPayload, () => app.getVersion());
   handle(IpcChannel.appGetState, noPayload, () => controller.getState());
+  handle(IpcChannel.appGetUpdate, noPayload, () => controller.getUpdate());
+  handle(IpcChannel.appOpenUpdate, noPayload, () => controller.openUpdate());
   handle(IpcChannel.databaseGetHealth, noPayload, () =>
     controller.getDatabaseHealth(),
   );
@@ -227,6 +230,11 @@ async function start(): Promise<void> {
   );
   handle(IpcChannel.workspaceSelect, uuid, (workspaceId) =>
     controller.selectWorkspace(workspaceId),
+  );
+  handle(
+    IpcChannel.workspacesCreate,
+    z.string().trim().min(2).max(120),
+    (name) => controller.createWorkspace(name),
   );
   handle(IpcChannel.syncNow, noPayload, () => controller.syncNow());
   handle(IpcChannel.syncGetStatus, noPayload, () => controller.getSyncStatus());

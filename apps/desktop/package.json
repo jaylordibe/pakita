@@ -5,6 +5,7 @@
   "license": "AGPL-3.0-or-later",
   "private": true,
   "author": "Jay Lord Ibe",
+  "homepage": "https://github.com/jaylordibe/pakita",
   "repository": {
     "type": "git",
     "url": "https://github.com/jaylordibe/pakita",
@@ -20,6 +21,7 @@
     "test": "vitest run",
     "test:e2e": "pnpm build && playwright test",
     "package:dir": "pnpm build && electron-builder --dir",
+    "package:release": "pnpm build && electron-builder --publish never",
     "smoke:package": "node scripts/smoke-packaged-app.mjs",
     "generate:api": "openapi-typescript ../api/openapi.json --output src/shared/api/openapi.ts && node scripts/generate-api-enums.mjs ../api/openapi.json src/shared/api/enums.ts && prettier --write src/shared/api/openapi.ts src/shared/api/enums.ts"
   },

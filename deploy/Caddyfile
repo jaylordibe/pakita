@@ -1,0 +1,6 @@
+# Caddy obtains and renews the HTTPS certificate for PAKITA_DOMAIN itself
+# (the domain's DNS must point at this machine, with ports 80 and 443 open).
+{$PAKITA_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:3000
+}

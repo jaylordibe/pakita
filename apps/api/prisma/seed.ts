@@ -74,6 +74,20 @@ async function upsertSeedUser(
   // `findFirst`: email is unique only among live rows (partial index).
   const existing = await prisma.user.findFirst({ where: { email } });
 
+  // Platform roles go only to an account whose owner proved the address. An
+  // unverified (or deleted) account with this email may have been registered
+  // by someone else, waiting for the administrator's email to be promoted.
+  const isTrustworthy =
+    existing !== null &&
+    existing.emailVerifiedAt !== null &&
+    existing.deletedAt === null;
+  if (existing && user.platformRoles.length > 0 && !isTrustworthy) {
+    throw new Error(
+      `${email} belongs to an account that is unverified or deleted; refusing to give it ${user.platformRoles.join(', ')}. ` +
+        'Use another email, or verify that account first.',
+    );
+  }
+
   let userId: string;
   if (existing) {
     // Idempotent re-run: don't clobber anything. If an operator has
@@ -124,7 +138,12 @@ async function main(): Promise<void> {
   const admin = readSeedUser('ADMIN', 'Admin', 'User', [
     SeededRoleName.PLATFORM_ADMIN,
   ]);
-  const user = readSeedUser('USER', 'Regular', 'User', []);
+  // The ordinary seed user is for development; a church server seeds only
+  // its first administrator (deploy/create-admin.sh), so it is optional.
+  const user =
+    process.env.SEED_USER_EMAIL || process.env.SEED_USER_PASSWORD
+      ? readSeedUser('USER', 'Regular', 'User', [])
+      : null;
 
   const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
   const prisma = new PrismaClient({ adapter });
@@ -134,7 +153,7 @@ async function main(): Promise<void> {
     await seedPermissions(prisma);
     await seedRoles(prisma);
     await upsertSeedUser(prisma, admin);
-    await upsertSeedUser(prisma, user);
+    if (user) await upsertSeedUser(prisma, user);
   } finally {
     await prisma.$disconnect();
   }

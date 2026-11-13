@@ -1,5 +1,7 @@
 # Pakita
 
+![Pakita — worship presentation made simple](docs/images/pakita-hero.jpg)
+
 **Simply present.**
 
 Pakita is a free, open-source worship presentation app for churches: song
@@ -17,6 +19,13 @@ laptop, so a service can be presented with no internet connection.
 |---|---|
 | `apps/api` | The church's server: NestJS, Prisma and PostgreSQL |
 | `apps/desktop` | The presenter app: Electron and Vue |
+| `deploy` | A church's server: Docker Compose and its scripts |
+
+## Run a server
+
+A church runs its own Pakita server with Docker Compose: see
+[`deploy/README.md`](deploy/README.md). Desktop installers are on the
+[releases page](https://github.com/jaylordibe/pakita/releases).
 
 ## Develop locally
 
