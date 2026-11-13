@@ -3,11 +3,12 @@ name: Desktop
 # The desktop app's merge gate (apps/desktop): type check, lint, unit tests,
 # the real app under Playwright, and an unpacked package on every desktop OS.
 on:
-  push:
-    branches:
-      - main
-      - staging
-      - develop
+  # Paused during early development to save Actions minutes; uncomment before release.
+  # push:
+  #   branches:
+  #     - main
+  #     - staging
+  #     - develop
   pull_request:
     branches:
       - main

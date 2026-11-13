@@ -5,11 +5,12 @@ name: API
 # release. Every job runs its commands in apps/api (see `defaults` below); the
 # install runs at the workspace root, where the one lockfile lives.
 on:
-  push:
-    branches:
-      - main
-      - staging
-      - develop
+  # Paused during early development to save Actions minutes; uncomment before release.
+  # push:
+  #   branches:
+  #     - main
+  #     - staging
+  #     - develop
   pull_request:
     branches:
       - main
