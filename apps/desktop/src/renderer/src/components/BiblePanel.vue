@@ -27,6 +27,8 @@ const end = ref<number | null>(null);
 const search = ref('');
 const results = ref<BibleSearchHit[]>([]);
 const isImportShown = ref(false);
+// Only the platform administrator may import; nobody else is offered it.
+const canImport = ref(false);
 const errorMessage = ref<string | null>(null);
 
 const book = computed(
@@ -174,6 +176,7 @@ onMounted(async () => {
     if (status.state === 'idle') void loadTranslations();
   });
   await loadTranslations();
+  canImport.value = await window.pakita.bible.canImport();
 });
 onUnmounted(() => unsubscribe?.());
 </script>
@@ -251,6 +254,7 @@ onUnmounted(() => unsubscribe?.());
         </li>
       </ul>
       <button
+        v-if="canImport"
         class="import-open"
         data-testid="bible-import-open"
         @click="isImportShown = true"
@@ -262,7 +266,7 @@ onUnmounted(() => unsubscribe?.());
 
     <main class="panel-content">
       <BibleImport
-        v-if="isImportShown"
+        v-if="isImportShown && canImport"
         @imported="onImported"
         @close="isImportShown = false"
       />

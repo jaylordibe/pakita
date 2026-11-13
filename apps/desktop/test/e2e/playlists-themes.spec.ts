@@ -55,6 +55,14 @@ test('signs in with two songs in the library', async () => {
   ).toBeVisible();
 });
 
+test('offers the Bible import only to the platform administrator', async () => {
+  // The church owner is not the platform administrator: the server would
+  // refuse an import, so the app does not offer one.
+  await operator.getByTestId('tab-bible').click();
+  await expect(operator.getByTestId('bible-empty')).toBeVisible();
+  await expect(operator.getByTestId('bible-import-open')).toHaveCount(0);
+});
+
 test('creates the church’s default theme, previewed as it will look', async () => {
   await operator.getByTestId('tab-themes').click();
   await operator.getByTestId('theme-new').click();

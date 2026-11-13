@@ -62,7 +62,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1107.0",
     "@azure/identity": "^4.14.1",
     "@azure/storage-blob": "^12.33.0",
-    "@casl/ability": "^7.0.1",
+    "@casl/ability": "catalog:",
     "@casl/prisma": "^2.0.2",
     "@google-cloud/storage": "^7.22.0",
     "@modelcontextprotocol/node": "^2.1.2",

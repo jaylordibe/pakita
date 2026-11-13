@@ -287,6 +287,9 @@ async function start(): Promise<void> {
     ({ translationId, search }) =>
       controller.searchBible(translationId, search),
   );
+  handle(IpcChannel.bibleCanImport, noPayload, () =>
+    controller.canImportBibles(),
+  );
   handle(IpcChannel.bibleChooseImportFolder, noPayload, () =>
     controller.chooseBibleImportFolder(),
   );

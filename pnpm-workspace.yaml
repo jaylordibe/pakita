@@ -22,6 +22,7 @@ allowBuilds:
 
 # Shared tool versions, declared once. A package uses `"<name>": "catalog:"`.
 catalog:
+  '@casl/ability': ^7.0.1
   '@eslint/js': ^9.18.0
   '@types/node': ^24.0.0
   '@types/pg': ^8.20.0

@@ -59,12 +59,14 @@ import {
   songSchema,
   syncChangesSchema,
   themeSchema,
+  userPermissionsSchema,
   workspaceSchema,
   workspacePageSchema,
 } from './api/api-schemas';
 import { parseServerAddress } from './api/server-address';
 import { CredentialStore, type StoredAccount } from './auth/credential-store';
 import { Session, SignInRequiredError } from './auth/session';
+import { canImportBibles } from './auth/permissions';
 import { obtainTurnstileToken } from './auth/turnstile-window';
 import {
   readUsfmFolder,
@@ -473,6 +475,26 @@ export class AppController {
   ): Promise<BibleSearchHit[]> {
     if (!this.database) return [];
     return this.database.searchBible(translationId, search);
+  }
+
+  /**
+   * Whether the signed-in person may import a Bible translation, from their
+   * permission rules on the server. Offline or signed out the answer is no:
+   * an import needs the server anyway.
+   */
+  async canImportBibles(): Promise<boolean> {
+    await this.sessionReady;
+    if (!this.session?.isSignedIn) return false;
+    try {
+      const { rules } = await this.session.request({
+        method: 'GET',
+        path: '/api/users/me/permissions',
+        schema: userPermissionsSchema,
+      });
+      return canImportBibles(rules);
+    } catch {
+      return false;
+    }
   }
 
   /**

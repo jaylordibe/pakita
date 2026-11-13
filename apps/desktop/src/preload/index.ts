@@ -72,6 +72,7 @@ const pakita: PakitaApi = {
       invoke(IpcChannel.bibleGetChapter, { translationId, bookCode, chapter }),
     search: (translationId, search) =>
       invoke(IpcChannel.bibleSearch, { translationId, search }),
+    canImport: () => invoke(IpcChannel.bibleCanImport),
     chooseImportFolder: () => invoke(IpcChannel.bibleChooseImportFolder),
     import: (input) => invoke(IpcChannel.bibleImport, input),
     onImportProgress: (listener) =>

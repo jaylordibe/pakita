@@ -26,6 +26,7 @@
     "generate:api": "openapi-typescript ../api/openapi.json --output src/shared/api/openapi.ts && node scripts/generate-api-enums.mjs ../api/openapi.json src/shared/api/enums.ts && prettier --write src/shared/api/openapi.ts src/shared/api/enums.ts"
   },
   "dependencies": {
+    "@casl/ability": "catalog:",
     "better-sqlite3": "13.0.3",
     "zod": "catalog:"
   },

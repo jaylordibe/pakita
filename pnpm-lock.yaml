@@ -7,6 +7,9 @@ settings:
 
 catalogs:
   default:
+    '@casl/ability':
+      specifier: ^7.0.1
+      version: 7.0.1
     '@eslint/js':
       specifier: ^9.18.0
       version: 9.39.5
@@ -88,7 +91,7 @@ importers:
         specifier: ^12.33.0
         version: 12.33.0
       '@casl/ability':
-        specifier: ^7.0.1
+        specifier: 'catalog:'
         version: 7.0.1
       '@casl/prisma':
         specifier: ^2.0.2
@@ -358,6 +361,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@casl/ability':
+        specifier: 'catalog:'
+        version: 7.0.1
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3

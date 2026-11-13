@@ -16,6 +16,11 @@ type Schemas = components['schemas'];
 // types generated from the API's openapi.json, so a contract change that this
 // file does not follow fails `pnpm typecheck`.
 
+// Only the rules: the role names beside them must never decide anything.
+export const userPermissionsSchema: z.ZodType<
+  Pick<Schemas['UserPermissionsResponseDto'], 'rules'>
+> = z.object({ rules: z.array(z.array(z.unknown())) });
+
 export const serverInfoSchema: z.ZodType<Schemas['ServerInfoResponseDto']> =
   z.object({
     product: z.literal('pakita'),

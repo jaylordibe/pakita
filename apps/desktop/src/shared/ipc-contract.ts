@@ -36,6 +36,7 @@ export const IpcChannel = {
   bibleListBooks: 'bible:list-books',
   bibleGetChapter: 'bible:get-chapter',
   bibleSearch: 'bible:search',
+  bibleCanImport: 'bible:can-import',
   bibleChooseImportFolder: 'bible:choose-import-folder',
   bibleImport: 'bible:import',
   themesList: 'themes:list',
@@ -345,6 +346,11 @@ export interface PakitaApi {
       chapter: number,
     ): Promise<BibleVerse[]>;
     search(translationId: string, search: string): Promise<BibleSearchHit[]>;
+    /**
+     * Whether the signed-in person may import a translation (the platform
+     * administrator). False offline or signed out: importing needs the server.
+     */
+    canImport(): Promise<boolean>;
     /** Asks for a folder of USFM files; null when the operator cancels. */
     chooseImportFolder(): Promise<BibleImportPreview | null>;
     /** Imports and publishes the chosen folder, then synchronises. */
