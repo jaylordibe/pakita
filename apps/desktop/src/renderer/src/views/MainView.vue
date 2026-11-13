@@ -511,6 +511,8 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 /* ---------- Content ---------- */
 
 .workspace {
+  /* Fills the shell's content area, so every panel runs the full height. */
+  height: 100%;
   min-width: 0;
   min-height: 0;
 }

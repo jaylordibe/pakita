@@ -126,7 +126,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>
 
 <template>
-  <div class="picker">
+  <div class="combobox picker">
     <label :for="inputId">{{ props.label }}</label>
     <input
       :id="inputId"
@@ -150,7 +150,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
       @keydown.enter="onEnter"
       @keydown.esc="close"
     />
-    <ul v-show="isOpen" :id="listId" role="listbox" class="suggestions">
+    <ul v-show="isOpen" :id="listId" role="listbox" class="combobox-list">
       <li
         v-for="(account, index) in matches"
         :id="`${listId}-${index}`"
@@ -166,10 +166,14 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
           >{{ account.email }} · {{ affiliationLabel(account) }}</span
         >
       </li>
-      <li v-if="searchError" class="none" role="presentation">
+      <li v-if="searchError" class="combobox-none" role="presentation">
         {{ searchError }}
       </li>
-      <li v-else-if="matches.length === 0" class="none" role="presentation">
+      <li
+        v-else-if="matches.length === 0"
+        class="combobox-none"
+        role="presentation"
+      >
         {{ isSearching ? 'Searching…' : props.noMatchHint }}
       </li>
     </ul>
@@ -178,49 +182,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
 
 <style scoped>
 .picker {
-  position: relative;
   display: grid;
   gap: 0.35rem;
-}
-
-.picker input {
-  width: 100%;
-}
-
-.suggestions {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  left: 0;
-  z-index: 10;
-  display: grid;
-  gap: 0.1rem;
-  max-height: 18rem;
-  margin: 0.3rem 0 0;
-  padding: 0.3rem;
-  overflow-y: auto;
-  list-style: none;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-}
-
-.suggestions [role='option'] {
-  display: grid;
-  gap: 0.1rem;
-  padding: 0.45rem 0.6rem;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.suggestions [aria-selected='true'] {
-  background: var(--surface-hover);
-}
-
-.none {
-  padding: 0.45rem 0.6rem;
-  color: var(--text-muted);
-  font-size: 0.82rem;
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import type {
   BibleBook,
@@ -9,10 +9,12 @@ import type {
   PlaylistItemInput,
   SyncStatus,
 } from '../../../shared/ipc-contract';
+import { readReference } from '../../../shared/bible-reference';
 import { formatReference } from '../../../shared/slides';
 import { messageOf } from '../errors';
 import AddToPlaylist from './AddToPlaylist.vue';
 import AppIcon from './AppIcon.vue';
+import BookPicker from './BookPicker.vue';
 
 const translations = ref<BibleTranslation[]>([]);
 const translationId = ref<string | null>(null);
@@ -26,17 +28,32 @@ const end = ref<number | null>(null);
 const search = ref('');
 const results = ref<BibleSearchHit[]>([]);
 const errorMessage = ref<string | null>(null);
+/** A typed reference ("jn 3:16-18"), read against this translation's books. */
+const referenceText = ref('');
+/** Why the last reference could not be opened; shown once Enter is pressed. */
+const referenceProblem = ref<string | null>(null);
 
 const book = computed(
   () =>
     books.value.find((candidate) => candidate.code === bookCode.value) ?? null,
 );
-const chapters = computed(() =>
-  Array.from(
-    { length: book.value?.chapterCount ?? 0 },
-    (_, index) => index + 1,
-  ),
-);
+/** What the reference box would open, said while it is typed. */
+const referencePreview = computed(() => {
+  if (!referenceText.value.trim()) return null;
+  const reading = readReference(books.value, referenceText.value);
+  if (!reading.isFound) return null;
+  const {
+    book: found,
+    chapter: number,
+    startVerse,
+    endVerse,
+  } = reading.reference;
+  const verses =
+    startVerse === undefined
+      ? ''
+      : `:${startVerse}${endVerse === undefined ? '' : `–${endVerse}`}`;
+  return `${found.name} ${number}${verses}`;
+});
 const selection = computed(() => {
   if (start.value === null) return [];
   const last = end.value ?? start.value;
@@ -112,6 +129,56 @@ function chooseVerse(verse: number, isExtending: boolean): void {
     start.value = verse;
     end.value = null;
   }
+}
+
+/** Commits a typed chapter number; anything outside the book puts back the current one. */
+function setChapter(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const typed = Number(input.value);
+  const last = book.value?.chapterCount ?? 0;
+  if (Number.isInteger(typed) && typed >= 1 && typed <= last) {
+    chapter.value = typed;
+  } else {
+    input.value = String(chapter.value);
+  }
+}
+
+/** Opens the typed reference and selects its verses. */
+async function goToReference(): Promise<void> {
+  const reading = readReference(books.value, referenceText.value);
+  if (!reading.isFound) {
+    referenceProblem.value = reading.problem;
+    return;
+  }
+  const {
+    book: found,
+    chapter: number,
+    startVerse,
+    endVerse,
+  } = reading.reference;
+  referenceProblem.value = null;
+  // A new reference replaces the selection, even in the chapter already open.
+  start.value = null;
+  end.value = null;
+  bookCode.value = found.code;
+  chapter.value = number;
+  await loadChapter();
+  if (startVerse === undefined) {
+    referenceText.value = '';
+    return;
+  }
+  const last = verses.value.at(-1)?.verse ?? 0;
+  if (startVerse > last || (endVerse ?? startVerse) > last) {
+    referenceProblem.value = `${found.name} ${number} has ${last} verses.`;
+    return;
+  }
+  chooseVerse(startVerse, false);
+  if (endVerse !== undefined) chooseVerse(endVerse, true);
+  referenceText.value = '';
+  await nextTick();
+  document
+    .querySelector(`[data-testid="bible-verse-${startVerse}"]`)
+    ?.scrollIntoView({ block: 'center' });
 }
 
 async function openResult(result: BibleSearchHit): Promise<void> {
@@ -191,27 +258,55 @@ onUnmounted(() => unsubscribe?.());
           {{ translation.code }} — {{ translation.name }}
         </option>
       </select>
+      <form class="go-to" @submit.prevent="goToReference">
+        <div class="search-field">
+          <AppIcon name="bible" />
+          <input
+            v-model="referenceText"
+            placeholder="Go to, e.g. jn 3:16-18"
+            aria-label="Go to a reference"
+            spellcheck="false"
+            autocomplete="off"
+            data-testid="bible-reference"
+            :disabled="books.length === 0"
+            @input="referenceProblem = null"
+          />
+        </div>
+        <p
+          v-if="referenceProblem"
+          class="reference-note problem"
+          role="alert"
+          data-testid="bible-reference-problem"
+        >
+          {{ referenceProblem }}
+        </p>
+        <p
+          v-else-if="referencePreview"
+          class="reference-note"
+          data-testid="bible-reference-preview"
+        >
+          Enter opens {{ referencePreview }}
+        </p>
+      </form>
       <div class="reference">
-        <select
+        <BookPicker
           v-model="bookCode"
-          aria-label="Book"
-          data-testid="bible-book"
-          :disabled="books.length === 0"
-        >
-          <option v-for="item in books" :key="item.code" :value="item.code">
-            {{ item.name }}
-          </option>
-        </select>
-        <select
-          v-model="chapter"
+          :books="books"
+          :is-disabled="books.length === 0"
+        />
+        <input
+          :value="chapter"
+          type="number"
+          inputmode="numeric"
+          min="1"
+          :max="book?.chapterCount"
           aria-label="Chapter"
+          :title="book ? `${book.name} has ${book.chapterCount} chapters` : ''"
           data-testid="bible-chapter"
-          :disabled="chapters.length === 0"
-        >
-          <option v-for="number in chapters" :key="number" :value="number">
-            {{ number }}
-          </option>
-        </select>
+          :disabled="books.length === 0"
+          @change="setChapter"
+          @keydown.enter.prevent="setChapter"
+        />
       </div>
       <div class="search-field">
         <AppIcon name="search" />
@@ -307,6 +402,22 @@ onUnmounted(() => unsubscribe?.());
   display: grid;
   grid-template-columns: minmax(0, 1fr) 4.75rem;
   gap: 0.5rem;
+}
+
+.go-to {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.reference-note {
+  margin: 0;
+  padding: 0 0.2rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.reference-note.problem {
+  color: var(--danger);
 }
 
 .list .item-sub {

@@ -181,14 +181,87 @@ test('finds a passage and presents it with its reference', async () => {
   await operator.getByTestId('live-stop').click();
 });
 
+test('goes to a typed reference and selects its verses', async () => {
+  const reference = operator.getByTestId('bible-reference');
+  await reference.fill('jo 3');
+  await reference.press('Enter');
+  // Only Job, Joel, Jonah or John could start "jo"; this Bible has John alone.
+  await expect(operator.getByRole('heading', { level: 2 })).toHaveText(
+    'John 3',
+  );
+  await expect(reference).toHaveValue('');
+
+  await reference.fill('gen 1:9');
+  await reference.press('Enter');
+  await expect(operator.getByTestId('bible-reference-problem')).toHaveText(
+    'Genesis 1 has 2 verses.',
+  );
+
+  await reference.fill('hezekiah 1');
+  await reference.press('Enter');
+  await expect(operator.getByTestId('bible-reference-problem')).toHaveText(
+    'No book called “hezekiah”.',
+  );
+
+  await reference.fill('jn 3:16-17');
+  await expect(operator.getByTestId('bible-reference-preview')).toHaveText(
+    'Enter opens John 3:16–17',
+  );
+  await reference.press('Enter');
+  await expect(operator.getByRole('heading', { level: 2 })).toHaveText(
+    'John 3:16–17',
+  );
+  await expect(operator.getByTestId('bible-verse-16')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(operator.getByTestId('bible-verse-17')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(reference).toHaveValue('');
+});
+
+test('finds a book by typing part of it, and a chapter by its number', async () => {
+  const book = operator.getByTestId('bible-book');
+  await book.click();
+  await book.fill('gen');
+  await expect(
+    operator.locator('[data-testid^="bible-book-option-"]'),
+  ).toHaveText(['Genesis']);
+  await book.press('Enter');
+  await expect(book).toHaveValue('Genesis');
+
+  const chapter = operator.getByTestId('bible-chapter');
+  await chapter.fill('2');
+  await chapter.press('Enter');
+  await expect(operator.getByRole('heading', { level: 2 })).toHaveText(
+    'Genesis 2',
+  );
+  // A chapter the book does not have puts back the current one.
+  await chapter.fill('9');
+  await chapter.press('Enter');
+  await expect(chapter).toHaveValue('2');
+
+  // Leaving the field without choosing keeps the book.
+  await book.click();
+  await book.fill('xyz');
+  await expect(operator.getByText('No book matches.')).toBeVisible();
+  await book.press('Escape');
+  await expect(book).toHaveValue('Genesis');
+});
+
 test('presents from the laptop’s copy after a restart with the server down', async () => {
   await application.close();
   await api.stop();
   ({ application, operator } = await launchApp(userDataDirectory));
 
   await operator.getByTestId('tab-bible').click();
-  await operator.getByTestId('bible-book').selectOption('JHN');
-  await operator.getByTestId('bible-chapter').selectOption('4');
+  await operator.getByTestId('bible-book').click();
+  await operator.getByTestId('bible-book').fill('jn');
+  await operator.getByTestId('bible-book').press('Enter');
+  await operator.getByTestId('bible-chapter').fill('4');
+  await operator.getByTestId('bible-chapter').press('Enter');
   await operator.getByTestId('bible-verse-1').click();
   await operator.getByTestId('bible-go-live').click();
 

@@ -49,6 +49,14 @@ test('connects, signs in and opens its only church without asking', async () => 
   );
   expect(health).toMatchObject({ journalMode: 'wal' });
   expect(health?.schemaVersion).toBe(health?.latestSchemaVersion);
+
+  // The library's list column runs the window's full height, as the sidebar
+  // does, however little it holds.
+  const heights = await operator.evaluate(() => ({
+    sidebar: document.querySelector('.sidebar')!.getBoundingClientRect().height,
+    list: document.querySelector('.panel-list')!.getBoundingClientRect().height,
+  }));
+  expect(heights.list).toBeCloseTo(heights.sidebar, 0);
 });
 
 test('creates a song, saved to the API and synchronised back', async () => {
