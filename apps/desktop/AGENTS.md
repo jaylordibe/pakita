@@ -18,7 +18,7 @@ root).
 | Unit tests | `pnpm test` | Pure code only (vitest) |
 | App tests | `pnpm test:e2e` | Builds, then drives the real app with Playwright against a real API (see below) |
 | Turnstile sign-in test | `PAKITA_E2E_TURNSTILE=1 pnpm exec playwright test turnstile` | Opt-in: needs the internet (Cloudflare's test keys) |
-| API types | `pnpm generate:api` | Regenerates `src/shared/api/openapi.ts` and `enums.ts` from `apps/api/openapi.json`; CI fails when stale |
+| API types | `pnpm generate:api` | Regenerates `src/shared/api/openapi.ts`, `enums.ts` and `constraints.ts` from `apps/api/openapi.json`; CI fails when stale |
 | Package (unpacked) | `pnpm package:dir` | Proves packaging; publishes nothing, never signs |
 | Packaged smoke test | `pnpm smoke:package` | Launches the package from `package:dir` and waits for its database |
 
@@ -87,6 +87,9 @@ test/fixtures/ shared test data (a tiny USFM translation)
   so an API change this app does not follow fails `pnpm typecheck`.
 - **A list of allowed values the API publishes is generated, never copied**
   (`src/shared/api/enums.ts`, e.g. the USFM book codes an import may send).
+- **A field's limits are generated, never copied**
+  (`src/shared/api/constraints.ts`: the lengths, patterns and ranges the API
+  publishes, e.g. the longest verse it accepts).
 - **Compatibility:** `REQUIRED_API_LEVEL` (`src/main/compatibility.ts`)
   against the server's `apiLevel`, and this app's version against the
   server's `minimumDesktopVersion`; the operator is told which side to update.

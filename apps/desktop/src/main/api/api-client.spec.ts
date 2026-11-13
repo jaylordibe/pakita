@@ -92,6 +92,45 @@ describe('ApiClient', () => {
     });
   });
 
+  it('says what a refused request broke, from its validation details', async () => {
+    const { client } = clientAnswering(
+      json(400, {
+        errorCode: 'VALIDATION_FAILED',
+        message: 'Validation failed',
+        details: [
+          {
+            field: 'verses[0].text',
+            constraints: [
+              'text must be shorter than or equal to 8000 characters',
+            ],
+          },
+        ],
+      }),
+    );
+    await expect(
+      client.request({ method: 'PUT', path: '/api/thing', schema: pingSchema }),
+    ).rejects.toMatchObject({
+      errorCode: 'VALIDATION_FAILED',
+      message:
+        'Validation failed: text must be shorter than or equal to 8000 characters.',
+    });
+  });
+
+  it('keeps the message when details are null or another shape', async () => {
+    for (const details of [null, { retryAfterSeconds: 3 }]) {
+      const { client } = clientAnswering(
+        json(409, { errorCode: 'CONFLICT', message: 'Taken', details }),
+      );
+      await expect(
+        client.request({
+          method: 'POST',
+          path: '/api/thing',
+          schema: pingSchema,
+        }),
+      ).rejects.toMatchObject({ errorCode: 'CONFLICT', message: 'Taken' });
+    }
+  });
+
   it('refuses a body of the wrong shape', async () => {
     const { client } = clientAnswering(json(200, { isOk: 'yes' }));
     await expect(

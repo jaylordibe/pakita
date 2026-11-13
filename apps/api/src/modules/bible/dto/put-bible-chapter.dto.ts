@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -13,7 +14,9 @@ import {
 } from 'class-validator';
 
 export const MAX_VERSES_PER_CHAPTER = 200;
-export const MAX_VERSE_LENGTH = 2000;
+// Room for the longest verses real translations hold: the additions to Greek
+// Esther run past 4000 characters in a single verse (eBible.org's WEB, 8:13).
+export const MAX_VERSE_LENGTH = 8000;
 
 export class BibleVerseInputDto {
   @IsInt()
@@ -41,6 +44,11 @@ export class PutBibleChapterDto {
   @MaxLength(60)
   bookName!: string;
 
+  @ApiProperty({
+    type: () => [BibleVerseInputDto],
+    minItems: 1,
+    maxItems: MAX_VERSES_PER_CHAPTER,
+  })
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(MAX_VERSES_PER_CHAPTER)

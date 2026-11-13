@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
+import { apiConstraints } from '../../shared/api/constraints';
 import {
   readUsfmFolder,
   type TranslationUploader,
@@ -46,6 +47,38 @@ describe('readUsfmFolder', () => {
       );
     }
     await expect(readUsfmFolder(twice)).rejects.toThrow(/more than one file/);
+  });
+
+  it('refuses, before uploading, a verse longer than the server accepts', async () => {
+    const maxLength = apiConstraints.BibleVerseInputDto.text.maxLength;
+    const folder = mkdtempSync(join(tmpdir(), 'pakita-usfm-'));
+    writeFileSync(
+      join(folder, 'esg.usfm'),
+      `\\id ESG\n\\c 8\n\\v 12 Short.\n\\v 13 ${'x'.repeat(maxLength + 1)}`,
+    );
+    await expect(readUsfmFolder(folder)).rejects.toThrow(
+      `esg.usfm: ESG 8:13 is ${(maxLength + 1).toLocaleString('en')} characters long`,
+    );
+
+    // As long as the limit is fine, measured as the server stores it.
+    writeFileSync(
+      join(folder, 'esg.usfm'),
+      `\\id ESG\n\\c 8\n\\v 13 ${'x'.repeat(maxLength)}   \n`,
+    );
+    await expect(readUsfmFolder(folder)).resolves.toMatchObject({
+      verseCount: 1,
+    });
+  });
+
+  it('refuses a verse numbered above what the server accepts', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'pakita-usfm-'));
+    writeFileSync(
+      join(folder, 'psa.usfm'),
+      `\\id PSA\n\\c 1\n\\v ${apiConstraints.BibleVerseInputDto.number.maximum + 1} Too far.`,
+    );
+    await expect(readUsfmFolder(folder)).rejects.toThrow(
+      /PSA 1:\d+ is numbered above/,
+    );
   });
 });
 
@@ -110,7 +143,7 @@ describe('uploadTranslation', () => {
         await readUsfmFolder(FIXTURE),
         () => {},
       ),
-    ).rejects.toThrow('refused');
+    ).rejects.toThrow('John 3: refused');
     expect(uploader.calls).toEqual([
       'clear WEB',
       'create',

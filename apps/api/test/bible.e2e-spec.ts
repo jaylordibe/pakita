@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { bibleContentHash } from '../src/common/util/bible-content-hash.util';
+import { MAX_VERSE_LENGTH } from '../src/modules/bible/dto/put-bible-chapter.dto';
 import { truncateAll } from './setup/db';
 import {
   createPlatformAdmin,
@@ -249,7 +250,10 @@ describe('Bible translations (e2e)', () => {
       ],
       [
         chapterUrl(draft.id, 'GEN', 1),
-        { bookName: 'X', verses: [{ number: 1, text: 'x'.repeat(2001) }] },
+        {
+          bookName: 'X',
+          verses: [{ number: 1, text: 'x'.repeat(MAX_VERSE_LENGTH + 1) }],
+        },
       ],
       [
         chapterUrl(draft.id, 'GEN', 1),
@@ -259,6 +263,26 @@ describe('Bible translations (e2e)', () => {
       const response = await as(admin).put(url, body).expect(400);
       expect((response.body as ErrorBody).errorCode).toBe('VALIDATION_FAILED');
     }
+  });
+
+  it('keeps a verse as long as the limit, such as the additions to Greek Esther', async () => {
+    const draft = await createDraft();
+    const longest = 'x'.repeat(MAX_VERSE_LENGTH);
+    await as(admin)
+      .put(chapterUrl(draft.id, 'ESG', 8), {
+        bookName: 'Esther (Greek)',
+        verses: [{ number: 13, text: longest }],
+      })
+      .expect(204);
+    await as(admin)
+      .post(`/api/bible-translations/${draft.id}/publish`)
+      .expect(200);
+    const content = await as(admin)
+      .get(`/api/bible-translations/${draft.id}/content`)
+      .expect(200);
+    expect((content.body as ContentBody).verses).toEqual([
+      expect.objectContaining({ bookCode: 'ESG', verse: 13, text: longest }),
+    ]);
   });
 
   it('replaces a chapter when it is sent again, and deletes a translation', async () => {

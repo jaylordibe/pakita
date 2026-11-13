@@ -2296,9 +2296,9 @@ export interface components {
       text: string;
     };
     PutBibleChapterDto: {
+      verses: components['schemas']['BibleVerseInputDto'][];
       /** @description The book's name in the translation's language, e.g. "Juan". */
       bookName: string;
-      verses: components['schemas']['BibleVerseInputDto'][];
     };
     BibleBookResponseDto: {
       code: string;

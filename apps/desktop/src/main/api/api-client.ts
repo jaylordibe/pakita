@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 
-import { errorEnvelopeSchema } from './api-schemas';
+import { errorEnvelopeSchema, validationDetailsSchema } from './api-schemas';
 
 const REQUEST_TIMEOUT_MILLISECONDS = 15_000;
 /** Above any ordinary answer (a page of 50 long songs); larger is refused. */
@@ -146,5 +146,17 @@ async function toApiError(response: Response): Promise<ApiError> {
   const message = Array.isArray(envelope.data.message)
     ? envelope.data.message.join(' ')
     : (envelope.data.message ?? `The server answered ${response.status}.`);
-  return new ApiError(response.status, envelope.data.errorCode, message);
+  // "Validation failed" alone does not say what to change; the details do.
+  const details =
+    envelope.data.errorCode === 'VALIDATION_FAILED'
+      ? validationDetailsSchema.safeParse(envelope.data.details)
+      : null;
+  const reasons = details?.success
+    ? details.data.flatMap((detail) => detail.constraints)
+    : [];
+  return new ApiError(
+    response.status,
+    envelope.data.errorCode,
+    reasons.length > 0 ? `${message}: ${reasons.join('; ')}.` : message,
+  );
 }

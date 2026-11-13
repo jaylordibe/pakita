@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { apiConstraints } from '../../shared/api/constraints';
 import {
   bibleBookCodeValues,
   playlistItemKindValues,
@@ -202,7 +203,20 @@ export type SyncChanges = z.infer<typeof syncChangesSchema>;
 export const errorEnvelopeSchema = z.object({
   errorCode: z.string(),
   message: z.union([z.string(), z.array(z.string())]).optional(),
+  // Its shape depends on errorCode, and it is null for most; read it with
+  // validationDetailsSchema when errorCode is VALIDATION_FAILED.
+  details: z.unknown().optional(),
 });
+
+/** A VALIDATION_FAILED answer's details: each refused field and why. */
+export const validationDetailsSchema = z
+  .array(
+    z.object({
+      field: z.string().max(200),
+      constraints: z.array(z.string().max(500)).max(20),
+    }),
+  )
+  .max(50);
 
 export const bibleTranslationSchema: z.ZodType<
   Pick<
@@ -251,7 +265,7 @@ export const bibleContentSchema: z.ZodType<{
         bookCode: z.string().max(3),
         chapter: z.number().int().positive(),
         verse: z.number().int().positive(),
-        text: z.string().max(2000),
+        text: z.string().max(apiConstraints.BibleVerseInputDto.text.maxLength),
       }),
     )
     .max(50_000),

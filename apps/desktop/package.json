@@ -24,7 +24,7 @@
     "package:release": "pnpm build && electron-builder --publish never",
     "smoke:package": "node scripts/smoke-packaged-app.mjs",
     "generate:mac-icon": "node scripts/generate-mac-icon.mts",
-    "generate:api": "openapi-typescript ../api/openapi.json --output src/shared/api/openapi.ts && node scripts/generate-api-enums.mjs ../api/openapi.json src/shared/api/enums.ts && prettier --write src/shared/api/openapi.ts src/shared/api/enums.ts"
+    "generate:api": "openapi-typescript ../api/openapi.json --output src/shared/api/openapi.ts && node scripts/generate-api-enums.mjs ../api/openapi.json src/shared/api/enums.ts src/shared/api/constraints.ts && prettier --write src/shared/api/openapi.ts src/shared/api/enums.ts src/shared/api/constraints.ts"
   },
   "dependencies": {
     "@casl/ability": "catalog:",

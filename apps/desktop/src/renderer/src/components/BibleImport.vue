@@ -5,8 +5,12 @@ import type {
   BibleImportPreview,
   BibleImportProgress,
 } from '../../../shared/ipc-contract';
+import { apiConstraints } from '../../../shared/api/constraints';
 import { messageOf } from '../errors';
 import AppIcon from './AppIcon.vue';
+
+// The longest value the server accepts for each field.
+const limits = apiConstraints.CreateBibleTranslationDto;
 
 const emit = defineEmits<{ imported: []; close: [] }>();
 
@@ -48,7 +52,7 @@ async function submit(): Promise<void> {
   progress.value = null;
   try {
     await window.pakita.bible.import({
-      code: form.code.trim(),
+      code: form.code.trim().toUpperCase(),
       name: form.name.trim(),
       languageCode: form.languageCode.trim(),
       licence: form.licence.trim(),
@@ -133,8 +137,6 @@ onUnmounted(() => unsubscribe?.());
         <input
           v-model="form.code"
           required
-          maxlength="12"
-          pattern="[A-Za-z0-9]{2,12}"
           placeholder="WEB"
           aria-describedby="bible-import-code-help"
           data-testid="bible-import-code"
@@ -148,7 +150,7 @@ onUnmounted(() => unsubscribe?.());
         <input
           v-model="form.name"
           required
-          maxlength="120"
+          :maxlength="limits.name.maxLength"
           placeholder="World English Bible"
           aria-describedby="bible-import-name-help"
           data-testid="bible-import-name"
@@ -162,7 +164,7 @@ onUnmounted(() => unsubscribe?.());
         <input
           v-model="form.languageCode"
           required
-          maxlength="40"
+          :maxlength="limits.languageCode.maxLength"
           placeholder="en"
           aria-describedby="bible-import-language-help"
           data-testid="bible-import-language"
@@ -176,7 +178,7 @@ onUnmounted(() => unsubscribe?.());
         <input
           v-model="form.attribution"
           required
-          maxlength="200"
+          :maxlength="limits.attribution.maxLength"
           placeholder="World English Bible (Public Domain)"
           aria-describedby="bible-import-attribution-help"
           data-testid="bible-import-attribution"
@@ -191,7 +193,7 @@ onUnmounted(() => unsubscribe?.());
         <textarea
           v-model="form.licence"
           required
-          maxlength="2000"
+          :maxlength="limits.licence.maxLength"
           rows="3"
           placeholder="Public Domain"
           aria-describedby="bible-import-licence-help"
@@ -206,7 +208,7 @@ onUnmounted(() => unsubscribe?.());
         <input
           v-model="form.sourceUrl"
           type="url"
-          maxlength="500"
+          :maxlength="limits.sourceUrl.maxLength"
           placeholder="https://ebible.org/…"
           aria-describedby="bible-import-source-help"
           data-testid="bible-import-source"

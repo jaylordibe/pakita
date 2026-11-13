@@ -9063,7 +9063,7 @@
           "text": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 2000
+            "maxLength": 8000
           }
         },
         "required": [
@@ -9074,23 +9074,24 @@
       "PutBibleChapterDto": {
         "type": "object",
         "properties": {
+          "verses": {
+            "minItems": 1,
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BibleVerseInputDto"
+            }
+          },
           "bookName": {
             "type": "string",
             "description": "The book's name in the translation's language, e.g. \"Juan\".",
             "minLength": 1,
             "maxLength": 60
-          },
-          "verses": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/BibleVerseInputDto"
-            }
           }
         },
         "required": [
-          "bookName",
-          "verses"
+          "verses",
+          "bookName"
         ]
       },
       "BibleBookResponseDto": {

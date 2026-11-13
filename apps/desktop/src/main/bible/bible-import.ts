@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import { open, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { apiConstraints } from '../../shared/api/constraints';
 import { bibleBookCodeValues } from '../../shared/api/enums';
 import type {
   BibleImportProgress,
@@ -12,7 +13,10 @@ import { type ParsedBook, parseUsfmBook, UsfmError } from './usfm-parser';
 /** Generous bounds for one translation's folder of USFM files. */
 const MAX_FILES = 200;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
-const MAX_BOOK_NAME_LENGTH = 60;
+
+// What the server accepts in one chapter, as the API publishes it.
+const chapterLimits = apiConstraints.PutBibleChapterDto;
+const verseLimits = apiConstraints.BibleVerseInputDto;
 
 const canonicalPosition = new Map<string, number>(
   bibleBookCodeValues.map((code, index) => [code, index]),
@@ -67,9 +71,12 @@ export async function readUsfmFolder(directory: string): Promise<UsfmFolder> {
       throw new Error(`${book.code} appears in more than one file.`);
     }
     if (book.chapters.length > 0) {
+      assertWithinServerLimits(file, book);
       books.set(book.code, {
         ...book,
-        name: book.name.slice(0, MAX_BOOK_NAME_LENGTH).trim() || book.code,
+        name:
+          book.name.slice(0, chapterLimits.bookName.maxLength).trim() ||
+          book.code,
       });
     }
   }
@@ -91,6 +98,35 @@ export async function readUsfmFolder(directory: string): Promise<UsfmFolder> {
     ),
     skippedCodes,
   };
+}
+
+/**
+ * Refuses a book the server would refuse, before anything is uploaded, naming
+ * the verse at fault. Text is measured as the server stores it: whitespace
+ * runs collapsed, ends trimmed.
+ */
+function assertWithinServerLimits(file: string, book: ParsedBook): void {
+  for (const chapter of book.chapters) {
+    const where = `${file}: ${book.code} ${chapter.number}`;
+    if (chapter.verses.length > chapterLimits.verses.maxItems) {
+      throw new Error(
+        `${where} has ${chapter.verses.length} verses; the server accepts at most ${chapterLimits.verses.maxItems} in a chapter.`,
+      );
+    }
+    for (const verse of chapter.verses) {
+      if (verse.number > verseLimits.number.maximum) {
+        throw new Error(
+          `${where}:${verse.number} is numbered above ${verseLimits.number.maximum}, the highest verse number the server accepts.`,
+        );
+      }
+      const length = verse.text.replace(/\s+/g, ' ').trim().length;
+      if (length > verseLimits.text.maxLength) {
+        throw new Error(
+          `${where}:${verse.number} is ${length.toLocaleString('en')} characters long; the server accepts at most ${verseLimits.text.maxLength.toLocaleString('en')} in a verse.`,
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -155,10 +191,18 @@ export async function uploadTranslation(
     let done = 0;
     for (const book of folder.books) {
       for (const chapter of book.chapters) {
-        await uploader.putChapter(translationId, book.code, chapter.number, {
-          bookName: book.name,
-          verses: chapter.verses,
-        });
+        try {
+          await uploader.putChapter(translationId, book.code, chapter.number, {
+            bookName: book.name,
+            verses: chapter.verses,
+          });
+        } catch (error) {
+          // Name the chapter the server refused, keeping why.
+          if (error instanceof Error) {
+            error.message = `${book.name} ${chapter.number}: ${error.message}`;
+          }
+          throw error;
+        }
         done += 1;
         onProgress({ done, total, bookName: book.name });
       }
