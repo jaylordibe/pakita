@@ -51,6 +51,7 @@
     "prisma:reset": "prisma migrate reset --force",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
+    "seed:sample": "ts-node --transpile-only prisma/sample-church.ts",
     "prisma:studio": "prisma studio",
     "rbac:sync": "ts-node --transpile-only prisma/scripts/sync-permission-catalog.ts",
     "rbac:check": "ts-node --transpile-only prisma/scripts/check-permission-catalog.ts",

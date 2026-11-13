@@ -333,6 +333,7 @@ pnpm rbac:sync            # permission catalog changed
 | `pnpm prisma:migrate` | Create and apply a migration in development (interactive) |
 | `pnpm prisma:deploy` | Apply pending migrations non-interactively, as a deploy does |
 | `pnpm prisma:seed` | Project the RBAC catalog and upsert the `SEED_*` admin and user |
+| `pnpm seed:sample` | Development only: a sample church with an owner, admin, manager and staff account, and its songs, themes, playlist and Bible passages (published by the `SEED_*` platform admin), through the running API |
 | `pnpm prisma:reset` | Drop, re-migrate and reseed the development database |
 | `pnpm prisma:studio` | Database browser |
 | `pnpm rbac:sync` / `pnpm rbac:check` | Project the permission catalog into the database / exit 1 on drift |

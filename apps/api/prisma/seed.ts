@@ -2,34 +2,19 @@ import '../src/config/app-timezone';
 import 'dotenv/config';
 import { expand } from 'dotenv-expand';
 import * as dotenv from 'dotenv';
-import * as bcrypt from 'bcrypt';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import { SeededRoleName } from '../src/common/enums/seeded-role-name.enum';
+import { seedPermissions, seedRoles } from './rbac-seeder';
 import {
-  accountPasswordMessage,
-  isAccountPassword,
-} from '../src/common/util/account-password.util';
-import { assignPlatformRole, seedPermissions, seedRoles } from './rbac-seeder';
+  assertAccountPassword,
+  type SeedUser,
+  upsertSeedUser,
+} from './seed-user';
 
 // Load .env (with ${VAR} expansion) before touching process.env, matching
 // how the runtime app bootstraps via @nestjs/config + prisma.config.ts.
 expand(dotenv.config({ override: false }));
-
-// Same cost factor as UsersService. Keep in sync if that constant changes.
-const BCRYPT_ROUNDS = 12;
-
-interface SeedUser {
-  label: string;
-  email: string;
-  password: string;
-  firstName: string;
-  lastName: string;
-  // PLATFORM-scope roles granted through `user_roles`. Empty for an ordinary
-  // account — platform roles are staff roles, and self-service capability comes
-  // from AUTHENTICATED_USER_PERMISSIONS rather than from a row here.
-  platformRoles: readonly SeededRoleName[];
-}
 
 function readSeedUser(
   prefix: 'ADMIN' | 'USER',
@@ -49,12 +34,8 @@ function readSeedUser(
     );
   }
 
-  // The rule every account password passes. Checked here because the seeder
-  // bypasses the validation pipe: a typo'd env var must not install a 4-char
-  // admin password.
-  if (!isAccountPassword(password)) {
-    throw new Error(accountPasswordMessage(passwordKey));
-  }
+  // A typo'd env var must not install a 4-char admin password.
+  assertAccountPassword(password, passwordKey);
 
   return {
     label: prefix.toLowerCase(),
@@ -64,64 +45,6 @@ function readSeedUser(
     lastName,
     platformRoles,
   };
-}
-
-async function upsertSeedUser(
-  prisma: PrismaClient,
-  user: SeedUser,
-): Promise<void> {
-  const email = user.email.toLowerCase();
-  // `findFirst`: email is unique only among live rows (partial index).
-  const existing = await prisma.user.findFirst({ where: { email } });
-
-  // Platform roles go only to an account whose owner proved the address. An
-  // unverified (or deleted) account with this email may have been registered
-  // by someone else, waiting for the administrator's email to be promoted.
-  const isTrustworthy =
-    existing !== null &&
-    existing.emailVerifiedAt !== null &&
-    existing.deletedAt === null;
-  if (existing && user.platformRoles.length > 0 && !isTrustworthy) {
-    throw new Error(
-      `${email} belongs to an account that is unverified or deleted; refusing to give it ${user.platformRoles.join(', ')}. ` +
-        'Use another email, or verify that account first.',
-    );
-  }
-
-  let userId: string;
-  if (existing) {
-    // Idempotent re-run: don't clobber anything. If an operator has
-    // manually rotated the seeded admin's password, a repeat seed should
-    // not reset it.
-    console.log(
-      `[seed] ${user.label}: already exists (${email}) — leaving as is.`,
-    );
-    userId = existing.id;
-  } else {
-    const created = await prisma.user.create({
-      data: {
-        email,
-        password: await bcrypt.hash(user.password, BCRYPT_ROUNDS),
-        passwordChangedAt: new Date(),
-        firstName: user.firstName,
-        lastName: user.lastName,
-        emailVerifiedAt: new Date(),
-      },
-    });
-    console.log(
-      `[seed] ${user.label}: created ${created.email} (${created.id})`,
-    );
-    userId = created.id;
-  }
-
-  // Role links are reconciled on every run even for a pre-existing user, so a
-  // seeded admin that predates RBAC picks up its `user_roles` rows.
-  for (const roleName of user.platformRoles) {
-    await assignPlatformRole(prisma, userId, roleName);
-  }
-  console.log(
-    `[seed] ${user.label}: platform role(s) ${user.platformRoles.join(', ')} in sync`,
-  );
 }
 
 async function main(): Promise<void> {
