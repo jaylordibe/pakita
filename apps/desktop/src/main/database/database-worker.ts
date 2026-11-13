@@ -8,7 +8,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 
 import { BibleStore } from './bible-store';
 import { LATEST_SCHEMA_VERSION, migrateDatabase } from './migrations';
-import { SongStore } from './song-store';
+import { ContentStore } from './content-store';
 import {
   DatabaseWorkerData,
   DatabaseWorkerRequest,
@@ -27,7 +27,7 @@ const database = new Database(databasePath);
 database.pragma('journal_mode = WAL');
 database.pragma('foreign_keys = ON');
 migrateDatabase(database);
-const songs = new SongStore(database);
+const content = new ContentStore(database);
 const bible = new BibleStore(database);
 
 function handle(request: DatabaseWorkerRequest): unknown {
@@ -44,29 +44,34 @@ function handle(request: DatabaseWorkerRequest): unknown {
       database.close();
       return undefined;
     case 'getSyncState':
-      return songs.getSyncState(request.workspaceId);
+      return content.getSyncState(request.workspaceId);
     case 'applySyncPage':
-      songs.applySyncPage(
-        request.workspaceId,
-        request.epoch,
-        request.nextCursor,
-        request.songs,
-      );
+      content.applySyncPage(request.workspaceId, request);
       return undefined;
     case 'beginResync':
-      songs.beginResync(request.workspaceId, request.epoch);
+      content.beginResync(request.workspaceId, request.epoch);
       return undefined;
     case 'finishResync':
-      songs.finishResync(request.workspaceId);
+      content.finishResync(request.workspaceId);
       return undefined;
     case 'listSongs':
-      return songs.listSongs(
+      return content.listSongs(
         request.workspaceId,
         request.search,
         request.isArchived,
       );
     case 'getSong':
-      return songs.getSong(request.workspaceId, request.songId);
+      return content.getSong(request.workspaceId, request.songId);
+    case 'listThemes':
+      return content.listThemes(request.workspaceId);
+    case 'getTheme':
+      return content.getTheme(request.workspaceId, request.themeId);
+    case 'getDefaultTheme':
+      return content.getDefaultTheme(request.workspaceId);
+    case 'listPlaylists':
+      return content.listPlaylists(request.workspaceId);
+    case 'getPlaylist':
+      return content.getPlaylist(request.workspaceId, request.playlistId);
     case 'listBibleTranslations':
       return bible.listTranslations();
     case 'replaceBibleTranslation':

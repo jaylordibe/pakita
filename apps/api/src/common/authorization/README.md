@@ -30,16 +30,16 @@ disagree.
 
 Everything else follows from these. If you are about to violate one, stop.
 
-### 1. The DB stores *what*; the factory injects *where*
+### 1. The DB stores _what_; the factory injects _where_
 
 A permission row records only an action and a subject. It **never** stores a
 condition. `AbilityFactory` derives the condition from the row's `scope` and
 `ownership` plus request context:
 
-| scope | ownership | CASL rule produced |
-|---|---|---|
-| `platform` | `any` | `can(action, subject)` — unconditional |
-| `platform` | `own` | `can(action, subject, { [ownerKey]: userId })` |
+| scope       | ownership      | CASL rule produced                                   |
+| ----------- | -------------- | ---------------------------------------------------- |
+| `platform`  | `any`          | `can(action, subject)` — unconditional               |
+| `platform`  | `own`          | `can(action, subject, { [ownerKey]: userId })`       |
 | `workspace` | (always `any`) | `can(action, subject, { [tenantKey]: workspaceId })` |
 
 `ownerKey` and `tenantKey` come from [`subject-key.ts`](./subject-key.ts).
@@ -47,14 +47,14 @@ condition. `AbilityFactory` derives the condition from the row's `scope` and
 This is why `permissions` has no `condition` column, and why you never write a
 template language into Postgres.
 
-### 2. The guard proves a rule *exists*; the query proves the row is *reachable*
+### 2. The guard proves a rule _exists_; the query proves the row is _reachable_
 
 A guard runs **before** the record is loaded. CASL, by design, ignores rule
-conditions when you check against a subject *type* rather than an *instance*:
+conditions when you check against a subject _type_ rather than an _instance_:
 
 ```ts
-ability.can('update', 'Workspace')                          // type     → ignores conditions
-ability.can('update', subject('Workspace', loadedRow))      // instance → evaluates them
+ability.can('update', 'Workspace'); // type     → ignores conditions
+ability.can('update', subject('Workspace', loadedRow)); // instance → evaluates them
 ```
 
 So **tenant isolation cannot live in a guard.** It lives in the query, via
@@ -69,14 +69,14 @@ confirms the record exists.
 Last verified against Prisma 7.7 + Postgres 16; re-verify the table after a
 Prisma major or minor upgrade. When a caller holds **no** rules for
 a subject, `accessibleBy(...).ofType(M)` returns `{ OR: [] }`. Prisma's handling
-depends on *where that fragment sits*:
+depends on _where that fragment sits_:
 
-| shape | SQL | result |
-|---|---|---|
-| `{ OR: [] }` | `WHERE 1=0` | ✅ matches nothing |
-| `{ id, OR: [] }` (sibling key) | `WHERE 1=0` | ✅ matches nothing |
-| `{ AND: [{ id }, { OR: [] }] }` | `WHERE id = …` | 🚨 **empty OR dropped** |
-| `{ AND: [{ OR: [] }] }` | `WHERE 1=1` | 🚨 **returns every row** |
+| shape                           | SQL            | result                   |
+| ------------------------------- | -------------- | ------------------------ |
+| `{ OR: [] }`                    | `WHERE 1=0`    | ✅ matches nothing       |
+| `{ id, OR: [] }` (sibling key)  | `WHERE 1=0`    | ✅ matches nothing       |
+| `{ AND: [{ id }, { OR: [] }] }` | `WHERE id = …` | 🚨 **empty OR dropped**  |
+| `{ AND: [{ OR: [] }] }`         | `WHERE 1=1`    | 🚨 **returns every row** |
 
 The obvious merge — `where: { AND: [callerWhere, fragment] }` — is a **total
 authorization bypass** for any principal with no rules on that subject.
@@ -94,7 +94,7 @@ refactor breaks the build instead of the tenant boundary. **An ESLint rule
 forbids importing `@casl/prisma` anywhere else.**
 
 For "no grant means empty, not forbidden", the empty-set filter is
-`{ id: { in: [] } }` — it compiles to `WHERE 1=0` *and* survives `AND` nesting.
+`{ id: { in: [] } }` — it compiles to `WHERE 1=0` _and_ survives `AND` nesting.
 
 ---
 
@@ -118,7 +118,7 @@ error**, not a runtime 403.
 Marks a route that acts on records the caller does not own.
 
 Without it, the intrinsic `update User (own)` that EVERY authenticated caller
-holds would pass the guard on `PATCH /users/:id` — a rule *does* exist, and the
+holds would pass the guard on `PATCH /users/:id` — a rule _does_ exist, and the
 guard cannot see its
 condition. With it, the guard demands a granting rule that is **not**
 owner-conditioned. Tenant-conditioned rules still qualify: a `WORKSPACE_ADMIN`
@@ -129,8 +129,8 @@ administers a roster it does not personally own.
 Answer a caller holding **no** grant on this subject as though the resource does
 not exist — empty page for a list, 404 for a record — rather than 403.
 
-Two reasons. It is *truthful*: a user who belongs to no workspace is not
-forbidden from listing workspaces, they have none. And it is *consistent*:
+Two reasons. It is _truthful_: a user who belongs to no workspace is not
+forbidden from listing workspaces, they have none. And it is _consistent_:
 without it, a user **with** a workspace gets 404 on someone else's workspace (the
 query filters it out) while a user with **none** gets 403 from the guard — the
 same request answered two ways depending on state the caller cannot see.
@@ -210,7 +210,7 @@ for how the two rules compose.
 ## Roles are code — there is no runtime role API
 
 `GET /roles`, `GET /roles/:id` and `GET /permissions` are the only
-role-*definition* endpoints (assignment is `POST`/`DELETE /users/:userId/roles`
+role-_definition_ endpoints (assignment is `POST`/`DELETE /users/:userId/roles`
 and workspace memberships). There is no `POST`, `PATCH`, or `DELETE` on a role, and their absence is the feature: an operator who
 can add `platform.all.manage` to a role they already hold has made themselves an
 admin with no diff for anyone to review.
@@ -238,8 +238,8 @@ and `manage WorkspaceMembership` would let a `WORKSPACE_ADMIN` promote itself to
 owner.
 
 **No WORKSPACE-scoped role holds `manage`, including `WORKSPACE_OWNER`.** The
-owner genuinely holds every verb today, so `manage` would be equivalent *right
-now* — and would silently grant whatever verb is added to the vocabulary next,
+owner genuinely holds every verb today, so `manage` would be equivalent _right
+now_ — and would silently grant whatever verb is added to the vocabulary next,
 with nobody reviewing that decision. `permission-catalog.spec.ts` asserts it.
 
 On top of the permission, `rank` bounds it:
@@ -259,12 +259,12 @@ strictly-below would make appointing a co-owner impossible — which would in tu
 make the last-owner invariant's advice ("promote another member first")
 unreachable.
 
-`rank` orders roles **for this check only**. It does *not* imply inherited
+`rank` orders roles **for this check only**. It does _not_ imply inherited
 permissions. `WORKSPACE_ADMIN` does not contain `WORKSPACE_STAFF`, and
 `PLATFORM_ENGINEER` (rank 90) holds no governance despite outranking both
 support roles — it is deliberately never granted `assignRole User`, so the
-highest *technical* authority on the platform cannot promote itself into the
-highest *governance* authority. Every role's grants are listed explicitly.
+highest _technical_ authority on the platform cannot promote itself into the
+highest _governance_ authority. Every role's grants are listed explicitly.
 Conflating "outranks" with "inherits" is how RBAC systems rot.
 
 The ceiling is measured against the caller's **ACTIVE** membership. A suspended
@@ -277,14 +277,14 @@ owner still reads rank 100 on paper and must hold nothing in fact.
 Grants (not abilities — CASL rules don't round-trip through JSON) are cached in
 Redis under `authz:v1:grants:{epoch}:{userId}`.
 
-| change | invalidation |
-|---|---|
-| platform role assigned or revoked | `DEL` that one key |
-| membership added, role changed, suspended, reactivated, or ended | `DEL` that one key |
-| invitation accepted | `DEL` the acceptor's key |
-| ownership transferred | `DEL` **both** parties' keys |
-| workspace soft-deleted | `DEL` every membership holder's key — every status, not just active, since a cached set written while they were active may still be live |
-| a **role's** permission set changes | `INCR authz:epoch` — retires every cached grant at once |
+| change                                                           | invalidation                                                                                                                             |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| platform role assigned or revoked                                | `DEL` that one key                                                                                                                       |
+| membership added, role changed, suspended, reactivated, or ended | `DEL` that one key                                                                                                                       |
+| invitation accepted                                              | `DEL` the acceptor's key                                                                                                                 |
+| ownership transferred                                            | `DEL` **both** parties' keys                                                                                                             |
+| workspace soft-deleted                                           | `DEL` every membership holder's key — every status, not just active, since a cached set written while they were active may still be live |
+| a **role's** permission set changes                              | `INCR authz:epoch` — retires every cached grant at once                                                                                  |
 
 Version the key (`v1` above) whenever `AuthorizationGrants` changes shape.
 During a rolling deploy both builds are live at once, so without it the new code
@@ -311,7 +311,7 @@ import { unpackRules } from '@casl/ability/extra';
 const { rules } = await api.get('/users/me/permissions');
 const ability = createMongoAbility(unpackRules(rules));
 
-ability.can('update', subject('Workspace', workspace));  // same verdict as the server
+ability.can('update', subject('Workspace', workspace)); // same verdict as the server
 ```
 
 One catalog, both sides. `test/authorization.e2e-spec.ts` asserts the rebuilt
@@ -344,7 +344,7 @@ SUBJECT_TENANT_KEY = { …, WorkspaceMembership: 'workspaceId' }  // the whole r
 The rules OR-compose, so one endpoint serves both audiences with no branching:
 `GET /workspaces/:workspaceId/memberships` returns their single row to a member
 without roster access, the whole tenant to a roster reader, and everything to a platform admin. Because the
-subject is ownable *and* tenant-scoped, `PermissionsGuard` checks a stub carrying
+subject is ownable _and_ tenant-scoped, `PermissionsGuard` checks a stub carrying
 **both** keys — see `buildTenantStub`. Supplying only the tenant key would
 silently deny a member whose rule is conditioned on `userId`.
 
@@ -400,14 +400,14 @@ re-joins reuses the row they already have, so `status`, `roleId`, `joinedAt`, an
 
 **`audit_logs` is the history.** Every transition writes an immutable event:
 
-| Event | Written by |
-|---|---|
-| `workspace_membership.added` | `WorkspaceMembershipsService.add`, and `WorkspacesService.create` for the founding owner (`metadata.isFoundingOwner`) |
-| `workspace_invitation.accepted` | `WorkspaceInvitationsService.accept` |
-| `workspace_membership.ended` | `remove` — carries a full row snapshot |
-| `workspace_membership.suspended` / `.reactivated` | `suspend` / `reactivate` — full row snapshot |
-| `workspace_membership.role_changed` | `changeRole` |
-| `workspace_membership.ownership_transferred` | `transferOwnership` — carries `demotedUserIds` |
+| Event                                             | Written by                                                                                                            |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `workspace_membership.added`                      | `WorkspaceMembershipsService.add`, and `WorkspacesService.create` for the founding owner (`metadata.isFoundingOwner`) |
+| `workspace_invitation.accepted`                   | `WorkspaceInvitationsService.accept`                                                                                  |
+| `workspace_membership.ended`                      | `remove` — carries a full row snapshot                                                                                |
+| `workspace_membership.suspended` / `.reactivated` | `suspend` / `reactivate` — full row snapshot                                                                          |
+| `workspace_membership.role_changed`               | `changeRole`                                                                                                          |
+| `workspace_membership.ownership_transferred`      | `transferOwnership` — carries `demotedUserIds`                                                                        |
 
 The two events that overwrite a tenure (`added` and `invitation.accepted`) carry
 `metadata.isRejoin` and `metadata.previousTenure` — the replaced `status`,
@@ -457,7 +457,7 @@ NULL.
 an account, the account id is recorded on the invitation as `invitedUserId` and
 nothing else changes. An earlier design wrote a placeholder `INVITED` membership
 to reserve the slot; because `@@unique([workspaceId, userId])` allows exactly one
-row per pair, that placeholder *overwrote* a former member's `joinedAt` and
+row per pair, that placeholder _overwrote_ a former member's `joinedAt` and
 `endedAt` — so sending an invitation silently rewrote somebody's employment
 history. Everything the placeholder was for is held elsewhere: "one outstanding
 invitation per address" by the partial unique index on `workspace_invitations`,
@@ -512,15 +512,15 @@ the loser's whole transaction rolls back.
 ## Scope integrity lives in the factory, not the schema
 
 `AbilityFactory` branches on where a grant **arrived from**, never on what the
-permission claims to be — and the platform branch emits an *unconditional* rule.
+permission claims to be — and the platform branch emits an _unconditional_ rule.
 Workspace permissions are always `ANY`, so a workspace role assigned through
 `user_roles` would compile to platform-wide authority with no tenant bound.
 
 Both loops therefore drop any permission whose `scope` does not match the branch:
 
 ```ts
-if (permission.scope !== RoleScope.PLATFORM) continue;   // platform loop
-if (permission.scope !== RoleScope.WORKSPACE) continue;   // membership loop
+if (permission.scope !== RoleScope.PLATFORM) continue; // platform loop
+if (permission.scope !== RoleScope.WORKSPACE) continue; // membership loop
 ```
 
 An earlier design carried a constant `scope` column plus a CHECK and a composite

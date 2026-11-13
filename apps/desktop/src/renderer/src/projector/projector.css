@@ -17,11 +17,10 @@ body {
 
 .slide {
   margin: 0;
-  color: #fff;
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Colour, font and alignment come from the theme (stageStyle). */
   font-weight: 600;
   line-height: 1.25;
-  text-align: center;
+  width: 100%;
   white-space: pre-line;
   text-shadow: 0 0.04em 0.12em rgba(0, 0, 0, 0.6);
 }
@@ -32,8 +31,7 @@ body {
   left: 5vw;
   right: 5vw;
   margin: 0;
-  color: rgba(255, 255, 255, 0.85);
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  opacity: 0.85;
   text-align: center;
 }
 

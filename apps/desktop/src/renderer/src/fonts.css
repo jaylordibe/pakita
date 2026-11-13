@@ -1,0 +1,11 @@
+/* The fonts a theme can choose (see src/shared/theme-look.ts), bundled with
+   the app so presenting never needs the network. SIL Open Font License 1.1;
+   the licences are packaged under resources/licenses/fonts. */
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/inter/latin-ext-600.css';
+@import '@fontsource/merriweather/latin-600.css';
+@import '@fontsource/merriweather/latin-ext-600.css';
+@import '@fontsource/nunito/latin-600.css';
+@import '@fontsource/nunito/latin-ext-600.css';
+@import '@fontsource/oswald/latin-600.css';
+@import '@fontsource/oswald/latin-ext-600.css';

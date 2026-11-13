@@ -277,6 +277,8 @@ model Workspace {
   invitations WorkspaceInvitation[]
   syncState   WorkspaceSyncState?
   songs       Song[]
+  themes      Theme[]
+  playlists   Playlist[]
 
   @@map("workspaces")
 }
@@ -652,9 +654,10 @@ model Song {
   /// WorkspaceSyncState). Every write to the song or its children sets it.
   syncVersion Int       @map("sync_version")
 
-  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  sections     SongSection[]
-  arrangements SongArrangement[]
+  workspace     Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sections      SongSection[]
+  arrangements  SongArrangement[]
+  playlistItems PlaylistItem[]
 
   @@index([workspaceId, syncVersion])
   @@index([workspaceId, title])
@@ -777,4 +780,96 @@ model BibleVerse {
 
   @@id([bibleTranslationId, bookCode, chapter, verse])
   @@map("bible_verses")
+}
+
+/// How slides look on the projector: background, text colour, font, size and
+/// alignment. A workspace has at most one default theme, used whenever a
+/// presentation names none. The fonts and background gradients are bundled
+/// with the desktop app, so a theme never needs the network.
+model Theme {
+  id              String    @id @default(uuid()) @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  deletedAt       DateTime? @map("deleted_at")
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+  workspaceId     String    @map("workspace_id") @db.Uuid
+  name            String
+  /// `ThemeBackground`: a solid colour or one of the bundled gradients.
+  background      String
+  /// `#rrggbb`, used by the solid background.
+  backgroundColor String    @map("background_color")
+  /// `#rrggbb`.
+  textColor       String    @map("text_color")
+  /// `ThemeFont`.
+  font            String
+  /// Text size as a percentage of the standard size (50–200).
+  textScale       Int       @map("text_scale")
+  /// `ThemeTextAlign`.
+  textAlign       String    @map("text_align")
+  isDefault       Boolean   @default(false) @map("is_default")
+  /// See Song.syncVersion.
+  syncVersion     Int       @map("sync_version")
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  playlists Playlist[]
+
+  @@index([workspaceId, syncVersion])
+  @@map("themes")
+}
+
+/// A service's running order: songs and Bible passages, presented in turn.
+/// Written whole with its items, like a song with its sections.
+model Playlist {
+  id          String    @id @default(uuid()) @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdBy   String?   @map("created_by") @db.Uuid
+  updatedBy   String?   @map("updated_by") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  name        String
+  serviceDate DateTime? @map("service_date") @db.Date
+  /// The theme the playlist is presented with; the workspace default if null.
+  themeId     String?   @map("theme_id") @db.Uuid
+  /// See Song.syncVersion.
+  syncVersion Int       @map("sync_version")
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  theme     Theme?         @relation(fields: [themeId], references: [id], onDelete: SetNull)
+  items     PlaylistItem[]
+
+  @@index([workspaceId, syncVersion])
+  @@index([workspaceId, serviceDate])
+  @@map("playlists")
+}
+
+/// One entry of a playlist: a song (in a named arrangement, or its default)
+/// or a Bible passage within one book. A translation is installation-wide and
+/// may be deleted, so it is referenced by id without a foreign key; the
+/// desktop shows an item whose content it lacks as not ready.
+model PlaylistItem {
+  id                 String  @id @default(uuid()) @db.Uuid
+  playlistId         String  @map("playlist_id") @db.Uuid
+  position           Int
+  /// `PlaylistItemKind`.
+  kind               String
+  songId             String? @map("song_id") @db.Uuid
+  /// Arrangement ids change when a song is edited; names do not.
+  arrangementName    String? @map("arrangement_name")
+  bibleTranslationId String? @map("bible_translation_id") @db.Uuid
+  bookCode           String? @map("book_code")
+  startChapter       Int?    @map("start_chapter")
+  startVerse         Int?    @map("start_verse")
+  endChapter         Int?    @map("end_chapter")
+  endVerse           Int?    @map("end_verse")
+
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  song     Song?    @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, position])
+  @@index([songId])
+  @@map("playlist_items")
 }

@@ -1,4 +1,6 @@
+import { PlaylistResponseDto } from '../../playlists/dto/playlist-response.dto';
 import { SongResponseDto } from '../../songs/dto/song-response.dto';
+import { ThemeResponseDto } from '../../themes/dto/theme-response.dto';
 
 export class SyncedSongDto {
   id!: string;
@@ -8,8 +10,26 @@ export class SyncedSongDto {
   song!: SongResponseDto | null;
 }
 
+export class SyncedThemeDto {
+  id!: string;
+  syncVersion!: number;
+  /** A deletion: remove the theme locally. `theme` is then null. */
+  isDeleted!: boolean;
+  theme!: ThemeResponseDto | null;
+}
+
+export class SyncedPlaylistDto {
+  id!: string;
+  syncVersion!: number;
+  /** A deletion: remove the playlist locally. `playlist` is then null. */
+  isDeleted!: boolean;
+  playlist!: PlaylistResponseDto | null;
+}
+
 /**
- * One page of a workspace's changes, oldest first.
+ * One page of a workspace's changes, oldest first. A page holds at most
+ * `limit` changes in all, across songs, themes and playlists; every change
+ * has its own version, so `nextCursor` never splits one.
  *
  * The desktop keeps `epoch` and `nextCursor`. When `epoch` differs from the
  * one it kept, or its cursor is above `latestVersion`, the server's history
@@ -23,4 +43,6 @@ export class SyncChangesResponseDto {
   nextCursor!: number;
   hasMore!: boolean;
   songs!: SyncedSongDto[];
+  themes!: SyncedThemeDto[];
+  playlists!: SyncedPlaylistDto[];
 }

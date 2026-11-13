@@ -31,6 +31,8 @@ export interface WhereInputBySubject {
   DeviceToken: Prisma.DeviceTokenWhereInput;
   AuditLog: Prisma.AuditLogWhereInput;
   Song: Prisma.SongWhereInput;
+  Theme: Prisma.ThemeWhereInput;
+  Playlist: Prisma.PlaylistWhereInput;
 }
 
 export type ScopableSubject = keyof WhereInputBySubject;

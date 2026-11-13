@@ -1194,6 +1194,70 @@ export interface paths {
     patch: operations['SongsController_update'];
     trace?: never;
   };
+  '/api/workspaces/{workspaceId}/themes': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ThemesController_findPaginated'];
+    put?: never;
+    post: operations['ThemesController_create'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/workspaces/{workspaceId}/themes/{themeId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ThemesController_findById'];
+    put?: never;
+    post?: never;
+    delete: operations['ThemesController_remove'];
+    options?: never;
+    head?: never;
+    patch: operations['ThemesController_update'];
+    trace?: never;
+  };
+  '/api/workspaces/{workspaceId}/playlists': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['PlaylistsController_findPaginated'];
+    put?: never;
+    post: operations['PlaylistsController_create'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/workspaces/{workspaceId}/playlists/{playlistId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['PlaylistsController_findById'];
+    put?: never;
+    post?: never;
+    delete: operations['PlaylistsController_remove'];
+    options?: never;
+    head?: never;
+    patch: operations['PlaylistsController_update'];
+    trace?: never;
+  };
   '/api/bible-translations': {
     parameters: {
       query?: never;
@@ -1897,80 +1961,39 @@ export interface components {
       isDeleted: boolean;
       song: components['schemas']['SongResponseDto'] | null;
     };
-    SyncChangesResponseDto: {
-      epoch: string;
-      latestVersion: number;
-      /** @description Pass as `cursor` to fetch the next page. */
-      nextCursor: number;
-      hasMore: boolean;
-      songs: components['schemas']['SyncedSongDto'][];
-    };
-    SongSectionInputDto: {
-      /**
-       * @description A client-chosen name for this section, unique within the request, that
-       *     arrangements use to refer to it. It is not stored: sections get ids.
-       */
-      key: string;
-      /** @enum {string} */
-      kind: 'verse' | 'chorus' | 'bridge' | 'intro' | 'outro' | 'custom';
-      /** @description What the operator sees, e.g. "Verse 2". */
-      label: string;
-      /** @description The lyrics. A blank line starts a new slide. */
-      lyrics: string;
-    };
-    SongArrangementInputDto: {
-      name: string;
-      /** @description Exactly one arrangement per song is the default. */
-      isDefault: boolean;
-      /** @description Section keys in presentation order; a key may repeat. */
-      sectionKeys: string[];
-    };
-    CreateSongDto: {
-      title: string;
-      artist?: string;
-      sections: components['schemas']['SongSectionInputDto'][];
-      arrangements?: components['schemas']['SongArrangementInputDto'][];
-    };
-    UpdateSongDto: {
-      title?: string;
-      /** @description `null` clears it. */
-      artist?: string | null;
-      isArchived?: boolean;
-      sections?: components['schemas']['SongSectionInputDto'][];
-      arrangements?: components['schemas']['SongArrangementInputDto'][];
-    };
-    BibleTranslationResponseDto: {
+    /** @enum {string} */
+    ThemeBackground: 'solid' | 'dusk' | 'dawn' | 'ocean' | 'forest' | 'slate';
+    /** @enum {string} */
+    ThemeFont: 'sans' | 'serif' | 'rounded' | 'condensed';
+    /** @enum {string} */
+    ThemeTextAlign: 'center' | 'left';
+    ThemeResponseDto: {
+      background: components['schemas']['ThemeBackground'];
+      font: components['schemas']['ThemeFont'];
+      textAlign: components['schemas']['ThemeTextAlign'];
       id: string;
-      code: string;
+      workspaceId: string;
       name: string;
-      languageCode: string;
-      licence: string;
-      attribution: string;
-      sourceUrl: string | null;
-      isPublished: boolean;
-      /** Format: date-time */
-      publishedAt: string | null;
-      /** @description SHA-256 of the canonical content; null until published. */
-      contentHash: string | null;
-      verseCount: number;
+      backgroundColor: string;
+      textColor: string;
+      textScale: number;
+      isDefault: boolean;
+      /** @description The workspace sync version of the theme's latest change. */
+      syncVersion: number;
       /** Format: date-time */
       createdAt: string;
       /** Format: date-time */
       updatedAt: string;
     };
-    CreateBibleTranslationDto: {
-      /** @description Short and unique, upper-case letters and digits, e.g. "WEB". */
-      code: string;
-      name: string;
-      /** @description BCP 47 language tag, e.g. "en", "tl", "pt-BR". */
-      languageCode: string;
-      /** @description The terms the text is used under, as its publisher states them. */
-      licence: string;
-      /** @description Shown with every passage presented from this translation. */
-      attribution: string;
-      /** Format: uri */
-      sourceUrl?: string;
+    SyncedThemeDto: {
+      id: string;
+      syncVersion: number;
+      /** @description A deletion: remove the theme locally. `theme` is then null. */
+      isDeleted: boolean;
+      theme: components['schemas']['ThemeResponseDto'] | null;
     };
+    /** @enum {string} */
+    PlaylistItemKind: 'song' | 'passage';
     /** @enum {string} */
     BibleBookCode:
       | 'GEN'
@@ -2057,6 +2080,194 @@ export interface components {
       | '2ES'
       | 'MAN'
       | 'PS2';
+    PlaylistItemResponseDto: {
+      kind: components['schemas']['PlaylistItemKind'];
+      bookCode: components['schemas']['BibleBookCode'] | null;
+      id: string;
+      position: number;
+      songId: string | null;
+      arrangementName: string | null;
+      bibleTranslationId: string | null;
+      startChapter: number | null;
+      startVerse: number | null;
+      endChapter: number | null;
+      endVerse: number | null;
+    };
+    PlaylistResponseDto: {
+      id: string;
+      workspaceId: string;
+      name: string;
+      /** @description `YYYY-MM-DD`, or null. */
+      serviceDate: string | null;
+      themeId: string | null;
+      /** @description The workspace sync version of the playlist's latest change. */
+      syncVersion: number;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+      items: components['schemas']['PlaylistItemResponseDto'][];
+    };
+    SyncedPlaylistDto: {
+      id: string;
+      syncVersion: number;
+      /** @description A deletion: remove the playlist locally. `playlist` is then null. */
+      isDeleted: boolean;
+      playlist: components['schemas']['PlaylistResponseDto'] | null;
+    };
+    SyncChangesResponseDto: {
+      epoch: string;
+      latestVersion: number;
+      /** @description Pass as `cursor` to fetch the next page. */
+      nextCursor: number;
+      hasMore: boolean;
+      songs: components['schemas']['SyncedSongDto'][];
+      themes: components['schemas']['SyncedThemeDto'][];
+      playlists: components['schemas']['SyncedPlaylistDto'][];
+    };
+    SongSectionInputDto: {
+      /**
+       * @description A client-chosen name for this section, unique within the request, that
+       *     arrangements use to refer to it. It is not stored: sections get ids.
+       */
+      key: string;
+      /** @enum {string} */
+      kind: 'verse' | 'chorus' | 'bridge' | 'intro' | 'outro' | 'custom';
+      /** @description What the operator sees, e.g. "Verse 2". */
+      label: string;
+      /** @description The lyrics. A blank line starts a new slide. */
+      lyrics: string;
+    };
+    SongArrangementInputDto: {
+      name: string;
+      /** @description Exactly one arrangement per song is the default. */
+      isDefault: boolean;
+      /** @description Section keys in presentation order; a key may repeat. */
+      sectionKeys: string[];
+    };
+    CreateSongDto: {
+      title: string;
+      artist?: string;
+      sections: components['schemas']['SongSectionInputDto'][];
+      arrangements?: components['schemas']['SongArrangementInputDto'][];
+    };
+    UpdateSongDto: {
+      title?: string;
+      /** @description `null` clears it. */
+      artist?: string | null;
+      isArchived?: boolean;
+      sections?: components['schemas']['SongSectionInputDto'][];
+      arrangements?: components['schemas']['SongArrangementInputDto'][];
+    };
+    CreateThemeDto: {
+      background: components['schemas']['ThemeBackground'];
+      font: components['schemas']['ThemeFont'];
+      textAlign: components['schemas']['ThemeTextAlign'];
+      /**
+       * @description Makes this the workspace's default theme (and the previous one not).
+       * @default false
+       */
+      isDefault: boolean;
+      name: string;
+      /** @description `#rrggbb`; the colour of a solid background. */
+      backgroundColor: string;
+      /** @description `#rrggbb`. */
+      textColor: string;
+      /** @description Text size as a percentage of the standard size. */
+      textScale: number;
+    };
+    UpdateThemeDto: {
+      background?: components['schemas']['ThemeBackground'];
+      font?: components['schemas']['ThemeFont'];
+      textAlign?: components['schemas']['ThemeTextAlign'];
+      /**
+       * @description Makes this the workspace's default theme (and the previous one not).
+       * @default false
+       */
+      isDefault: boolean;
+      name?: string;
+      /** @description `#rrggbb`; the colour of a solid background. */
+      backgroundColor?: string;
+      /** @description `#rrggbb`. */
+      textColor?: string;
+      /** @description Text size as a percentage of the standard size. */
+      textScale?: number;
+    };
+    PlaylistItemInputDto: {
+      kind: components['schemas']['PlaylistItemKind'];
+      /** @description The arrangement to present; the song's default when absent. */
+      arrangementName?: string;
+      bookCode?: components['schemas']['BibleBookCode'];
+      /** Format: uuid */
+      songId?: string;
+      /** Format: uuid */
+      bibleTranslationId?: string;
+      startChapter?: number;
+      startVerse?: number;
+      endChapter?: number;
+      endVerse?: number;
+    };
+    CreatePlaylistDto: {
+      name: string;
+      /** @description The service's date, `YYYY-MM-DD`; `null` for none. */
+      serviceDate?: string | null;
+      /**
+       * Format: uuid
+       * @description The theme to present with; the workspace default when `null`.
+       */
+      themeId?: string | null;
+      /** @description In presentation order. */
+      items: components['schemas']['PlaylistItemInputDto'][];
+    };
+    UpdatePlaylistDto: {
+      name?: string;
+      /** @description The service's date, `YYYY-MM-DD`; `null` for none. */
+      serviceDate?: string | null;
+      /**
+       * Format: uuid
+       * @description The theme to present with; the workspace default when `null`.
+       */
+      themeId?: string | null;
+      /** @description In presentation order. */
+      items?: components['schemas']['PlaylistItemInputDto'][];
+      /**
+       * @description The `syncVersion` this edit was made from. When the playlist has changed
+       *     since, the edit is refused (409) instead of overwriting that change.
+       */
+      expectedSyncVersion?: number;
+    };
+    BibleTranslationResponseDto: {
+      id: string;
+      code: string;
+      name: string;
+      languageCode: string;
+      licence: string;
+      attribution: string;
+      sourceUrl: string | null;
+      isPublished: boolean;
+      /** Format: date-time */
+      publishedAt: string | null;
+      /** @description SHA-256 of the canonical content; null until published. */
+      contentHash: string | null;
+      verseCount: number;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    CreateBibleTranslationDto: {
+      /** @description Short and unique, upper-case letters and digits, e.g. "WEB". */
+      code: string;
+      name: string;
+      /** @description BCP 47 language tag, e.g. "en", "tl", "pt-BR". */
+      languageCode: string;
+      /** @description The terms the text is used under, as its publisher states them. */
+      licence: string;
+      /** @description Shown with every passage presented from this translation. */
+      attribution: string;
+      /** Format: uri */
+      sourceUrl?: string;
+    };
     BibleVerseInputDto: {
       number: number;
       text: string;
@@ -5570,6 +5781,394 @@ export interface operations {
         content?: never;
       };
       /** @description Authenticated, but no permission grants `update` on `Song` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  ThemesController_findPaginated: {
+    parameters: {
+      query?: {
+        page?: number;
+        /** @description Values above 100 are clamped to 100. */
+        perPage?: number;
+        search?: string;
+        sortBy?: string;
+        sortOrder?: 'asc' | 'desc';
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ThemeResponseDto'][];
+            meta: components['schemas']['PaginationMeta'];
+          };
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `Theme` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  ThemesController_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateThemeDto'];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ThemeResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `create` on `Theme` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  ThemesController_findById: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        themeId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ThemeResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `Theme` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  ThemesController_remove: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        themeId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `delete` on `Theme` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  ThemesController_update: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        themeId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateThemeDto'];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ThemeResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `update` on `Theme` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  PlaylistsController_findPaginated: {
+    parameters: {
+      query?: {
+        page?: number;
+        /** @description Values above 100 are clamped to 100. */
+        perPage?: number;
+        search?: string;
+        sortBy?: string;
+        sortOrder?: 'asc' | 'desc';
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['PlaylistResponseDto'][];
+            meta: components['schemas']['PaginationMeta'];
+          };
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `Playlist` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  PlaylistsController_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreatePlaylistDto'];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PlaylistResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `create` on `Playlist` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  PlaylistsController_findById: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        playlistId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PlaylistResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `Playlist` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  PlaylistsController_remove: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        playlistId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `delete` on `Playlist` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  PlaylistsController_update: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        playlistId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdatePlaylistDto'];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PlaylistResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `update` on `Playlist` */
       403: {
         headers: {
           [name: string]: unknown;

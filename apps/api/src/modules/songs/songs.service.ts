@@ -5,6 +5,7 @@ import type { AppAbility } from '../../common/authorization/app-ability';
 import { buildOrderBy } from '../../common/dto/meta-query.dto';
 import { PaginationMeta } from '../../common/dto/paginated-response.dto';
 import { Errors } from '../../common/errors/errors';
+import { rejectNullFields } from '../../common/util/reject-null-fields.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AbilityScopedQueryService } from '../authorization/ability-scoped-query.service';
 import { PermissionCheckService } from '../authorization/permission-check.service';
@@ -133,6 +134,7 @@ export class SongsService {
     ability: AppAbility,
     actorId: string,
   ): Promise<SongWithContent> {
+    rejectNullFields(dto, ['title', 'isArchived', 'sections', 'arrangements']);
     const existing = await this.findById(workspaceId, songId, ability);
     this.assertMayAct(ability, 'update', existing);
     if (dto.arrangements && !dto.sections) {

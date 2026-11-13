@@ -86,6 +86,8 @@ export const AUTHORIZATION_SUBJECTS = [
   'AuditLog',
   'QueueJob',
   'Song',
+  'Theme',
+  'Playlist',
   'BibleTranslation',
 ] as const;
 export type AuthorizationSubject = (typeof AUTHORIZATION_SUBJECTS)[number];
@@ -413,6 +415,30 @@ const DELETE_SONG = workspace(
   'Song',
   'Delete songs from the library',
 );
+const READ_THEME = workspace(
+  'read',
+  'Theme',
+  "View and synchronise the workspace's themes",
+);
+const CREATE_THEME = workspace('create', 'Theme', 'Add themes');
+const UPDATE_THEME = workspace(
+  'update',
+  'Theme',
+  "Edit the workspace's themes and choose its default",
+);
+const DELETE_THEME = workspace('delete', 'Theme', 'Delete themes');
+const READ_PLAYLIST = workspace(
+  'read',
+  'Playlist',
+  "View and synchronise the workspace's playlists",
+);
+const CREATE_PLAYLIST = workspace('create', 'Playlist', 'Plan services');
+const UPDATE_PLAYLIST = workspace(
+  'update',
+  'Playlist',
+  "Edit the workspace's playlists",
+);
+const DELETE_PLAYLIST = workspace('delete', 'Playlist', 'Delete playlists');
 
 export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   MANAGE_EVERYTHING,
@@ -459,6 +485,14 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   CREATE_SONG,
   UPDATE_SONG,
   DELETE_SONG,
+  READ_THEME,
+  CREATE_THEME,
+  UPDATE_THEME,
+  DELETE_THEME,
+  READ_PLAYLIST,
+  CREATE_PLAYLIST,
+  UPDATE_PLAYLIST,
+  DELETE_PLAYLIST,
   READ_BIBLE_TRANSLATION,
 ] as const;
 
@@ -632,6 +666,14 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       CREATE_SONG,
       UPDATE_SONG,
       DELETE_SONG,
+      READ_THEME,
+      CREATE_THEME,
+      UPDATE_THEME,
+      DELETE_THEME,
+      READ_PLAYLIST,
+      CREATE_PLAYLIST,
+      UPDATE_PLAYLIST,
+      DELETE_PLAYLIST,
     ],
   },
   [SeededRoleName.WORKSPACE_ADMIN]: {
@@ -657,6 +699,14 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       CREATE_SONG,
       UPDATE_SONG,
       DELETE_SONG,
+      READ_THEME,
+      CREATE_THEME,
+      UPDATE_THEME,
+      DELETE_THEME,
+      READ_PLAYLIST,
+      CREATE_PLAYLIST,
+      UPDATE_PLAYLIST,
+      DELETE_PLAYLIST,
     ],
   },
   [SeededRoleName.WORKSPACE_MANAGER]: {
@@ -675,13 +725,28 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       CREATE_SONG,
       UPDATE_SONG,
       DELETE_SONG,
+      READ_THEME,
+      CREATE_THEME,
+      UPDATE_THEME,
+      DELETE_THEME,
+      READ_PLAYLIST,
+      CREATE_PLAYLIST,
+      UPDATE_PLAYLIST,
+      DELETE_PLAYLIST,
     ],
   },
   [SeededRoleName.WORKSPACE_STAFF]: {
     scope: RoleScope.WORKSPACE,
     rank: 20,
-    // Presents services: reads (and so synchronises) the library, edits nothing.
+    // Presents services: reads (and so synchronises) the library, its themes and
+    // playlists; edits nothing.
     description: 'Works here. Reads the workspace, its roster and its library',
-    permissions: [READ_WORKSPACE, READ_WORKSPACE_MEMBERSHIP, READ_SONG],
+    permissions: [
+      READ_WORKSPACE,
+      READ_WORKSPACE_MEMBERSHIP,
+      READ_SONG,
+      READ_THEME,
+      READ_PLAYLIST,
+    ],
   },
 };

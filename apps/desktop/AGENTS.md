@@ -36,7 +36,8 @@ src/
   main/        Electron main process: windows, security, IPC, database client
     bible/     USFM parsing and the translation import
     database/  better-sqlite3 in a worker thread, migrations
-    sync/      song and Bible synchronisation
+    presentation/  live session, projector window, playlist decks
+    sync/      workspace content and Bible synchronisation
   preload/     the ONLY bridge to the renderer (window.pakita)
   renderer/    Vue app; a browser page with no Node or Electron access
   shared/      the IPC contract, slides, and the generated API types —
@@ -96,7 +97,16 @@ test/fixtures/ shared test data (a tiny USFM translation)
   copied from the local database once, when it starts
   (`LiveSession`), and held in main-process memory; synchronisation writes
   only the database, so it can never change what is on screen. The operator
-  sees new content by starting the song again.
+  sees new content by starting the song again. The theme is resolved at the
+  same moment and held with the slides. A playlist is presented as one deck
+  of every entry the laptop holds (`playlist-deck.ts`), and each entry shows
+  whether it is ready before the service.
+- **A theme never loads anything remote.** Its fonts are bundled
+  (`src/renderer/src/fonts.css`) and its backgrounds are drawn in CSS
+  (`src/shared/theme-look.ts`, the one definition the projector and the
+  previews share). A new font must carry a licence compatible with AGPLv3
+  (the bundled ones are SIL OFL 1.1), and its licence file is added to
+  `extraResources` in `electron-builder.yml`.
 - **A laptop that holds an account opens its content without the network or
   the keychain** (`AppController.initialize`): the database opens from files;
   the session (whose refresh token lives in the keychain) follows in the

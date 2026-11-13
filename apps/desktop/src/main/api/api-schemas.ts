@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+import {
+  bibleBookCodeValues,
+  playlistItemKindValues,
+  themeBackgroundValues,
+  themeFontValues,
+  themeTextAlignValues,
+} from '../../shared/api/enums';
 import type { components } from '../../shared/api/openapi';
 
 type Schemas = components['schemas'];
@@ -100,20 +107,90 @@ export const songSchema: z.ZodType<Schemas['SongResponseDto']> = z.object({
   arrangements: z.array(songArrangementSchema),
 });
 
+const HEX_COLOUR = /^#[0-9a-f]{6}$/;
+
+// A choice added on the server after this build falls back to the plainest
+// one, so an older desktop keeps synchronising and presenting.
+export const themeSchema: z.ZodType<Schemas['ThemeResponseDto']> = z.object({
+  id: z.uuid(),
+  workspaceId: z.string(),
+  name: z.string().max(60),
+  background: z.enum(themeBackgroundValues).catch('solid'),
+  backgroundColor: z.string().regex(HEX_COLOUR).catch('#000000'),
+  textColor: z.string().regex(HEX_COLOUR).catch('#ffffff'),
+  font: z.enum(themeFontValues).catch('sans'),
+  textScale: z.number().int().min(50).max(200).catch(100),
+  textAlign: z.enum(themeTextAlignValues).catch('center'),
+  isDefault: z.boolean(),
+  syncVersion: z.number().int().positive(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const position = z.number().int().min(1).max(200);
+const playlistItemSchema: z.ZodType<Schemas['PlaylistItemResponseDto']> =
+  z.object({
+    id: z.string(),
+    position: z.number().int().nonnegative(),
+    kind: z.enum(playlistItemKindValues),
+    songId: z.uuid().nullable(),
+    arrangementName: z.string().max(60).nullable(),
+    bibleTranslationId: z.uuid().nullable(),
+    bookCode: z.enum(bibleBookCodeValues).nullable(),
+    startChapter: position.nullable(),
+    startVerse: position.nullable(),
+    endChapter: position.nullable(),
+    endVerse: position.nullable(),
+  });
+
+export const playlistSchema: z.ZodType<Schemas['PlaylistResponseDto']> =
+  z.object({
+    id: z.uuid(),
+    workspaceId: z.string(),
+    name: z.string().max(120),
+    serviceDate: z.iso.date().nullable(),
+    themeId: z.uuid().nullable(),
+    syncVersion: z.number().int().positive(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    // A kind added after this build is left out. Saving the playlist would
+    // then drop it on the server, so a release that adds a kind must also
+    // raise the server's minimumDesktopVersion.
+    items: z
+      .array(z.unknown())
+      .max(100)
+      .transform((items) =>
+        items.flatMap((candidate) => {
+          const parsed = playlistItemSchema.safeParse(candidate);
+          return parsed.success ? [parsed.data] : [];
+        }),
+      ),
+  });
+
+const change = <Key extends string, Content extends z.ZodType>(
+  key: Key,
+  content: Content,
+) =>
+  z.object({
+    id: z.string(),
+    syncVersion: z.number().int().positive(),
+    isDeleted: z.boolean(),
+    [key]: content.nullable(),
+  } as {
+    id: z.ZodString;
+    syncVersion: z.ZodNumber;
+    isDeleted: z.ZodBoolean;
+  } & Record<Key, z.ZodNullable<Content>>);
+
 export const syncChangesSchema: z.ZodType<Schemas['SyncChangesResponseDto']> =
   z.object({
     epoch: z.string().min(1),
     latestVersion: z.number().int().nonnegative(),
     nextCursor: z.number().int().nonnegative(),
     hasMore: z.boolean(),
-    songs: z.array(
-      z.object({
-        id: z.string(),
-        syncVersion: z.number().int().positive(),
-        isDeleted: z.boolean(),
-        song: songSchema.nullable(),
-      }),
-    ),
+    songs: z.array(change('song', songSchema)),
+    themes: z.array(change('theme', themeSchema)),
+    playlists: z.array(change('playlist', playlistSchema)),
   });
 export type SyncChanges = z.infer<typeof syncChangesSchema>;
 

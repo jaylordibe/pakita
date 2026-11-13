@@ -13,14 +13,14 @@ feature module.
 in-process scheduler — `@nestjs/schedule` is not a dependency, and adding one
 back would reintroduce the failure it was removed for.
 
-| Your job… | Use | Where it is declared |
-|---|---|---|
-| Runs now but must not block the HTTP response | Immediate job — `enqueue` | `job-registry.ts` |
-| Runs once, for one entity, at a computed future instant | Delayed job — `enqueueAt` | `job-registry.ts` |
-| Repeats on a fixed cadence or a cron expression | **Recurring job scheduler** | `recurring-schedule-registry.ts` |
-| Sweeps *all* rows matching a condition, periodically | A recurring job whose handler runs the one sweep query | `recurring-schedule-registry.ts` |
-| Needs retries with backoff on transient failure | Any of the above — the retry policy is per job | `job-registry.ts` |
-| Must be cancellable or reschedulable when the entity changes | Delayed job with a deterministic ID | `queue-producer.service.ts` |
+| Your job…                                                    | Use                                                    | Where it is declared             |
+| ------------------------------------------------------------ | ------------------------------------------------------ | -------------------------------- |
+| Runs now but must not block the HTTP response                | Immediate job — `enqueue`                              | `job-registry.ts`                |
+| Runs once, for one entity, at a computed future instant      | Delayed job — `enqueueAt`                              | `job-registry.ts`                |
+| Repeats on a fixed cadence or a cron expression              | **Recurring job scheduler**                            | `recurring-schedule-registry.ts` |
+| Sweeps _all_ rows matching a condition, periodically         | A recurring job whose handler runs the one sweep query | `recurring-schedule-registry.ts` |
+| Needs retries with backoff on transient failure              | Any of the above — the retry policy is per job         | `job-registry.ts`                |
+| Must be cancellable or reschedulable when the entity changes | Delayed job with a deterministic ID                    | `queue-producer.service.ts`      |
 
 ### Why no in-process scheduler
 
@@ -106,9 +106,9 @@ runs.
 
 Two queues:
 
-| Queue | Jobs |
-|---|---|
-| `maintenance` | `maintenance.queue-heartbeat.v1` (every 5 minutes) writes the Redis key behind `GET /api/health/workers`. `auth.refresh-token-retention.v1` (`0 0 * * *` UTC) deletes refresh tokens past their expiry. |
+| Queue           | Jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maintenance`   | `maintenance.queue-heartbeat.v1` (every 5 minutes) writes the Redis key behind `GET /api/health/workers`. `auth.refresh-token-retention.v1` (`0 0 * * *` UTC) deletes refresh tokens past their expiry.                                                                                                                                                                                                                                                       |
 | `notifications` | `user.email-verification.v1`, `user.password-reset.v1`, `user.password-changed-notice.v1` (enqueued by `UsersService`; payload is the user id — plus `occurredAt` for the password-changed notice — and the worker reloads the user) and `workspace.invitation-email.v1` (enqueued by `WorkspaceInvitationsService`; payload carries the invitation id and the token, since only its hash is stored). Queued so the request never waits on the mail provider. |
 
 Only queues with a real producer are registered: `QueueJobHandlerRegistry`
@@ -176,9 +176,7 @@ Rules, enforced by the processor before your handler runs:
 ```ts
 @Injectable()
 @RegisterQueueJobHandler()
-export class BookingExpireHandler
-  implements QueueJobHandler<BookingExpirePayloadDto>
-{
+export class BookingExpireHandler implements QueueJobHandler<BookingExpirePayloadDto> {
   readonly jobName = JobName.BOOKING_EXPIRE_V1;
   readonly payloadType = BookingExpirePayloadDto;
 
@@ -186,7 +184,9 @@ export class BookingExpireHandler
 
   async handle(payload: BookingExpirePayloadDto): Promise<JobOutcome> {
     // 1. RELOAD current state. The payload is identifiers, not a snapshot.
-    const booking = await this.bookingsService.findByIdOrNull(payload.bookingId);
+    const booking = await this.bookingsService.findByIdOrNull(
+      payload.bookingId,
+    );
     if (!booking) return skippedJob('booking no longer exists');
 
     // 2. Is the job still applicable?
@@ -218,7 +218,11 @@ or if two handlers claim one job.
 await this.queueProducer.enqueue(JobName.BOOKING_EXPIRE_V1, payload);
 
 // Delayed — runs no EARLIER than the instant given
-await this.queueProducer.enqueueAt(JobName.BOOKING_EXPIRE_V1, payload, expiresAt);
+await this.queueProducer.enqueueAt(
+  JobName.BOOKING_EXPIRE_V1,
+  payload,
+  expiresAt,
+);
 ```
 
 `QueueProducerService` is globally available — no module import needed.
@@ -250,7 +254,7 @@ here. It upserts everything declared (idempotent by scheduler ID, so N worker
 instances starting at once converge on one definition rather than N) **and
 removes any scheduler on a registered queue that the list does not declare**.
 
-The gate is not cosmetic. Because reconciliation *deletes* undeclared
+The gate is not cosmetic. Because reconciliation _deletes_ undeclared
 schedulers, an API instance doing it would fight the worker pool for the
 contents of Redis on any day the two ran different releases.
 
@@ -261,7 +265,7 @@ release recognises, each failing permanently, on a schedule, with nothing left
 anywhere to explain where they come from. Because the registry is authoritative,
 **deleting an entry is genuinely enough**.
 
-Reconciliation makes the *running* release authoritative. A rolling worker
+Reconciliation makes the _running_ release authoritative. A rolling worker
 replacement can briefly run two releases at once, which will disagree about a
 schedule added or removed between them; they converge as soon as the old
 revision drains, and the transient jobs fail safely as unknown job names rather
@@ -431,10 +435,10 @@ background job would put invented forensic data into `audit_logs`.
 
 ## Health
 
-| Endpoint | Checks | Fails when |
-|---|---|---|
-| `GET /api/health/readiness` | database + **queue connectivity** | The API cannot enqueue work |
-| `GET /api/health/workers` | **worker heartbeat freshness** | Nothing has consumed a job recently |
+| Endpoint                    | Checks                            | Fails when                          |
+| --------------------------- | --------------------------------- | ----------------------------------- |
+| `GET /api/health/readiness` | database + **queue connectivity** | The API cannot enqueue work         |
+| `GET /api/health/workers`   | **worker heartbeat freshness**    | Nothing has consumed a job recently |
 
 Worker liveness is deliberately **off** readiness: an API whose worker is
 restarting can still serve every request and queue the work, so it must stay in
@@ -455,10 +459,10 @@ intervals (~15 minutes).
 
 ## Running a worker
 
-| Runtime | How |
-|---|---|
-| Combined (local dev) | `pnpm start:dev` — `QUEUE_WORKER_ENABLED=true` |
-| API-only (deployed API service) | `node dist/main.js` with `QUEUE_WORKER_ENABLED=false` |
+| Runtime                            | How                                                    |
+| ---------------------------------- | ------------------------------------------------------ |
+| Combined (local dev)               | `pnpm start:dev` — `QUEUE_WORKER_ENABLED=true`         |
+| API-only (deployed API service)    | `node dist/main.js` with `QUEUE_WORKER_ENABLED=false`  |
 | Worker-only (deployed worker pool) | `node dist/worker.js` with `QUEUE_WORKER_ENABLED=true` |
 
 `src/worker.ts` bootstraps the same `AppModule` with no HTTP server. There is
@@ -471,12 +475,12 @@ had to remember.
 
 Same image, two commands, one variable:
 
-| | API | Worker |
-|---|---|---|
-| Command | `node dist/main.js` | `node dist/worker.js` |
-| `QUEUE_WORKER_ENABLED` | `false` | `true` |
-| Health probe | `GET /api/health/readiness` | `GET /api/health/workers` on the API, or the heartbeat key directly |
-| Scaling signal | request concurrency | queue depth |
+|                        | API                         | Worker                                                              |
+| ---------------------- | --------------------------- | ------------------------------------------------------------------- |
+| Command                | `node dist/main.js`         | `node dist/worker.js`                                               |
+| `QUEUE_WORKER_ENABLED` | `false`                     | `true`                                                              |
+| Health probe           | `GET /api/health/readiness` | `GET /api/health/workers` on the API, or the heartbeat key directly |
+| Scaling signal         | request concurrency         | queue depth                                                         |
 
 Two deployments of the same image on whatever runs containers — two services,
 two Deployments, two Compose services. Give the worker a termination grace

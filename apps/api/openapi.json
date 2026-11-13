@@ -5168,6 +5168,640 @@
         ]
       }
     },
+    "/api/workspaces/{workspaceId}/themes": {
+      "post": {
+        "operationId": "ThemesController_create",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateThemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `create` on `Theme`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Themes"
+        ]
+      },
+      "get": {
+        "operationId": "ThemesController_findPaginated",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "description": "Values above 100 are clamped to 100.",
+            "schema": {
+              "minimum": 1,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ThemeResponseDto"
+                      }
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `read` on `Theme`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Themes"
+        ]
+      }
+    },
+    "/api/workspaces/{workspaceId}/themes/{themeId}": {
+      "get": {
+        "operationId": "ThemesController_findById",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "themeId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `read` on `Theme`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Themes"
+        ]
+      },
+      "patch": {
+        "operationId": "ThemesController_update",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "themeId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateThemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `update` on `Theme`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Themes"
+        ]
+      },
+      "delete": {
+        "operationId": "ThemesController_remove",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "themeId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `delete` on `Theme`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Themes"
+        ]
+      }
+    },
+    "/api/workspaces/{workspaceId}/playlists": {
+      "post": {
+        "operationId": "PlaylistsController_create",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePlaylistDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `create` on `Playlist`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Playlists"
+        ]
+      },
+      "get": {
+        "operationId": "PlaylistsController_findPaginated",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "description": "Values above 100 are clamped to 100.",
+            "schema": {
+              "minimum": 1,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PlaylistResponseDto"
+                      }
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `read` on `Playlist`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Playlists"
+        ]
+      }
+    },
+    "/api/workspaces/{workspaceId}/playlists/{playlistId}": {
+      "get": {
+        "operationId": "PlaylistsController_findById",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "playlistId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `read` on `Playlist`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Playlists"
+        ]
+      },
+      "patch": {
+        "operationId": "PlaylistsController_update",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "playlistId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePlaylistDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `update` on `Playlist`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Playlists"
+        ]
+      },
+      "delete": {
+        "operationId": "PlaylistsController_remove",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "playlistId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `delete` on `Playlist`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Playlists"
+        ]
+      }
+    },
     "/api/bible-translations": {
       "get": {
         "operationId": "BibleTranslationsController_findAll",
@@ -7447,6 +8081,382 @@
           "song"
         ]
       },
+      "ThemeBackground": {
+        "type": "string",
+        "enum": [
+          "solid",
+          "dusk",
+          "dawn",
+          "ocean",
+          "forest",
+          "slate"
+        ]
+      },
+      "ThemeFont": {
+        "type": "string",
+        "enum": [
+          "sans",
+          "serif",
+          "rounded",
+          "condensed"
+        ]
+      },
+      "ThemeTextAlign": {
+        "type": "string",
+        "enum": [
+          "center",
+          "left"
+        ]
+      },
+      "ThemeResponseDto": {
+        "type": "object",
+        "properties": {
+          "background": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeBackground"
+              }
+            ]
+          },
+          "font": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeFont"
+              }
+            ]
+          },
+          "textAlign": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeTextAlign"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "backgroundColor": {
+            "type": "string"
+          },
+          "textColor": {
+            "type": "string"
+          },
+          "textScale": {
+            "type": "number"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "syncVersion": {
+            "type": "number",
+            "description": "The workspace sync version of the theme's latest change."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "background",
+          "font",
+          "textAlign",
+          "id",
+          "workspaceId",
+          "name",
+          "backgroundColor",
+          "textColor",
+          "textScale",
+          "isDefault",
+          "syncVersion",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "SyncedThemeDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "syncVersion": {
+            "type": "number"
+          },
+          "isDeleted": {
+            "type": "boolean",
+            "description": "A deletion: remove the theme locally. `theme` is then null."
+          },
+          "theme": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeResponseDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "syncVersion",
+          "isDeleted",
+          "theme"
+        ]
+      },
+      "PlaylistItemKind": {
+        "type": "string",
+        "enum": [
+          "song",
+          "passage"
+        ]
+      },
+      "BibleBookCode": {
+        "type": "string",
+        "enum": [
+          "GEN",
+          "EXO",
+          "LEV",
+          "NUM",
+          "DEU",
+          "JOS",
+          "JDG",
+          "RUT",
+          "1SA",
+          "2SA",
+          "1KI",
+          "2KI",
+          "1CH",
+          "2CH",
+          "EZR",
+          "NEH",
+          "EST",
+          "JOB",
+          "PSA",
+          "PRO",
+          "ECC",
+          "SNG",
+          "ISA",
+          "JER",
+          "LAM",
+          "EZK",
+          "DAN",
+          "HOS",
+          "JOL",
+          "AMO",
+          "OBA",
+          "JON",
+          "MIC",
+          "NAM",
+          "HAB",
+          "ZEP",
+          "HAG",
+          "ZEC",
+          "MAL",
+          "MAT",
+          "MRK",
+          "LUK",
+          "JHN",
+          "ACT",
+          "ROM",
+          "1CO",
+          "2CO",
+          "GAL",
+          "EPH",
+          "PHP",
+          "COL",
+          "1TH",
+          "2TH",
+          "1TI",
+          "2TI",
+          "TIT",
+          "PHM",
+          "HEB",
+          "JAS",
+          "1PE",
+          "2PE",
+          "1JN",
+          "2JN",
+          "3JN",
+          "JUD",
+          "REV",
+          "TOB",
+          "JDT",
+          "ESG",
+          "WIS",
+          "SIR",
+          "BAR",
+          "LJE",
+          "S3Y",
+          "SUS",
+          "BEL",
+          "1MA",
+          "2MA",
+          "3MA",
+          "4MA",
+          "1ES",
+          "2ES",
+          "MAN",
+          "PS2"
+        ]
+      },
+      "PlaylistItemResponseDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlaylistItemKind"
+              }
+            ]
+          },
+          "bookCode": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BibleBookCode"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "position": {
+            "type": "number"
+          },
+          "songId": {
+            "type": "string",
+            "nullable": true
+          },
+          "arrangementName": {
+            "type": "string",
+            "nullable": true
+          },
+          "bibleTranslationId": {
+            "type": "string",
+            "nullable": true
+          },
+          "startChapter": {
+            "type": "number",
+            "nullable": true
+          },
+          "startVerse": {
+            "type": "number",
+            "nullable": true
+          },
+          "endChapter": {
+            "type": "number",
+            "nullable": true
+          },
+          "endVerse": {
+            "type": "number",
+            "nullable": true
+          }
+        },
+        "required": [
+          "kind",
+          "bookCode",
+          "id",
+          "position",
+          "songId",
+          "arrangementName",
+          "bibleTranslationId",
+          "startChapter",
+          "startVerse",
+          "endChapter",
+          "endVerse"
+        ]
+      },
+      "PlaylistResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "serviceDate": {
+            "type": "string",
+            "nullable": true,
+            "description": "`YYYY-MM-DD`, or null."
+          },
+          "themeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "syncVersion": {
+            "type": "number",
+            "description": "The workspace sync version of the playlist's latest change."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlaylistItemResponseDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "name",
+          "serviceDate",
+          "themeId",
+          "syncVersion",
+          "createdAt",
+          "updatedAt",
+          "items"
+        ]
+      },
+      "SyncedPlaylistDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "syncVersion": {
+            "type": "number"
+          },
+          "isDeleted": {
+            "type": "boolean",
+            "description": "A deletion: remove the playlist locally. `playlist` is then null."
+          },
+          "playlist": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlaylistResponseDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "syncVersion",
+          "isDeleted",
+          "playlist"
+        ]
+      },
       "SyncChangesResponseDto": {
         "type": "object",
         "properties": {
@@ -7468,6 +8478,18 @@
             "items": {
               "$ref": "#/components/schemas/SyncedSongDto"
             }
+          },
+          "themes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncedThemeDto"
+            }
+          },
+          "playlists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncedPlaylistDto"
+            }
           }
         },
         "required": [
@@ -7475,7 +8497,9 @@
           "latestVersion",
           "nextCursor",
           "hasMore",
-          "songs"
+          "songs",
+          "themes",
+          "playlists"
         ]
       },
       "SongSectionInputDto": {
@@ -7610,6 +8634,238 @@
           }
         }
       },
+      "CreateThemeDto": {
+        "type": "object",
+        "properties": {
+          "background": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeBackground"
+              }
+            ]
+          },
+          "font": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeFont"
+              }
+            ]
+          },
+          "textAlign": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeTextAlign"
+              }
+            ]
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "Makes this the workspace's default theme (and the previous one not).",
+            "default": false
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "backgroundColor": {
+            "type": "string",
+            "description": "`#rrggbb`; the colour of a solid background."
+          },
+          "textColor": {
+            "type": "string",
+            "description": "`#rrggbb`."
+          },
+          "textScale": {
+            "type": "number",
+            "description": "Text size as a percentage of the standard size.",
+            "minimum": 50,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "background",
+          "font",
+          "textAlign",
+          "name",
+          "backgroundColor",
+          "textColor",
+          "textScale"
+        ]
+      },
+      "UpdateThemeDto": {
+        "type": "object",
+        "properties": {
+          "background": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeBackground"
+              }
+            ]
+          },
+          "font": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeFont"
+              }
+            ]
+          },
+          "textAlign": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThemeTextAlign"
+              }
+            ]
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "Makes this the workspace's default theme (and the previous one not).",
+            "default": false
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "backgroundColor": {
+            "type": "string",
+            "description": "`#rrggbb`; the colour of a solid background."
+          },
+          "textColor": {
+            "type": "string",
+            "description": "`#rrggbb`."
+          },
+          "textScale": {
+            "type": "number",
+            "description": "Text size as a percentage of the standard size.",
+            "minimum": 50,
+            "maximum": 200
+          }
+        }
+      },
+      "PlaylistItemInputDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlaylistItemKind"
+              }
+            ]
+          },
+          "arrangementName": {
+            "type": "string",
+            "description": "The arrangement to present; the song's default when absent.",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "bookCode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BibleBookCode"
+              }
+            ]
+          },
+          "songId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "bibleTranslationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "startChapter": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "startVerse": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "endChapter": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "endVerse": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "CreatePlaylistDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "serviceDate": {
+            "type": "string",
+            "nullable": true,
+            "description": "The service's date, `YYYY-MM-DD`; `null` for none.",
+            "maxLength": 10
+          },
+          "themeId": {
+            "type": "string",
+            "nullable": true,
+            "description": "The theme to present with; the workspace default when `null`.",
+            "format": "uuid"
+          },
+          "items": {
+            "description": "In presentation order.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlaylistItemInputDto"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "items"
+        ]
+      },
+      "UpdatePlaylistDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "serviceDate": {
+            "type": "string",
+            "nullable": true,
+            "description": "The service's date, `YYYY-MM-DD`; `null` for none.",
+            "maxLength": 10
+          },
+          "themeId": {
+            "type": "string",
+            "nullable": true,
+            "description": "The theme to present with; the workspace default when `null`.",
+            "format": "uuid"
+          },
+          "items": {
+            "description": "In presentation order.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlaylistItemInputDto"
+            }
+          },
+          "expectedSyncVersion": {
+            "type": "number",
+            "description": "The `syncVersion` this edit was made from. When the playlist has changed\nsince, the edit is refused (409) instead of overwriting that change.",
+            "minimum": 1
+          }
+        }
+      },
       "BibleTranslationResponseDto": {
         "type": "object",
         "properties": {
@@ -7719,95 +8975,6 @@
           "languageCode",
           "licence",
           "attribution"
-        ]
-      },
-      "BibleBookCode": {
-        "type": "string",
-        "enum": [
-          "GEN",
-          "EXO",
-          "LEV",
-          "NUM",
-          "DEU",
-          "JOS",
-          "JDG",
-          "RUT",
-          "1SA",
-          "2SA",
-          "1KI",
-          "2KI",
-          "1CH",
-          "2CH",
-          "EZR",
-          "NEH",
-          "EST",
-          "JOB",
-          "PSA",
-          "PRO",
-          "ECC",
-          "SNG",
-          "ISA",
-          "JER",
-          "LAM",
-          "EZK",
-          "DAN",
-          "HOS",
-          "JOL",
-          "AMO",
-          "OBA",
-          "JON",
-          "MIC",
-          "NAM",
-          "HAB",
-          "ZEP",
-          "HAG",
-          "ZEC",
-          "MAL",
-          "MAT",
-          "MRK",
-          "LUK",
-          "JHN",
-          "ACT",
-          "ROM",
-          "1CO",
-          "2CO",
-          "GAL",
-          "EPH",
-          "PHP",
-          "COL",
-          "1TH",
-          "2TH",
-          "1TI",
-          "2TI",
-          "TIT",
-          "PHM",
-          "HEB",
-          "JAS",
-          "1PE",
-          "2PE",
-          "1JN",
-          "2JN",
-          "3JN",
-          "JUD",
-          "REV",
-          "TOB",
-          "JDT",
-          "ESG",
-          "WIS",
-          "SIR",
-          "BAR",
-          "LJE",
-          "S3Y",
-          "SUS",
-          "BEL",
-          "1MA",
-          "2MA",
-          "3MA",
-          "4MA",
-          "1ES",
-          "2ES",
-          "MAN",
-          "PS2"
         ]
       },
       "BibleVerseInputDto": {

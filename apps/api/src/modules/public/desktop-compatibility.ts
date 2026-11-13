@@ -14,7 +14,8 @@ import { resolve } from 'node:path';
  * operator exactly which side to update.
  */
 // 2: Bible translations (/api/bible-translations).
-export const API_LEVEL = 2;
+// 3: themes and playlists, also in the sync feed.
+export const API_LEVEL = 3;
 export const MINIMUM_DESKTOP_VERSION = '0.0.0';
 
 // This package's version, read once from its package.json: three levels up

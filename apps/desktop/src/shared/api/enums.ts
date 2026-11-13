@@ -88,3 +88,29 @@ export const bibleBookCodeValues = [
   'MAN',
   'PS2',
 ] as const satisfies ReadonlyArray<components['schemas']['BibleBookCode']>;
+
+export const playlistItemKindValues = [
+  'song',
+  'passage',
+] as const satisfies ReadonlyArray<components['schemas']['PlaylistItemKind']>;
+
+export const themeBackgroundValues = [
+  'solid',
+  'dusk',
+  'dawn',
+  'ocean',
+  'forest',
+  'slate',
+] as const satisfies ReadonlyArray<components['schemas']['ThemeBackground']>;
+
+export const themeFontValues = [
+  'sans',
+  'serif',
+  'rounded',
+  'condensed',
+] as const satisfies ReadonlyArray<components['schemas']['ThemeFont']>;
+
+export const themeTextAlignValues = [
+  'center',
+  'left',
+] as const satisfies ReadonlyArray<components['schemas']['ThemeTextAlign']>;

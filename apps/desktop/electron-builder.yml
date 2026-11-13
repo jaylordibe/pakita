@@ -9,6 +9,16 @@ directories:
 files:
   - out/**
   - package.json
+# The bundled fonts' licences (SIL Open Font License 1.1) travel with them.
+extraResources:
+  - from: node_modules/@fontsource/inter/LICENSE
+    to: licenses/fonts/Inter.txt
+  - from: node_modules/@fontsource/merriweather/LICENSE
+    to: licenses/fonts/Merriweather.txt
+  - from: node_modules/@fontsource/nunito/LICENSE
+    to: licenses/fonts/Nunito.txt
+  - from: node_modules/@fontsource/oswald/LICENSE
+    to: licenses/fonts/Oswald.txt
 # better-sqlite3 ships prebuilt Node-API binaries for every platform, which
 # load in Electron as they are: nothing needs compiling at packaging.
 npmRebuild: false

@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 import type { AppState, LiveState } from '../../shared/ipc-contract';
+import { DEFAULT_THEME_LOOK } from '../../shared/theme-look';
 import LivePanel from './components/LivePanel.vue';
 import ConnectView from './views/ConnectView.vue';
 import MainView from './views/MainView.vue';
@@ -19,6 +20,7 @@ const liveState = ref<LiveState>({
   slides: [],
   index: 0,
   isBlackout: false,
+  look: DEFAULT_THEME_LOOK,
   projector: 'off',
 });
 

@@ -2,7 +2,12 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-import { bibleBookCodeValues } from '../shared/api/enums';
+import {
+  bibleBookCodeValues,
+  themeBackgroundValues,
+  themeFontValues,
+  themeTextAlignValues,
+} from '../shared/api/enums';
 import { IpcChannel, type IpcChannelName } from '../shared/ipc-contract';
 import { AppController } from './app-controller';
 import { registerIpcHandler } from './ipc-registry';
@@ -105,6 +110,51 @@ const bibleTranslationInputSchema = z
       .url({ protocol: /^https?$/ })
       .max(500)
       .nullable(),
+  })
+  .strict();
+
+const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+const themeInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    background: z.enum(themeBackgroundValues),
+    backgroundColor: hexColour,
+    textColor: hexColour,
+    font: z.enum(themeFontValues),
+    textScale: z.number().int().min(50).max(200),
+    textAlign: z.enum(themeTextAlignValues),
+    isDefault: z.boolean(),
+  })
+  .strict();
+
+const playlistItemInputSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('song'),
+      songId: uuid,
+      arrangementName: z.string().min(1).max(60).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('passage'),
+      bibleTranslationId: uuid,
+      bookCode,
+      startChapter: chapterNumber,
+      startVerse: chapterNumber,
+      endChapter: chapterNumber,
+      endVerse: chapterNumber,
+    })
+    .strict(),
+]);
+
+const playlistInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    serviceDate: z.iso.date().nullable(),
+    themeId: uuid.nullable(),
+    items: z.array(playlistItemInputSchema).max(100),
+    expectedSyncVersion: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -225,6 +275,42 @@ async function start(): Promise<void> {
   );
   handle(IpcChannel.bibleImport, bibleTranslationInputSchema, (input) =>
     controller.importBible(input),
+  );
+  handle(IpcChannel.themesList, noPayload, () => controller.listThemes());
+  handle(IpcChannel.themesGet, uuid, (themeId) => controller.getTheme(themeId));
+  handle(IpcChannel.themesCreate, themeInputSchema, (input) =>
+    controller.createTheme(input),
+  );
+  handle(
+    IpcChannel.themesUpdate,
+    z.object({ themeId: uuid, input: themeInputSchema }).strict(),
+    ({ themeId, input }) => controller.updateTheme(themeId, input),
+  );
+  handle(IpcChannel.themesDelete, uuid, (themeId) =>
+    controller.deleteTheme(themeId),
+  );
+  handle(IpcChannel.playlistsList, noPayload, () => controller.listPlaylists());
+  handle(IpcChannel.playlistsGet, uuid, (playlistId) =>
+    controller.getPlaylist(playlistId),
+  );
+  handle(IpcChannel.playlistsCreate, playlistInputSchema, (input) =>
+    controller.createPlaylist(input),
+  );
+  handle(
+    IpcChannel.playlistsUpdate,
+    z.object({ playlistId: uuid, input: playlistInputSchema }).strict(),
+    ({ playlistId, input }) => controller.updatePlaylist(playlistId, input),
+  );
+  handle(IpcChannel.playlistsDelete, uuid, (playlistId) =>
+    controller.deletePlaylist(playlistId),
+  );
+  handle(
+    IpcChannel.liveStartPlaylist,
+    z
+      .object({ playlistId: uuid, entryIndex: z.number().int().min(0).max(99) })
+      .strict(),
+    ({ playlistId, entryIndex }) =>
+      controller.startPlaylist(playlistId, entryIndex),
   );
   handle(
     IpcChannel.liveStartPassage,

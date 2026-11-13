@@ -29,6 +29,8 @@ const SOFT_DELETE_MODELS: ReadonlySet<string> = new Set([
   'User',
   'Workspace',
   'Song',
+  'Theme',
+  'Playlist',
 ]);
 
 // Put `deletedAt: null` FIRST so an explicit caller-supplied `deletedAt` (e.g.

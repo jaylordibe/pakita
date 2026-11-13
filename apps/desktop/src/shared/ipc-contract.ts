@@ -5,6 +5,7 @@
 
 import type { components } from './api/openapi';
 import type { Slide, Song } from './slides';
+import type { ThemeLook } from './theme-look';
 
 export type { Slide, Song };
 
@@ -32,7 +33,18 @@ export const IpcChannel = {
   bibleSearch: 'bible:search',
   bibleChooseImportFolder: 'bible:choose-import-folder',
   bibleImport: 'bible:import',
+  themesList: 'themes:list',
+  themesGet: 'themes:get',
+  themesCreate: 'themes:create',
+  themesUpdate: 'themes:update',
+  themesDelete: 'themes:delete',
+  playlistsList: 'playlists:list',
+  playlistsGet: 'playlists:get',
+  playlistsCreate: 'playlists:create',
+  playlistsUpdate: 'playlists:update',
+  playlistsDelete: 'playlists:delete',
   liveStart: 'live:start',
+  liveStartPlaylist: 'live:start-playlist',
   liveStartPassage: 'live:start-passage',
   liveNext: 'live:next',
   livePrevious: 'live:previous',
@@ -186,6 +198,63 @@ export interface BibleImportProgress {
   readonly bookName: string;
 }
 
+export type Theme = components['schemas']['ThemeResponseDto'];
+export type ThemeInput = components['schemas']['CreateThemeDto'];
+
+export interface ThemeSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly isDefault: boolean;
+}
+
+/** A playlist as the API sends it (and the laptop stores it). */
+export type Playlist = components['schemas']['PlaylistResponseDto'];
+export type PlaylistItemInput = components['schemas']['PlaylistItemInputDto'];
+
+export interface PlaylistInput {
+  readonly name: string;
+  /** `YYYY-MM-DD`, or null. */
+  readonly serviceDate: string | null;
+  readonly themeId: string | null;
+  readonly items: readonly PlaylistItemInput[];
+  /**
+   * When updating: the `syncVersion` the edit was made from; a playlist
+   * changed since is refused instead of overwritten.
+   */
+  readonly expectedSyncVersion?: number;
+}
+
+export interface PlaylistSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly serviceDate: string | null;
+}
+
+/** One playlist entry as this laptop can present it. */
+export interface PlaylistEntry {
+  readonly kind: PlaylistItemInput['kind'];
+  /** A song title or a passage reference. */
+  readonly title: string;
+  /** The arrangement or the translation, when there is one. */
+  readonly detail: string | null;
+  /** False when this laptop lacks what the entry needs. */
+  readonly isReady: boolean;
+  /** Why it is not ready, or what will be presented instead. */
+  readonly note: string | null;
+  readonly slideCount: number;
+  /** The entry as the server holds it, for editing. */
+  readonly input: PlaylistItemInput;
+}
+
+export interface PlaylistView {
+  readonly id: string;
+  readonly name: string;
+  readonly serviceDate: string | null;
+  readonly themeId: string | null;
+  readonly syncVersion: number;
+  readonly entries: readonly PlaylistEntry[];
+}
+
 export interface DisplayInfo {
   readonly id: number;
   readonly label: string;
@@ -201,6 +270,8 @@ export interface LiveState {
   readonly slides: readonly Slide[];
   readonly index: number;
   readonly isBlackout: boolean;
+  /** How the slides are drawn: fixed when the presentation starts. */
+  readonly look: ThemeLook;
   /**
    * `showing`: on the chosen display. `display-missing`: that display was
    * disconnected; output resumes when it returns. `windowed`: no second
@@ -259,6 +330,24 @@ export interface PakitaApi {
       listener: (progress: BibleImportProgress) => void,
     ): () => void;
   };
+  readonly themes: {
+    list(): Promise<ThemeSummary[]>;
+    get(themeId: string): Promise<Theme | null>;
+    create(input: ThemeInput): Promise<Theme>;
+    update(themeId: string, input: ThemeInput): Promise<Theme>;
+    delete(themeId: string): Promise<void>;
+  };
+  readonly playlists: {
+    list(): Promise<PlaylistSummary[]>;
+    /** With each entry's readiness on this laptop. */
+    get(playlistId: string): Promise<PlaylistView | null>;
+    create(input: PlaylistInput): Promise<PlaylistView | null>;
+    update(
+      playlistId: string,
+      input: PlaylistInput,
+    ): Promise<PlaylistView | null>;
+    delete(playlistId: string): Promise<void>;
+  };
   readonly displays: {
     list(): Promise<DisplayInfo[]>;
     /** `null` returns to automatic placement. */
@@ -268,6 +357,8 @@ export interface PakitaApi {
   readonly live: {
     start(songId: string, arrangementId: string | null): Promise<LiveState>;
     startPassage(passage: PassageRequest): Promise<LiveState>;
+    /** Presents the whole playlist, from the entry at `entryIndex`. */
+    startPlaylist(playlistId: string, entryIndex: number): Promise<LiveState>;
     next(): Promise<LiveState>;
     previous(): Promise<LiveState>;
     goTo(index: number): Promise<LiveState>;

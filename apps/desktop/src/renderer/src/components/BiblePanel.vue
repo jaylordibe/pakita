@@ -6,10 +6,12 @@ import type {
   BibleSearchHit,
   BibleTranslation,
   BibleVerse,
+  PlaylistItemInput,
   SyncStatus,
 } from '../../../shared/ipc-contract';
 import { formatReference } from '../../../shared/slides';
 import { messageOf } from '../errors';
+import AddToPlaylist from './AddToPlaylist.vue';
 import BibleImport from './BibleImport.vue';
 
 const translations = ref<BibleTranslation[]>([]);
@@ -46,6 +48,20 @@ const selection = computed(() => {
   return verses.value.filter(
     (verse) => verse.verse >= low && verse.verse <= high,
   );
+});
+const passageEntry = computed(() => {
+  const first = selection.value[0];
+  const last = selection.value.at(-1);
+  if (!translationId.value || !bookCode.value || !first || !last) return null;
+  return {
+    kind: 'passage' as const,
+    bibleTranslationId: translationId.value,
+    bookCode: bookCode.value as NonNullable<PlaylistItemInput['bookCode']>,
+    startChapter: first.chapter,
+    startVerse: first.verse,
+    endChapter: last.chapter,
+    endVerse: last.verse,
+  };
 });
 const selectionLabel = computed(() =>
   book.value && selection.value.length > 0
@@ -240,6 +256,7 @@ onUnmounted(() => unsubscribe?.());
           <span class="muted"
             >Click a verse; shift-click to select a range.</span
           >
+          <AddToPlaylist :entry="passageEntry" />
           <button
             class="live"
             data-testid="bible-go-live"

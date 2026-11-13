@@ -81,9 +81,11 @@ test('gives the renderer no Node.js or Electron access', async () => {
       'displays',
       'library',
       'live',
+      'playlists',
       'server',
       'songs',
       'sync',
+      'themes',
       'workspaces',
     ],
   });

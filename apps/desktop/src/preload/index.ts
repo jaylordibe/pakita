@@ -69,6 +69,22 @@ const pakita: PakitaApi = {
     onImportProgress: (listener) =>
       subscribe(IpcEvent.bibleImportProgress, listener),
   },
+  themes: {
+    list: () => invoke(IpcChannel.themesList),
+    get: (themeId) => invoke(IpcChannel.themesGet, themeId),
+    create: (input) => invoke(IpcChannel.themesCreate, input),
+    update: (themeId, input) =>
+      invoke(IpcChannel.themesUpdate, { themeId, input }),
+    delete: (themeId) => invoke(IpcChannel.themesDelete, themeId),
+  },
+  playlists: {
+    list: () => invoke(IpcChannel.playlistsList),
+    get: (playlistId) => invoke(IpcChannel.playlistsGet, playlistId),
+    create: (input) => invoke(IpcChannel.playlistsCreate, input),
+    update: (playlistId, input) =>
+      invoke(IpcChannel.playlistsUpdate, { playlistId, input }),
+    delete: (playlistId) => invoke(IpcChannel.playlistsDelete, playlistId),
+  },
   displays: {
     list: () => invoke(IpcChannel.displaysList),
     choose: (displayId) => invoke(IpcChannel.displaysChoose, displayId),
@@ -78,6 +94,8 @@ const pakita: PakitaApi = {
     start: (songId, arrangementId) =>
       invoke(IpcChannel.liveStart, { songId, arrangementId }),
     startPassage: (passage) => invoke(IpcChannel.liveStartPassage, passage),
+    startPlaylist: (playlistId, entryIndex) =>
+      invoke(IpcChannel.liveStartPlaylist, { playlistId, entryIndex }),
     next: () => invoke(IpcChannel.liveNext),
     previous: () => invoke(IpcChannel.livePrevious),
     goTo: (index) => invoke(IpcChannel.liveGoTo, index),

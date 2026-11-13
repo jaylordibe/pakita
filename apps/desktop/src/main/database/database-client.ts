@@ -8,20 +8,26 @@ import type {
   StoredBibleTranslation,
   StoredBibleVerse,
 } from './bible-store';
-import type { SongSummary, SyncState } from './song-store';
+import type {
+  PlaylistSummary,
+  SongSummary,
+  SyncPage,
+  SyncState,
+  ThemeSummary,
+} from './content-store';
 import {
   BibleBooksResult,
   BiblePassageResult,
   BibleSearchResult,
   BibleTranslationsResult,
   DatabaseHealthResult,
+  PlaylistSummaryResult,
+  ThemeSummaryResult,
   type DatabaseWorkerRequestInput,
   DatabaseWorkerResponse,
   SongSummaryResult,
   SyncStateResult,
-  type syncedSongChangeSchema,
 } from './worker-protocol';
-import type { z } from 'zod';
 
 type RequestWithoutId = DatabaseWorkerRequestInput extends infer Request
   ? Request extends unknown
@@ -76,20 +82,15 @@ export class DatabaseClient {
     );
   }
 
-  async applySyncPage(
-    workspaceId: string,
-    page: {
-      readonly epoch: string;
-      readonly nextCursor: number;
-      readonly songs: ReadonlyArray<z.input<typeof syncedSongChangeSchema>>;
-    },
-  ): Promise<void> {
+  async applySyncPage(workspaceId: string, page: SyncPage): Promise<void> {
     await this.request({
       type: 'applySyncPage',
       workspaceId,
       epoch: page.epoch,
       nextCursor: page.nextCursor,
       songs: [...page.songs],
+      themes: [...page.themes],
+      playlists: [...page.playlists],
     });
   }
 
@@ -119,6 +120,33 @@ export class DatabaseClient {
   /** The song as the server sent it (validate before use), or null. */
   async getSong(workspaceId: string, songId: string): Promise<unknown> {
     return this.request({ type: 'getSong', workspaceId, songId });
+  }
+
+  async listThemes(workspaceId: string): Promise<ThemeSummary[]> {
+    return ThemeSummaryResult.parse(
+      await this.request({ type: 'listThemes', workspaceId }),
+    );
+  }
+
+  /** The theme as the server sent it (validate before use), or null. */
+  async getTheme(workspaceId: string, themeId: string): Promise<unknown> {
+    return this.request({ type: 'getTheme', workspaceId, themeId });
+  }
+
+  /** The default theme as the server sent it (validate before use), or null. */
+  async getDefaultTheme(workspaceId: string): Promise<unknown> {
+    return this.request({ type: 'getDefaultTheme', workspaceId });
+  }
+
+  async listPlaylists(workspaceId: string): Promise<PlaylistSummary[]> {
+    return PlaylistSummaryResult.parse(
+      await this.request({ type: 'listPlaylists', workspaceId }),
+    );
+  }
+
+  /** The playlist as the server sent it (validate before use), or null. */
+  async getPlaylist(workspaceId: string, playlistId: string): Promise<unknown> {
+    return this.request({ type: 'getPlaylist', workspaceId, playlistId });
   }
 
   async listBibleTranslations(): Promise<StoredBibleTranslation[]> {

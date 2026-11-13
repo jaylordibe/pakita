@@ -9,6 +9,7 @@ import {
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import type { z } from 'zod';
 
 import {
   type AccountSummary,
@@ -24,6 +25,12 @@ import {
   IpcEvent,
   type LiveState,
   type PassageRequest,
+  type PlaylistInput,
+  type PlaylistSummary,
+  type PlaylistView,
+  type Theme,
+  type ThemeInput,
+  type ThemeSummary,
   type ServerConnection,
   type Song,
   type SongInput,
@@ -36,14 +43,21 @@ import {
   buildSongSlides,
   formatReference,
 } from '../shared/slides';
+import {
+  DEFAULT_THEME_LOOK,
+  lookOf,
+  type ThemeLook,
+} from '../shared/theme-look';
 import { ApiClient, ApiError } from './api/api-client';
 import {
   bibleContentSchema,
   bibleTranslationListSchema,
   bibleTranslationSchema,
+  playlistSchema,
   serverInfoSchema,
   songSchema,
   syncChangesSchema,
+  themeSchema,
   workspacePageSchema,
 } from './api/api-schemas';
 import { parseServerAddress } from './api/server-address';
@@ -59,6 +73,11 @@ import {
 import { checkCompatibility } from './compatibility';
 import { DatabaseClient } from './database/database-client';
 import { LiveSession } from './presentation/live-session';
+import {
+  buildDeck,
+  type LoadedPassage,
+  resolvePlaylist,
+} from './presentation/playlist-deck';
 import { Projector } from './presentation/projector';
 import { AppSettingsStore } from './storage/app-settings';
 import { syncBibleTranslations } from './sync/bible-sync';
@@ -318,29 +337,11 @@ export class AppController {
   }
 
   async createSong(input: SongInput): Promise<Song> {
-    await this.sessionReady;
-    const workspaceId = this.requireWorkspace();
-    const song = await this.requireSession().request({
-      method: 'POST',
-      path: `/api/workspaces/${workspaceId}/songs`,
-      schema: songSchema,
-      body: input,
-    });
-    await this.syncNow();
-    return song;
+    return this.writeOnline('POST', 'songs', songSchema, input);
   }
 
   async updateSong(songId: string, input: SongInput): Promise<Song> {
-    await this.sessionReady;
-    const workspaceId = this.requireWorkspace();
-    const song = await this.requireSession().request({
-      method: 'PATCH',
-      path: `/api/workspaces/${workspaceId}/songs/${songId}`,
-      schema: songSchema,
-      body: input,
-    });
-    await this.syncNow();
-    return song;
+    return this.writeOnline('PATCH', `songs/${songId}`, songSchema, input);
   }
 
   // ── Bible (offline) and importing (online) ────────────────────────────
@@ -443,6 +444,91 @@ export class AppController {
     await this.syncNow();
   }
 
+  // ── Themes and playlists (offline) and editing them (online) ─────────
+
+  async listThemes(): Promise<ThemeSummary[]> {
+    const { workspaceId } = this.settings.get();
+    if (!this.database || !workspaceId) return [];
+    return this.database.listThemes(workspaceId);
+  }
+
+  async getTheme(themeId: string): Promise<Theme | null> {
+    const { workspaceId } = this.settings.get();
+    if (!this.database || !workspaceId) return null;
+    const parsed = themeSchema.safeParse(
+      await this.database.getTheme(workspaceId, themeId),
+    );
+    return parsed.success ? parsed.data : null;
+  }
+
+  async createTheme(input: ThemeInput): Promise<Theme> {
+    return this.writeOnline('POST', 'themes', themeSchema, input);
+  }
+
+  async updateTheme(themeId: string, input: ThemeInput): Promise<Theme> {
+    return this.writeOnline('PATCH', `themes/${themeId}`, themeSchema, input);
+  }
+
+  async deleteTheme(themeId: string): Promise<void> {
+    await this.writeOnline('DELETE', `themes/${themeId}`);
+  }
+
+  async listPlaylists(): Promise<PlaylistSummary[]> {
+    const { workspaceId } = this.settings.get();
+    if (!this.database || !workspaceId) return [];
+    return this.database.listPlaylists(workspaceId);
+  }
+
+  /** The playlist with each entry's readiness on this laptop. */
+  async getPlaylist(playlistId: string): Promise<PlaylistView | null> {
+    const playlist = await this.loadPlaylist(playlistId);
+    if (!playlist) return null;
+    const entries = await resolvePlaylist(playlist, this.playlistSources());
+    return {
+      id: playlist.id,
+      name: playlist.name,
+      serviceDate: playlist.serviceDate,
+      themeId: playlist.themeId,
+      syncVersion: playlist.syncVersion,
+      entries: entries.map((entry) => ({
+        kind: entry.kind,
+        title: entry.title,
+        detail: entry.detail,
+        isReady: entry.isReady,
+        note: entry.note,
+        slideCount: entry.slideCount,
+        input: entry.input,
+      })),
+    };
+  }
+
+  async createPlaylist(input: PlaylistInput): Promise<PlaylistView | null> {
+    const playlist = await this.writeOnline(
+      'POST',
+      'playlists',
+      playlistSchema,
+      input,
+    );
+    return this.getPlaylist(playlist.id);
+  }
+
+  async updatePlaylist(
+    playlistId: string,
+    input: PlaylistInput,
+  ): Promise<PlaylistView | null> {
+    await this.writeOnline(
+      'PATCH',
+      `playlists/${playlistId}`,
+      playlistSchema,
+      input,
+    );
+    return this.getPlaylist(playlistId);
+  }
+
+  async deletePlaylist(playlistId: string): Promise<void> {
+    await this.writeOnline('DELETE', `playlists/${playlistId}`);
+  }
+
   // ── Displays and presentation (offline) ───────────────────────────────
 
   listDisplays(): DisplayInfo[] {
@@ -491,40 +577,53 @@ export class AppController {
     if (slides.length === 0) {
       throw new Error('That arrangement has no slides.');
     }
-    this.live.start(song.title, slides);
+    this.live.start(song.title, slides, await this.resolveLook(null));
     this.projector.open();
     return this.broadcastLiveState();
   }
 
   /** Presents a passage from the laptop's copy of a translation. */
   async startPassage(passage: PassageRequest): Promise<LiveState> {
-    if (!this.database) {
-      throw new Error('There is no Bible on this laptop yet.');
-    }
-    const translation = (await this.database.listBibleTranslations()).find(
-      (candidate) => candidate.id === passage.translationId,
-    );
-    const book = translation
-      ? (await this.database.listBibleBooks(translation.id)).find(
-          (candidate) => candidate.code === passage.bookCode,
-        )
-      : undefined;
-    if (!translation || !book) {
-      throw new Error('That translation is no longer on this laptop.');
-    }
-    const verses = await this.database.getBiblePassage(
-      translation.id,
-      book.code,
-      passage.start,
-      passage.end,
-    );
-    if (verses.length === 0) {
-      throw new Error('That passage has no verses in this translation.');
+    const loaded = await this.loadPassage(passage);
+    if (!loaded) {
+      throw new Error('That passage is not on this laptop.');
     }
     this.live.start(
-      `${formatReference(book.name, verses)} (${translation.code})`,
-      buildPassageSlides(book.name, translation.attribution, verses),
+      `${loaded.reference} (${loaded.translationCode})`,
+      loaded.slides,
+      await this.resolveLook(null),
     );
+    this.projector.open();
+    return this.broadcastLiveState();
+  }
+
+  /**
+   * Presents a whole playlist as one deck, from the entry chosen. Every
+   * entry the laptop holds is in the deck, fixed at this moment with the
+   * playlist's theme; an entry it lacks is left out.
+   */
+  async startPlaylist(
+    playlistId: string,
+    entryIndex: number,
+  ): Promise<LiveState> {
+    const playlist = await this.loadPlaylist(playlistId);
+    if (!playlist) {
+      throw new Error('That playlist is no longer on this laptop.');
+    }
+    const entries = await resolvePlaylist(playlist, this.playlistSources());
+    const deck = buildDeck(entries);
+    const start = deck.startIndexes[entryIndex];
+    if (start === undefined || start === null) {
+      throw new Error(
+        entries[entryIndex]?.note ?? 'That entry cannot be presented.',
+      );
+    }
+    this.live.start(
+      playlist.name,
+      deck.slides,
+      await this.resolveLook(playlist.themeId),
+    );
+    this.live.goTo(start);
     this.projector.open();
     return this.broadcastLiveState();
   }
@@ -633,6 +732,101 @@ export class AppController {
       this.startBackgroundSync();
       void this.syncNow();
     }
+  }
+
+  /**
+   * Writes to the workspace on the server, then synchronises, so the laptop
+   * shows the change as every other laptop will receive it.
+   */
+  private async writeOnline<Result>(
+    method: 'POST' | 'PATCH' | 'DELETE',
+    path: string,
+    schema?: z.ZodType<Result>,
+    body?: unknown,
+  ): Promise<Result> {
+    await this.sessionReady;
+    const workspaceId = this.requireWorkspace();
+    const result = await this.requireSession().request({
+      method,
+      path: `/api/workspaces/${workspaceId}/${path}`,
+      schema,
+      body,
+    });
+    await this.syncNow();
+    return result;
+  }
+
+  private async loadPlaylist(playlistId: string) {
+    const { workspaceId } = this.settings.get();
+    if (!this.database || !workspaceId) return null;
+    const parsed = playlistSchema.safeParse(
+      await this.database.getPlaylist(workspaceId, playlistId),
+    );
+    return parsed.success ? parsed.data : null;
+  }
+
+  /** A theme by id, else the workspace default, else white on black. */
+  private async resolveLook(themeId: string | null): Promise<ThemeLook> {
+    const { workspaceId } = this.settings.get();
+    if (!this.database || !workspaceId) return DEFAULT_THEME_LOOK;
+    for (const stored of [
+      themeId ? await this.database.getTheme(workspaceId, themeId) : null,
+      await this.database.getDefaultTheme(workspaceId),
+    ]) {
+      const parsed = themeSchema.safeParse(stored);
+      if (parsed.success) return lookOf(parsed.data);
+    }
+    return DEFAULT_THEME_LOOK;
+  }
+
+  private async loadPassage(
+    passage: PassageRequest,
+  ): Promise<LoadedPassage | null> {
+    if (!this.database) return null;
+    const translation = (await this.database.listBibleTranslations()).find(
+      (candidate) => candidate.id === passage.translationId,
+    );
+    const book = translation
+      ? (await this.database.listBibleBooks(translation.id)).find(
+          (candidate) => candidate.code === passage.bookCode,
+        )
+      : undefined;
+    if (!translation || !book) return null;
+    const verses = await this.database.getBiblePassage(
+      translation.id,
+      book.code,
+      passage.start,
+      passage.end,
+    );
+    if (verses.length === 0) return null;
+    return {
+      reference: formatReference(book.name, verses),
+      translationCode: translation.code,
+      slides: buildPassageSlides(book.name, translation.attribution, verses),
+    };
+  }
+
+  private playlistSources() {
+    return {
+      song: async (songId: string) => {
+        const loaded = await this.loadSong(songId);
+        return loaded.status === 'found' ? loaded.song : null;
+      },
+      passage: (item: {
+        bibleTranslationId: string;
+        bookCode: string;
+        startChapter: number;
+        startVerse: number;
+        endChapter: number;
+        endVerse: number;
+      }) =>
+        this.loadPassage({
+          translationId: item.bibleTranslationId,
+          bookCode: item.bookCode,
+          start: { chapter: item.startChapter, verse: item.startVerse },
+          end: { chapter: item.endChapter, verse: item.endVerse },
+        }),
+    };
   }
 
   private translationUploader(session: Session): TranslationUploader {

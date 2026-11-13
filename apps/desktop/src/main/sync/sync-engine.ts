@@ -127,18 +127,18 @@ export class SyncEngine {
         epoch = page.epoch;
         continue;
       }
-      const foreign = page.songs.find(
-        (change) =>
-          change.song !== null && change.song.workspaceId !== workspaceId,
+      const contentWorkspaces = [
+        ...page.songs.map((change) => change.song?.workspaceId),
+        ...page.themes.map((change) => change.theme?.workspaceId),
+        ...page.playlists.map((change) => change.playlist?.workspaceId),
+      ];
+      const isForeign = contentWorkspaces.some(
+        (owner) => owner !== undefined && owner !== workspaceId,
       );
-      if (foreign) {
-        throw new Error('The server sent songs from another workspace.');
+      if (isForeign) {
+        throw new Error('The server sent content from another workspace.');
       }
-      await database.applySyncPage(workspaceId, {
-        epoch: page.epoch,
-        nextCursor: page.nextCursor,
-        songs: page.songs,
-      });
+      await database.applySyncPage(workspaceId, page);
       epoch = page.epoch;
       cursor = page.nextCursor;
       if (!page.hasMore) {

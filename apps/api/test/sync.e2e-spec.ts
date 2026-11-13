@@ -96,6 +96,8 @@ describe('Sync changes (e2e)', () => {
       nextCursor: 0,
       hasMore: false,
       songs: [],
+      themes: [],
+      playlists: [],
     });
     expect(second.epoch).toBe(first.epoch);
   });
@@ -197,7 +199,7 @@ describe('Public desktop endpoints (e2e)', () => {
     expect(response.body).toEqual({
       product: 'pakita',
       serverVersion: expect.stringMatching(/^\d+\.\d+\.\d+/),
-      apiLevel: 2,
+      apiLevel: 3,
       minimumDesktopVersion: expect.any(String),
       // The test environment runs with the bot check off.
       isBotCheckRequired: false,

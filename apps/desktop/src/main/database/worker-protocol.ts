@@ -28,6 +28,26 @@ export const syncedSongChangeSchema = z.object({
     .nullable(),
 });
 
+export const syncedThemeChangeSchema = z.object({
+  id: z.string().min(1),
+  syncVersion: z.number().int().positive(),
+  isDeleted: z.boolean(),
+  theme: z
+    .object({ name: z.string(), isDefault: z.boolean() })
+    .passthrough()
+    .nullable(),
+});
+
+export const syncedPlaylistChangeSchema = z.object({
+  id: z.string().min(1),
+  syncVersion: z.number().int().positive(),
+  isDeleted: z.boolean(),
+  playlist: z
+    .object({ name: z.string(), serviceDate: z.string().nullable() })
+    .passthrough()
+    .nullable(),
+});
+
 export const DatabaseWorkerRequest = z.discriminatedUnion('type', [
   z.object({ requestId, type: z.literal('health') }),
   z.object({ requestId, type: z.literal('close') }),
@@ -39,6 +59,8 @@ export const DatabaseWorkerRequest = z.discriminatedUnion('type', [
     epoch: z.string().min(1),
     nextCursor: z.number().int().nonnegative(),
     songs: z.array(syncedSongChangeSchema),
+    themes: z.array(syncedThemeChangeSchema),
+    playlists: z.array(syncedPlaylistChangeSchema),
   }),
   z.object({
     requestId,
@@ -59,6 +81,21 @@ export const DatabaseWorkerRequest = z.discriminatedUnion('type', [
     type: z.literal('getSong'),
     workspaceId,
     songId: z.string().min(1),
+  }),
+  z.object({ requestId, type: z.literal('listThemes'), workspaceId }),
+  z.object({
+    requestId,
+    type: z.literal('getTheme'),
+    workspaceId,
+    themeId: z.string().min(1),
+  }),
+  z.object({ requestId, type: z.literal('getDefaultTheme'), workspaceId }),
+  z.object({ requestId, type: z.literal('listPlaylists'), workspaceId }),
+  z.object({
+    requestId,
+    type: z.literal('getPlaylist'),
+    workspaceId,
+    playlistId: z.string().min(1),
   }),
   z.object({ requestId, type: z.literal('listBibleTranslations') }),
   z.object({
@@ -157,4 +194,16 @@ export const BiblePassageResult = z.array(storedVerse);
 
 export const BibleSearchResult = z.array(
   storedVerse.extend({ bookName: z.string() }),
+);
+
+export const ThemeSummaryResult = z.array(
+  z.object({ id: z.string(), name: z.string(), isDefault: z.boolean() }),
+);
+
+export const PlaylistSummaryResult = z.array(
+  z.object({
+    id: z.string(),
+    name: z.string(),
+    serviceDate: z.string().nullable(),
+  }),
 );

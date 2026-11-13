@@ -75,6 +75,42 @@ export const MIGRATIONS: readonly string[] = [
     tokenize = 'unicode61 remove_diacritics 2'
   );
   `,
+  // 4 — synchronised themes and playlists, stored like songs (the server's
+  // response as the payload, plus the columns listed by). Resynchronisation
+  // now records every kind of content it sees, in one table.
+  `
+  CREATE TABLE themes (
+    id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL,
+    sync_version INTEGER NOT NULL CHECK (sync_version > 0),
+    name TEXT NOT NULL,
+    is_default INTEGER NOT NULL CHECK (is_default IN (0, 1)),
+    payload TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX themes_workspace_name ON themes (workspace_id, name COLLATE NOCASE);
+  CREATE TABLE playlists (
+    id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL,
+    sync_version INTEGER NOT NULL CHECK (sync_version > 0),
+    name TEXT NOT NULL,
+    service_date TEXT,
+    payload TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX playlists_workspace_date ON playlists (workspace_id, service_date);
+  CREATE TABLE resync_seen (
+    workspace_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    id TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, kind, id)
+  ) STRICT;
+  INSERT INTO resync_seen (workspace_id, kind, id)
+    SELECT workspace_id, 'song', song_id FROM resync_seen_songs;
+  DROP TABLE resync_seen_songs;
+  -- An older app may already have synchronised past themes and playlists it
+  -- could not store: read the history once more. What the laptop already
+  -- holds is skipped by its version, so only the missing content arrives.
+  UPDATE workspace_sync_states SET cursor = 0;
+  `,
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;

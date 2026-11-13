@@ -5,7 +5,7 @@ import type { SyncStatus } from '../../shared/ipc-contract';
 import { ServerUnreachableError } from '../api/api-client';
 import type { SyncChanges } from '../api/api-schemas';
 import { migrateDatabase } from '../database/migrations';
-import { SongStore } from '../database/song-store';
+import { ContentStore, type SyncPage } from '../database/content-store';
 import { SyncEngine } from './sync-engine';
 
 const song = (id: string, syncVersion: number, title: string) => ({
@@ -50,25 +50,24 @@ function fakeServer(epoch: string, changes: ReturnType<typeof song>[]) {
       nextCursor: page.at(-1)?.syncVersion ?? cursor,
       hasMore: after.length > limit,
       songs: page,
+      themes: [],
+      playlists: [],
     };
   };
   return { server, fetchChanges };
 }
 
 describe('SyncEngine', () => {
-  let store: SongStore;
+  let store: ContentStore;
   let statuses: SyncStatus[];
 
   // The engine talks to the worker through DatabaseClient; here the same
-  // SongStore runs in-process.
+  // ContentStore runs in-process.
   const database = () => ({
     getSyncState: async (workspaceId: string) =>
       store.getSyncState(workspaceId),
-    applySyncPage: async (
-      workspaceId: string,
-      page: { epoch: string; nextCursor: number; songs: never[] },
-    ) =>
-      store.applySyncPage(workspaceId, page.epoch, page.nextCursor, page.songs),
+    applySyncPage: async (workspaceId: string, page: SyncPage) =>
+      store.applySyncPage(workspaceId, page),
     beginResync: async (workspaceId: string, epoch: string) =>
       store.beginResync(workspaceId, epoch),
     finishResync: async (workspaceId: string) =>
@@ -92,7 +91,7 @@ describe('SyncEngine', () => {
   beforeEach(() => {
     const sqlite = new Database(':memory:');
     migrateDatabase(sqlite);
-    store = new SongStore(sqlite);
+    store = new ContentStore(sqlite);
     statuses = [];
   });
 

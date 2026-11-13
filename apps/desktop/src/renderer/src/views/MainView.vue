@@ -8,8 +8,11 @@ import type {
   SyncStatus,
 } from '../../../shared/ipc-contract';
 import { buildSongSlides } from '../../../shared/slides';
+import AddToPlaylist from '../components/AddToPlaylist.vue';
 import BiblePanel from '../components/BiblePanel.vue';
+import PlaylistsPanel from '../components/PlaylistsPanel.vue';
 import SongEditor from '../components/SongEditor.vue';
+import ThemesPanel from '../components/ThemesPanel.vue';
 import { messageOf } from '../errors';
 
 const props = defineProps<{ account: AccountSummary }>();
@@ -20,7 +23,7 @@ const emit = defineEmits<{
   stateChanged: [];
 }>();
 
-const tab = ref<'songs' | 'bible'>('songs');
+const tab = ref<'songs' | 'bible' | 'playlists' | 'themes'>('songs');
 const search = ref('');
 const songs = ref<SongSummary[]>([]);
 const selectedSong = ref<Song | null>(null);
@@ -39,6 +42,22 @@ const previewSlides = computed(() =>
       [])
     : [],
 );
+
+// The selected song in its chosen arrangement, as a playlist entry.
+const songEntry = computed(() => {
+  const song = selectedSong.value;
+  if (!song) return null;
+  const arrangement = song.arrangements.find(
+    (candidate) => candidate.id === arrangementId.value,
+  );
+  return {
+    kind: 'song' as const,
+    songId: song.id,
+    ...(arrangement && !arrangement.isDefault
+      ? { arrangementName: arrangement.name }
+      : {}),
+  };
+});
 
 const syncLabel = computed(() => {
   const status = syncStatus.value;
@@ -148,6 +167,20 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
         >
           Bible
         </button>
+        <button
+          :class="{ active: tab === 'playlists' }"
+          data-testid="tab-playlists"
+          @click="tab = 'playlists'"
+        >
+          Playlists
+        </button>
+        <button
+          :class="{ active: tab === 'themes' }"
+          data-testid="tab-themes"
+          @click="tab = 'themes'"
+        >
+          Themes
+        </button>
       </nav>
       <span class="muted" data-testid="sync-status">{{ syncLabel }}</span>
       <span class="grow"></span>
@@ -176,6 +209,8 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
     </header>
 
     <BiblePanel v-if="tab === 'bible'" class="bible-area" />
+    <PlaylistsPanel v-if="tab === 'playlists'" class="bible-area" />
+    <ThemesPanel v-if="tab === 'themes'" class="bible-area" />
     <aside v-if="tab === 'songs'" class="library">
       <input
         v-model="search"
@@ -224,6 +259,7 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
               {{ arrangement.name }}
             </option>
           </select>
+          <AddToPlaylist :entry="songEntry" />
           <button @click="editing = 'existing'">Edit</button>
           <button class="live" data-testid="go-live" @click="goLive">
             Go live
@@ -276,6 +312,7 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
 }
 
 .bible-area {
+  /* Every full-width tab panel. */
   grid-column: 1 / -1;
   grid-row: 2;
   min-height: 0;
