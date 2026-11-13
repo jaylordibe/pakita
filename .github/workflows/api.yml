@@ -117,6 +117,16 @@ jobs:
       - name: Unit tests
         run: pnpm test --passWithNoTests
 
+      # The committed openapi.json is the contract the desktop's API types
+      # are generated from; it must match what this commit's code describes.
+      - name: OpenAPI document is current
+        run: |
+          pnpm openapi:export
+          git diff --exit-code -- openapi.json || {
+            echo "::error::apps/api/openapi.json is stale: run 'pnpm --filter @pakita/api openapi:export' and commit it."
+            exit 1
+          }
+
       # Dependency advisories are deliberately NOT audited in this job. They
       # belong to .github/workflows/security.yml, which the deploy workflows
       # call alongside this one: scanning needs a weekly cadence as well as a

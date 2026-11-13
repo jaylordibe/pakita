@@ -53,6 +53,8 @@ import { McpModule } from './modules/mcp/mcp.module';
 import { McpOAuthModule } from './modules/mcp-oauth/mcp-oauth.module';
 import { QueueAdminModule } from './modules/queue-admin/queue-admin.module';
 import { RolesModule } from './modules/roles/roles.module';
+import { SongsModule } from './modules/songs/songs.module';
+import { SyncModule } from './modules/sync/sync.module';
 import { PublicModule } from './modules/public/public.module';
 import { UsersModule } from './modules/users/users.module';
 
@@ -280,6 +282,8 @@ import { UsersModule } from './modules/users/users.module';
     PublicModule,
     McpModule,
     McpOAuthModule,
+    SyncModule,
+    SongsModule,
   ],
   providers: [
     // Runs when the context closes (src/graceful-shutdown.ts) so pending spans

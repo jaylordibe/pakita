@@ -534,6 +534,7 @@ minutes.
 | `EMAIL_PROVIDER`, `SMS_PROVIDER`, `STORAGE_PROVIDER` | **required in production** — they default to `stub`, and `stub` (and `EMAIL_PROVIDER=smtp`) is refused there. Their own settings are in the adapter tables below and in §5 |
 | `TURNSTILE_WEB_SECRET`, `TURNSTILE_MOBILE_SECRET` | secret — **required in staging and production**: the bot check's two widgets (website, app). Both or neither in any environment; Cloudflare's test secrets refused in staging and production. The worker validates the same configuration, so it needs both too |
 | `TURNSTILE_WEB_SITE_KEY` | public — the website widget's site key, rendered by the MCP sign-in page. Needed wherever the two secrets are set (staging, production) for MCP clients to sign in: without it the API and worker still boot, and only the sign-in page refuses (503). Add the API host to that widget's hostname list in Cloudflare |
+| `TURNSTILE_MOBILE_SITE_KEY` | public — the app widget's site key, rendered by the desktop sign-in check page (`GET /api/public/desktop-turnstile`) that Pakita's desktop app opens before signing in. Needed wherever the two secrets are set (staging, production) for the desktop app to sign in: without it the API still boots, and only that page refuses (503). Add the API host to the **app** widget's hostname list in Cloudflare (see `docs/decisions/0001-desktop-turnstile.md` at the workspace root) |
 
 `EMAIL_PROVIDER`, `SMS_PROVIDER` and `STORAGE_PROVIDER` are listed here rather
 than only under the adapter tables because in production they are not optional: the default is

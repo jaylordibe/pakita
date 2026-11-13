@@ -25,7 +25,11 @@ import { Prisma } from '@prisma/client';
 // Admin/forensic paths that need to SEE soft-deleted rows use the raw
 // `PrismaService` (the class itself, no `.scoped`). Add a model to this set when
 // you give it its own `deletedAt` column.
-const SOFT_DELETE_MODELS: ReadonlySet<string> = new Set(['User', 'Workspace']);
+const SOFT_DELETE_MODELS: ReadonlySet<string> = new Set([
+  'User',
+  'Workspace',
+  'Song',
+]);
 
 // Put `deletedAt: null` FIRST so an explicit caller-supplied `deletedAt` (e.g.
 // `{ deletedAt: { not: null } }` for "show me deleted rows") overrides it.

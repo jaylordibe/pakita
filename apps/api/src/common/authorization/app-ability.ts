@@ -9,6 +9,7 @@ import type {
   DeviceToken,
   Permission,
   Role,
+  Song,
   User,
 } from '@prisma/client';
 import type {
@@ -47,6 +48,7 @@ export type AppAbility = PrismaAbility<
           AppVersion: AppVersion;
           DeviceToken: DeviceToken;
           AuditLog: AuditLog;
+          Song: Song;
           QueueJob: QueueJobSubject;
         }>
       | 'all'

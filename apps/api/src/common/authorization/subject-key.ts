@@ -43,6 +43,7 @@ export const SUBJECT_TENANT_KEY = {
   // code.
   WorkspaceMembership: 'workspaceId',
   WorkspaceInvitation: 'workspaceId',
+  Song: 'workspaceId',
 } as const satisfies Partial<Record<AuthorizationSubject, string>>;
 
 export type OwnableSubject = keyof typeof SUBJECT_OWNER_KEY;

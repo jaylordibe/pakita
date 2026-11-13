@@ -47,6 +47,7 @@ process does both.
 | RBAC catalog check | `pnpm rbac:check` | Read-only; `rbac:sync` writes |
 | Security scan | `pnpm audit --audit-level moderate` | Run at the workspace root; the CI gate adds the root `.github/scripts/audit-gate.mjs` |
 | Run locally | `pnpm start:dev` | Stacks: `pnpm stack:up` / `pnpm stack:down` |
+| Export the OpenAPI contract | `pnpm openapi:export` | Writes `openapi.json` from the build; needs no database. CI fails when it is stale |
 
 Every change: `pnpm build` + `pnpm lint` + the affected e2e specs. Full
 `pnpm test:e2e` only when a module is complete or on request.
@@ -227,11 +228,13 @@ test/            e2e specs + setup/ (global DB setup, worker isolation)
 
 | Consumer | Repository / location | Audience | Owner |
 |---|---|---|---|
-| Pakita desktop | `apps/desktop` (this repository) | The operator and projector app; it will consume the API from Phase 2, with its types generated from the OpenAPI document at `/api/docs/json` | jaylordibe |
+| Pakita desktop | `apps/desktop` (this repository) | The operator and projector app; its API types are generated from the committed `openapi.json` | jaylordibe |
 
 A contract change (DTO field, `errorCode`, enum value,
 status, nullability, pagination, event payload) is done only when every
 consumer is updated or recorded as unaffected, with the deploy order stated.
+It also regenerates the committed `openapi.json` (`pnpm openapi:export`),
+which the desktop's API types are generated from.
 A consumer not updated in the same change gets a handoff naming its
 repository, the change and the owner.
 

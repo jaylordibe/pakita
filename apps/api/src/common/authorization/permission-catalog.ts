@@ -85,6 +85,7 @@ export const AUTHORIZATION_SUBJECTS = [
   'DeviceToken',
   'AuditLog',
   'QueueJob',
+  'Song',
 ] as const;
 export type AuthorizationSubject = (typeof AUTHORIZATION_SUBJECTS)[number];
 
@@ -381,6 +382,26 @@ const DELETE_WORKSPACE_INVITATION = workspace(
   'Revoke a pending invitation',
 );
 
+// ── Workspace scope: worship content ─────────────────────────────────────
+// Reading is what every member needs to present and to synchronise a laptop;
+// editing the library is a separate, narrower grant.
+const READ_SONG = workspace(
+  'read',
+  'Song',
+  "View and synchronise the workspace's songs",
+);
+const CREATE_SONG = workspace('create', 'Song', 'Add songs to the library');
+const UPDATE_SONG = workspace(
+  'update',
+  'Song',
+  "Edit or archive the library's songs",
+);
+const DELETE_SONG = workspace(
+  'delete',
+  'Song',
+  'Delete songs from the library',
+);
+
 export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   MANAGE_EVERYTHING,
   READ_ANY_USER,
@@ -422,6 +443,10 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   READ_WORKSPACE_INVITATION,
   CREATE_WORKSPACE_INVITATION,
   DELETE_WORKSPACE_INVITATION,
+  READ_SONG,
+  CREATE_SONG,
+  UPDATE_SONG,
+  DELETE_SONG,
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -588,6 +613,10 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       READ_WORKSPACE_INVITATION,
       CREATE_WORKSPACE_INVITATION,
       DELETE_WORKSPACE_INVITATION,
+      READ_SONG,
+      CREATE_SONG,
+      UPDATE_SONG,
+      DELETE_SONG,
     ],
   },
   [SeededRoleName.WORKSPACE_ADMIN]: {
@@ -609,6 +638,10 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       READ_WORKSPACE_INVITATION,
       CREATE_WORKSPACE_INVITATION,
       DELETE_WORKSPACE_INVITATION,
+      READ_SONG,
+      CREATE_SONG,
+      UPDATE_SONG,
+      DELETE_SONG,
     ],
   },
   [SeededRoleName.WORKSPACE_MANAGER]: {
@@ -623,12 +656,17 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       CREATE_WORKSPACE_MEMBERSHIP,
       READ_WORKSPACE_INVITATION,
       CREATE_WORKSPACE_INVITATION,
+      READ_SONG,
+      CREATE_SONG,
+      UPDATE_SONG,
+      DELETE_SONG,
     ],
   },
   [SeededRoleName.WORKSPACE_STAFF]: {
     scope: RoleScope.WORKSPACE,
     rank: 20,
-    description: 'Works here. Reads the workspace and its roster',
-    permissions: [READ_WORKSPACE, READ_WORKSPACE_MEMBERSHIP],
+    // Presents services: reads (and so synchronises) the library, edits nothing.
+    description: 'Works here. Reads the workspace, its roster and its library',
+    permissions: [READ_WORKSPACE, READ_WORKSPACE_MEMBERSHIP, READ_SONG],
   },
 };

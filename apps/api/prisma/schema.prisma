@@ -275,6 +275,8 @@ model Workspace {
 
   memberships WorkspaceMembership[]
   invitations WorkspaceInvitation[]
+  syncState   WorkspaceSyncState?
+  songs       Song[]
 
   @@map("workspaces")
 }
@@ -599,4 +601,115 @@ model DeviceToken {
 
   @@index([userId])
   @@map("device_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Pakita content and synchronisation
+// ─────────────────────────────────────────────────────────────────────────
+
+/// One row per workspace: the counter every content change in that workspace
+/// draws its `syncVersion` from. The change takes this row's lock (an
+/// `UPDATE … RETURNING`) inside its own transaction, so versions within a
+/// workspace commit in the order they are numbered — a desktop that has read
+/// everything up to version N can never later miss a change numbered below N.
+/// `epoch` identifies this counter's history; restoring a backup replaces it,
+/// which tells every desktop to resynchronise from scratch.
+model WorkspaceSyncState {
+  workspaceId String   @id @map("workspace_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  /// The last version handed out. Int is ample: two billion edits per
+  /// workspace.
+  version     Int      @default(0)
+  epoch       String   @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_sync_states")
+}
+
+/// A song in one workspace's library. The song is the unit of editing and of
+/// synchronisation: its sections and arrangements are written, versioned and
+/// delivered with it, never on their own. Soft-deleted, so a deletion still
+/// reaches desktops as a tombstone in the sync feed.
+model Song {
+  id          String    @id @default(uuid()) @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdBy   String?   @map("created_by") @db.Uuid
+  updatedBy   String?   @map("updated_by") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  title       String
+  artist      String?
+  /// Archived songs stay in the library and keep synchronising; they are only
+  /// hidden from the default list.
+  isArchived  Boolean   @default(false) @map("is_archived")
+  /// The workspace sync version of this song's latest change (see
+  /// WorkspaceSyncState). Every write to the song or its children sets it.
+  syncVersion Int       @map("sync_version")
+
+  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sections     SongSection[]
+  arrangements SongArrangement[]
+
+  @@index([workspaceId, syncVersion])
+  @@index([workspaceId, title])
+  @@map("songs")
+}
+
+/// One block of lyrics: a verse, a chorus, a bridge… Its text is split into
+/// slides at blank lines.
+model SongSection {
+  id        String   @id @default(uuid()) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  songId    String   @map("song_id") @db.Uuid
+  /// `SongSectionKind`.
+  kind      String
+  /// What the operator sees, e.g. "Verse 2".
+  label     String
+  lyrics    String
+  position  Int
+
+  song  Song                  @relation(fields: [songId], references: [id], onDelete: Cascade)
+  items SongArrangementItem[]
+
+  @@unique([songId, position])
+  @@map("song_sections")
+}
+
+/// An order in which to present a song's sections. A section can appear more
+/// than once (a chorus after every verse) without its lyrics being copied.
+/// Exactly one arrangement per song is the default (a partial unique index in
+/// the migration).
+model SongArrangement {
+  id        String   @id @default(uuid()) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  songId    String   @map("song_id") @db.Uuid
+  name      String
+  isDefault Boolean  @default(false) @map("is_default")
+  position  Int
+
+  song  Song                  @relation(fields: [songId], references: [id], onDelete: Cascade)
+  items SongArrangementItem[]
+
+  @@unique([songId, position])
+  @@map("song_arrangements")
+}
+
+model SongArrangementItem {
+  id                String @id @default(uuid()) @db.Uuid
+  songArrangementId String @map("song_arrangement_id") @db.Uuid
+  songSectionId     String @map("song_section_id") @db.Uuid
+  position          Int
+
+  songArrangement SongArrangement @relation(fields: [songArrangementId], references: [id], onDelete: Cascade)
+  songSection     SongSection     @relation(fields: [songSectionId], references: [id], onDelete: Cascade)
+
+  @@unique([songArrangementId, position])
+  @@index([songSectionId])
+  @@map("song_arrangement_items")
 }

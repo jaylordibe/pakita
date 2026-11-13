@@ -109,6 +109,10 @@ export interface AppConfig {
     // Optional: with the check on and no key, only that page refuses (see
     // TURNSTILE_WEB_SITE_KEY in env.validation.ts).
     webSiteKey: string | undefined;
+    // The app widget's public site key, rendered by the API's desktop
+    // sign-in check page (Pakita's desktop app opens it to get a token).
+    // Optional, like webSiteKey: without it only that page refuses.
+    mobileSiteKey: string | undefined;
   };
   workspaceInvitation: {
     // How long an invitation token stays redeemable. Bounded because the token
@@ -361,6 +365,7 @@ export default (): AppConfig => ({
     webSecretKey: process.env.TURNSTILE_WEB_SECRET?.trim() || undefined,
     mobileSecretKey: process.env.TURNSTILE_MOBILE_SECRET?.trim() || undefined,
     webSiteKey: process.env.TURNSTILE_WEB_SITE_KEY?.trim() || undefined,
+    mobileSiteKey: process.env.TURNSTILE_MOBILE_SITE_KEY?.trim() || undefined,
   },
   workspaceInvitation: {
     expiresInDays: parseInt(

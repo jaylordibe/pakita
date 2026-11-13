@@ -53,7 +53,8 @@
     "prisma:seed": "prisma db seed",
     "prisma:studio": "prisma studio",
     "rbac:sync": "ts-node --transpile-only prisma/scripts/sync-permission-catalog.ts",
-    "rbac:check": "ts-node --transpile-only prisma/scripts/check-permission-catalog.ts"
+    "rbac:check": "ts-node --transpile-only prisma/scripts/check-permission-catalog.ts",
+    "openapi:export": "nest build && node -r dotenv-expand/config dist/export-openapi.js dotenv_config_path=.env.test dotenv_config_quiet=true"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1107.0",

@@ -310,6 +310,10 @@ export const envValidationSchema = Joi.object({
   // still boots, and only that page refuses (OAuthPagesService), so adding the
   // MCP sign-in never takes REST or the worker down.
   TURNSTILE_WEB_SITE_KEY: Joi.string().trim().empty(''),
+  // The app widget's public site key, rendered by the desktop sign-in check
+  // page (PublicController). Not required for the same reason: without it
+  // only that page refuses, and desktops cannot sign in while the check is on.
+  TURNSTILE_MOBILE_SITE_KEY: Joi.string().trim().empty(''),
 
   // How long a workspace invitation stays redeemable. The token is a bearer
   // credential living in somebody's inbox, so this is bounded on purpose: a

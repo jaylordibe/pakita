@@ -1,9 +1,14 @@
+import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   ExpressAdapter,
   type NestExpressApplication,
 } from '@nestjs/platform-express';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import {
+  DocumentBuilder,
+  type OpenAPIObject,
+  SwaggerModule,
+} from '@nestjs/swagger';
 import helmet from 'helmet';
 import { fromBodyParserError } from './common/errors/errors';
 import { MCP_OAUTH_PREFIX_EXCLUSIONS } from './modules/mcp-oauth/mcp-oauth.config';
@@ -64,7 +69,7 @@ export function configureHttpApp(app: NestExpressApplication): void {
   // The MCP OAuth authorization server's protocol endpoints and discovery
   // documents live at the origin root, where OAuth clients look for them
   // (RFC 8414, RFC 9728); everything else stays under `/api`.
-  app.setGlobalPrefix('api', { exclude: MCP_OAUTH_PREFIX_EXCLUSIONS });
+  applyGlobalPrefix(app);
   // No `credentials: true`. API authentication is Bearer-only — the access token
   // rides the `Authorization` header and the refresh token in the request body,
   // so the browser never needs to send ambient credentials cross-origin. The
@@ -96,16 +101,13 @@ export function configureHttpApp(app: NestExpressApplication): void {
     // live API means a stale image is serving — pair with the health
     // endpoint to confirm. Truncate to 12 chars to match standard
     // short-SHA convention.
-    const gitSha = configService.getOrThrow<string>('gitSha');
-    const docVersion =
-      gitSha === 'unknown' ? '1.0' : `1.0+${gitSha.slice(0, 12)}`;
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle(configService.getOrThrow<string>('serviceName'))
-      .setDescription('NestJS API')
-      .setVersion(docVersion)
-      .addBearerAuth()
-      .build();
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    const document = SwaggerModule.createDocument(
+      app,
+      buildOpenApiConfig({
+        serviceName: configService.getOrThrow<string>('serviceName'),
+        gitSha: configService.getOrThrow<string>('gitSha'),
+      }),
+    );
     SwaggerModule.setup(SWAGGER_UI_PATH, app, document, {
       jsonDocumentUrl: SWAGGER_JSON_PATH,
       yamlDocumentUrl: SWAGGER_YAML_PATH,
@@ -127,4 +129,32 @@ export function configureHttpApp(app: NestExpressApplication): void {
       },
     });
   }
+}
+
+/**
+ * The OpenAPI document's header, shared by the served docs and the committed
+ * `openapi.json` (src/export-openapi.ts), so the two describe the API the
+ * same way.
+ */
+export function buildOpenApiConfig(options: {
+  serviceName: string;
+  gitSha: string;
+}): Omit<OpenAPIObject, 'paths'> {
+  const docVersion =
+    options.gitSha === 'unknown' ? '1.0' : `1.0+${options.gitSha.slice(0, 12)}`;
+  return new DocumentBuilder()
+    .setTitle(options.serviceName)
+    .setDescription('Pakita API')
+    .setVersion(docVersion)
+    .addBearerAuth()
+    .build();
+}
+
+/**
+ * The `/api` prefix, with the OAuth discovery documents excluded (above).
+ * Shared with src/export-openapi.ts so the committed document's paths match
+ * the served ones.
+ */
+export function applyGlobalPrefix(app: INestApplication): void {
+  app.setGlobalPrefix('api', { exclude: MCP_OAUTH_PREFIX_EXCLUSIONS });
 }
