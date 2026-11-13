@@ -89,6 +89,33 @@ test('presents the song on the projector', async () => {
   await expect(projector.locator('#stage')).not.toHaveClass(/is-dark/);
 });
 
+test('leaves the projector alone when only a display’s work area changes', async () => {
+  // Going full screen hides a menu bar, which macOS reports as a display
+  // change. Re-placing the window on it toggled full screen again: an
+  // endless loop that froze the whole computer.
+  const placementCalls = await application.evaluate(
+    ({ BrowserWindow, screen }) => {
+      const projector = BrowserWindow.getAllWindows().find(
+        (window) => window.getTitle() === 'Pakita — projector',
+      )!;
+      let calls = 0;
+      const count =
+        <Args extends unknown[]>(original: (...args: Args) => void) =>
+        (...args: Args) => {
+          calls += 1;
+          original(...args);
+        };
+      projector.setFullScreen = count(projector.setFullScreen.bind(projector));
+      projector.setBounds = count(projector.setBounds.bind(projector));
+      for (const display of screen.getAllDisplays()) {
+        screen.emit('display-metrics-changed', {}, display, ['workArea']);
+      }
+      return calls;
+    },
+  );
+  expect(placementCalls).toBe(0);
+});
+
 test('keeps the presentation in the operator’s hands', async () => {
   const projector = await findProjector(application);
   const slide = projector.locator('#slide');

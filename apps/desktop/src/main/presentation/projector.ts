@@ -32,6 +32,8 @@ export class Projector {
   private isOpen = false;
   /** This presentation reached a second display (automatic placement). */
   private wasOnSecondaryDisplay = false;
+  /** The placement the window has now (see `placementKey`). */
+  private appliedPlacement: string | null = null;
 
   constructor(private readonly options: ProjectorOptions) {
     const replace = () => {
@@ -55,6 +57,7 @@ export class Projector {
     this.isOpen = false;
     this.wasOnSecondaryDisplay = false;
     this.status = 'off';
+    this.appliedPlacement = null;
     if (this.window && !this.window.isDestroyed()) {
       this.window.destroy();
     }
@@ -96,6 +99,19 @@ export class Projector {
   }
 
   private applyPlacement(placement: ProjectorPlacement): void {
+    // Already placed there: change nothing. Going full screen hides a menu
+    // bar, which macOS reports as a display change; re-placing the window
+    // on it would toggle full screen again, endlessly, and freeze the
+    // whole computer.
+    const key = placementKey(placement);
+    if (
+      key === this.appliedPlacement &&
+      this.window &&
+      !this.window.isDestroyed()
+    ) {
+      return;
+    }
+    this.appliedPlacement = key;
     if (placement.mode === 'display-missing') {
       this.window?.hide();
       this.setStatus('display-missing');
@@ -141,10 +157,14 @@ export class Projector {
       // Recreate the page; the presentation itself lives in the main process.
       if (!window.isDestroyed()) window.destroy();
       this.window = null;
+      this.appliedPlacement = null;
       if (this.isOpen) this.place();
     });
     window.on('closed', () => {
-      if (this.window === window) this.window = null;
+      if (this.window === window) {
+        this.window = null;
+        this.appliedPlacement = null;
+      }
     });
     this.window = window;
     void this.options.loadPage(window);
@@ -157,4 +177,11 @@ export class Projector {
       this.options.onStatusChange();
     }
   }
+}
+
+/** Equal for two placements that would put the window in the same place. */
+function placementKey(placement: ProjectorPlacement): string {
+  if (placement.mode === 'display-missing') return placement.mode;
+  const { id, bounds } = placement.display;
+  return `${placement.mode}:${id}:${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
 }
