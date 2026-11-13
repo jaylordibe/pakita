@@ -33,8 +33,9 @@ export type StoredAccount = z.infer<typeof accountSchema>;
  *   stored; it lives in memory only.
  *
  * Where the system offers no real keychain (Linux's `basic_text` fallback
- * encrypts with a hard-coded key), the refresh token is NOT stored: the
- * operator signs in again after a restart, and offline presenting still works.
+ * encrypts with a hard-coded key), or the keychain refuses (the operator
+ * denied macOS's prompt), the refresh token is NOT stored: the operator signs
+ * in again after a restart, and offline presenting still works.
  */
 export class CredentialStore {
   private readonly accountPath: string;
@@ -89,11 +90,18 @@ export class CredentialStore {
     if (!(await this.canStoreSecrets())) {
       return;
     }
-    writeFileSync(
-      this.credentialsPath,
-      await this.encryption.encryptStringAsync(refreshToken),
-      { mode: 0o600 },
-    );
+    let encrypted: Buffer;
+    try {
+      encrypted = await this.encryption.encryptStringAsync(refreshToken);
+    } catch {
+      // The keychain refused (on macOS, the operator denied its prompt):
+      // treat it as no keychain. The sign-in or refresh still succeeds; the
+      // token is not kept, and the superseded one on disk is removed so it
+      // is never tried again.
+      this.clearRefreshToken();
+      return;
+    }
+    writeFileSync(this.credentialsPath, encrypted, { mode: 0o600 });
   }
 
   /** Forgets the refresh token but keeps the account (its offline content). */

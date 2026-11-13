@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -65,6 +65,29 @@ describe('CredentialStore', () => {
     expect(store.loadAccount()).toEqual(account);
     store.clear();
     expect(store.loadAccount()).toBeNull();
+  });
+
+  // macOS: the operator denies the keychain prompt, and Chromium's lookup
+  // fails with userCanceledErr. Signing in must still succeed; the token is
+  // simply not kept, as where there is no keychain at all.
+  it('lets the sign-in through when the keychain refuses to encrypt', async () => {
+    const store = new CredentialStore(directory, keychain());
+    await store.save(account, 'old-secret');
+    const refusing = new CredentialStore(directory, {
+      ...keychain(),
+      encryptStringAsync: async () => {
+        throw new Error(
+          'Error while encrypting the text provided to safeStorage.encryptStringAsync.',
+        );
+      },
+    });
+
+    await expect(refusing.save(account, 'new-secret')).resolves.toBeUndefined();
+    expect(refusing.loadAccount()).toEqual(account);
+    // The previous token is superseded by one that could not be kept: no
+    // stale token is left to be tried at the next start.
+    expect(existsSync(join(directory, 'credentials.bin'))).toBe(false);
+    await expect(refusing.loadRefreshToken()).resolves.toBeNull();
   });
 
   it('re-encrypts a secret when the keychain rotated its key', async () => {
