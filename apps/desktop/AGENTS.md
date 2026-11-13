@@ -16,10 +16,18 @@ root).
 | Type check | `pnpm typecheck` | Main + preload, renderer (`vue-tsc`), and the e2e tests |
 | Lint / format check | `pnpm lint` | Evidence is `lint`, never `lint:fix`; Prettier runs inside it |
 | Unit tests | `pnpm test` | Pure code only (vitest) |
-| App tests | `pnpm test:e2e` | Builds, then drives the real app with Playwright |
-| Package (unpacked) | `pnpm package:dir` | Proves packaging and the native rebuild; publishes nothing |
+| App tests | `pnpm test:e2e` | Builds, then drives the real app with Playwright against a real API (see below) |
+| Turnstile sign-in test | `PAKITA_E2E_TURNSTILE=1 pnpm exec playwright test turnstile` | Opt-in: needs the internet (Cloudflare's test keys) |
+| API types | `pnpm generate:api` | Regenerates `src/shared/api/openapi.ts` from `apps/api/openapi.json`; CI fails when stale |
+| Package (unpacked) | `pnpm package:dir` | Proves packaging; publishes nothing, never signs |
+| Packaged smoke test | `pnpm smoke:package` | Launches the package from `package:dir` and waits for its database |
 
 Every change: `pnpm typecheck` + `pnpm lint` + `pnpm test` + `pnpm test:e2e`.
+
+`pnpm test:e2e` starts the built API (`apps/api/dist`) against a throwaway
+database on the API's **test** stack: run `pnpm --filter @pakita/api
+stack:up` (or its `pretest:e2e`) and `pnpm --filter @pakita/api build` first
+(`test/e2e/support/test-api.ts`).
 
 ## Layout
 
@@ -29,7 +37,8 @@ src/
     database/  better-sqlite3 in a worker thread, migrations
   preload/     the ONLY bridge to the renderer (window.pakita)
   renderer/    Vue app; a browser page with no Node or Electron access
-  shared/      the IPC contract, imported by all three
+  shared/      the IPC contract, slides, and the generated API types —
+               imported by main, preload and renderer alike
 test/e2e/      Playwright tests against the built app
 ```
 
@@ -54,16 +63,42 @@ test/e2e/      Playwright tests against the built app
 - **No `v-html`** (ESLint error). Lyrics and Bible text are untrusted input
   and are rendered as text only.
 - **Credentials stay in the main process.** Tokens are never sent to a
-  renderer.
+  renderer. The refresh token is stored only through the system keychain
+  (`safeStorage`); where none exists (Linux `basic_text`) it is not stored.
+- **Only the Turnstile check window loads remote content**
+  (`src/main/auth/turnstile-window.ts`): no preload, its own session, and a
+  navigation policy limited to the church server and Cloudflare's challenge
+  origin (`setNavigationPolicy`).
+- **The server address must be HTTPS**, except for a server on this computer
+  (`parseServerAddress`).
 - **Electron Fuses** are set at packaging (`electron-builder.yml`); do not
   turn one back on without a security review.
 
+## Contract rules
+
+- **The API's types are generated, never written by hand**
+  (`src/shared/api/openapi.ts`, from `apps/api/openapi.json`). The main
+  process validates every server response with the zod schemas in
+  `src/main/api/api-schemas.ts`, each typed against those generated types,
+  so an API change this app does not follow fails `pnpm typecheck`.
+- **Compatibility:** `REQUIRED_API_LEVEL` (`src/main/compatibility.ts`)
+  against the server's `apiLevel`, and this app's version against the
+  server's `minimumDesktopVersion`; the operator is told which side to update.
+
 ## Reliability rules
 
-- **Presentation never waits on the network or on the database.** What is on
-  screen comes from memory in the main process. Synchronisation and database
-  writes run in the background and never replace content that is being
-  presented.
+- **Presentation never waits on the network.** A presentation's slides are
+  copied from the local database once, when it starts
+  (`LiveSession`), and held in main-process memory; synchronisation writes
+  only the database, so it can never change what is on screen. The operator
+  sees new content by starting the song again.
+- **A laptop that holds an account opens its content without the network or
+  the keychain** (`AppController.initialize`): the database opens from files;
+  the session (whose refresh token lives in the keychain) follows in the
+  background.
+- **The projector never falls back onto the operator's screen.** A chosen
+  display that disappears hides the output until it returns
+  (`placeProjector`).
 - **better-sqlite3 runs only in the database worker thread**
   (`src/main/database/database-worker.ts`), never on the main thread: its
   calls are synchronous, and a long write there would freeze the operator's
@@ -75,7 +110,8 @@ test/e2e/      Playwright tests against the built app
 ## Testing notes
 
 - better-sqlite3 ships Node-API binaries, which load under plain Node and
-  Electron alike, so database code is unit-tested in vitest against a real
-  in-memory SQLite. Code that needs Electron itself is tested in `test/e2e`.
+  Electron alike (so packaging rebuilds nothing: `npmRebuild: false`), and
+  database code is unit-tested in vitest against a real in-memory SQLite.
+  Code that needs Electron itself is tested in `test/e2e`.
 - `PAKITA_TEST_USER_DATA_DIRECTORY` points an unpackaged build at a throwaway
   profile. A packaged build ignores it.

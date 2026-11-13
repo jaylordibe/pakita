@@ -9,6 +9,9 @@ directories:
 files:
   - out/**
   - package.json
+# better-sqlite3 ships prebuilt Node-API binaries for every platform, which
+# load in Electron as they are: nothing needs compiling at packaging.
+npmRebuild: false
 # better-sqlite3's native addon cannot load from inside the asar archive.
 asarUnpack:
   - '**/*.node'
@@ -41,3 +44,5 @@ win:
 linux:
   category: Office
   target: dir
+  # Stated, not derived from the package name ("@pakita/desktop").
+  executableName: pakita

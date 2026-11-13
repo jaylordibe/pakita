@@ -15,10 +15,10 @@ export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
  * created with a weaker setting by accident.
  */
 export function createSecureWebPreferences(
-  preloadPath: string,
+  preloadPath: string | null,
 ): WebPreferences {
   return {
-    preload: preloadPath,
+    ...(preloadPath === null ? {} : { preload: preloadPath }),
     contextIsolation: true,
     sandbox: true,
     nodeIntegration: false,

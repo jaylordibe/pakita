@@ -3,8 +3,31 @@
 // transaction. Append only: never edit or reorder a migration that has
 // shipped, because laptops already ran it.
 //
-// Empty until the first synchronised content arrives (Phase 2).
-export const MIGRATIONS: readonly string[] = [];
+export const MIGRATIONS: readonly string[] = [
+  // 1 — synchronised songs. A song is stored as the server sent it
+  // (`payload`, the API's SongResponseDto), plus the columns the library
+  // lists and searches by. `workspace_sync_states` remembers how far each
+  // workspace has synchronised and which server history (`epoch`) that was.
+  `
+  CREATE TABLE workspace_sync_states (
+    workspace_id TEXT PRIMARY KEY NOT NULL,
+    epoch TEXT NOT NULL,
+    cursor INTEGER NOT NULL CHECK (cursor >= 0),
+    last_synced_at TEXT NOT NULL
+  ) STRICT;
+  CREATE TABLE songs (
+    id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL,
+    sync_version INTEGER NOT NULL CHECK (sync_version > 0),
+    title TEXT NOT NULL,
+    artist TEXT,
+    is_archived INTEGER NOT NULL CHECK (is_archived IN (0, 1)),
+    search_text TEXT NOT NULL,
+    payload TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX songs_workspace_title ON songs (workspace_id, title COLLATE NOCASE);
+  `,
+];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
 

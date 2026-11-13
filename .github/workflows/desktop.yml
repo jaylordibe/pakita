@@ -30,7 +30,7 @@ jobs:
   quality:
     name: Type check, lint, unit and app tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -53,6 +53,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The desktop's API types are generated from the API's committed
+      # openapi.json; they must match it.
+      - name: API types are current
+        run: |
+          pnpm generate:api
+          git diff --exit-code -- src/shared/api/openapi.ts || {
+            echo "::error::apps/desktop/src/shared/api/openapi.ts is stale: run 'pnpm --filter @pakita/desktop generate:api' and commit it."
+            exit 1
+          }
+
       - name: Type check
         run: pnpm typecheck
 
@@ -69,6 +79,19 @@ jobs:
       # throwaway runner rather than run the app with its sandbox off.
       - name: Allow Chromium's sandbox on the runner
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # The app tests drive a real API (test/e2e/support/test-api.ts): the
+      # API's test stack and its build, configured from its committed
+      # .env.test exactly as the API's own e2e job is.
+      - name: Start the API's test stack
+        working-directory: apps/api
+        run: docker compose --env-file .env.test up -d --wait postgres redis
+
+      - name: Build the API
+        working-directory: apps/api
+        run: |
+          pnpm prisma:generate
+          pnpm build
 
       # The real app on a virtual display.
       - name: App tests

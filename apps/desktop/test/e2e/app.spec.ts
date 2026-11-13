@@ -41,28 +41,25 @@ test.afterAll(async () => {
 test('serves the operator window from the app origin', async () => {
   expect(operatorPage.url()).toBe('app://pakita/index.html');
   await expect(
-    operatorPage.getByRole('heading', { name: 'Pakita' }),
+    operatorPage.getByRole('heading', { name: 'Welcome to Pakita' }),
   ).toBeVisible();
 });
 
-test('shows the app version through the preload API', async () => {
+test('reports the app version through the preload API', async () => {
   const expectedVersion = await application.evaluate(({ app }) =>
     app.getVersion(),
   );
-  await expect(operatorPage.getByTestId('app-version')).toHaveText(
-    expectedVersion,
+  const version = await operatorPage.evaluate(() =>
+    window.pakita.app.getVersion(),
   );
+  expect(version).toBe(expectedVersion);
 });
 
-test('opens the local database in WAL mode at the latest schema', async () => {
+test('opens no local database before an account signs in', async () => {
   const health = await operatorPage.evaluate(() =>
     window.pakita.database.getHealth(),
   );
-  expect(health.journalMode).toBe('wal');
-  expect(health.schemaVersion).toBe(health.latestSchemaVersion);
-  await expect(operatorPage.getByTestId('database-health')).toContainText(
-    'wal',
-  );
+  expect(health).toBeNull();
 });
 
 test('gives the renderer no Node.js or Electron access', async () => {
@@ -76,7 +73,18 @@ test('gives the renderer no Node.js or Electron access', async () => {
     require: 'undefined',
     process: 'undefined',
     module: 'undefined',
-    pakitaKeys: ['app', 'database'],
+    pakitaKeys: [
+      'account',
+      'app',
+      'database',
+      'displays',
+      'library',
+      'live',
+      'server',
+      'songs',
+      'sync',
+      'workspaces',
+    ],
   });
 });
 

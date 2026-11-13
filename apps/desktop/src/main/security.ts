@@ -1,4 +1,4 @@
-import { app, net, protocol, session } from 'electron';
+import { app, net, protocol, session, type WebContents } from 'electron';
 import { pathToFileURL } from 'node:url';
 
 import {
@@ -39,28 +39,54 @@ export function serveRendererFromAppScheme(rendererDirectory: string): void {
   });
 }
 
+// Windows that may navigate beyond the app's own origins (the Turnstile check,
+// which loads the church server's page) register their own rule here; every
+// other window keeps the app-wide rule.
+const navigationPolicies = new Map<number, (url: string) => boolean>();
+
+export function setNavigationPolicy(
+  contents: WebContents,
+  isAllowed: (url: string) => boolean,
+): void {
+  const contentsId = contents.id;
+  navigationPolicies.set(contentsId, isAllowed);
+  contents.once('destroyed', () => navigationPolicies.delete(contentsId));
+}
+
+/** Refuses every browser permission (camera, notifications, …) for a session. */
+export function denyAllPermissions(target: Electron.Session): void {
+  target.setPermissionRequestHandler((_webContents, _permission, callback) =>
+    callback(false),
+  );
+  target.setPermissionCheckHandler(() => false);
+}
+
 /**
  * App-wide guards applied to every web contents, including ones created later:
- * no new windows, no navigation away from the app, no `<webview>`, and no
- * browser permission (camera, notifications, …) is ever granted.
+ * no new windows, no navigation away from the app (or, for a window with its
+ * own policy, beyond what that policy allows), no `<webview>`, and no browser
+ * permission is ever granted.
  */
 export function installWebContentsGuards(
   trustedOrigins: ReadonlySet<string>,
 ): void {
-  session.defaultSession.setPermissionRequestHandler(
-    (_webContents, _permission, callback) => callback(false),
-  );
-  session.defaultSession.setPermissionCheckHandler(() => false);
+  denyAllPermissions(session.defaultSession);
+
+  const isAllowed = (contents: WebContents, url: string) =>
+    (
+      navigationPolicies.get(contents.id) ??
+      ((candidate: string) => isTrustedUrl(candidate, trustedOrigins))
+    )(url);
 
   app.on('web-contents-created', (_event, contents) => {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', (event, url) => {
-      if (!isTrustedUrl(url, trustedOrigins)) {
+      if (!isAllowed(contents, url)) {
         event.preventDefault();
       }
     });
     contents.on('will-redirect', (event, url) => {
-      if (!isTrustedUrl(url, trustedOrigins)) {
+      if (!isAllowed(contents, url)) {
         event.preventDefault();
       }
     });

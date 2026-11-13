@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { parentPort, workerData } from 'node:worker_threads';
 
 import { LATEST_SCHEMA_VERSION, migrateDatabase } from './migrations';
+import { SongStore } from './song-store';
 import {
   DatabaseWorkerData,
   DatabaseWorkerRequest,
@@ -25,6 +26,7 @@ const database = new Database(databasePath);
 database.pragma('journal_mode = WAL');
 database.pragma('foreign_keys = ON');
 migrateDatabase(database);
+const songs = new SongStore(database);
 
 function handle(request: DatabaseWorkerRequest): unknown {
   switch (request.type) {
@@ -39,6 +41,27 @@ function handle(request: DatabaseWorkerRequest): unknown {
     case 'close':
       database.close();
       return undefined;
+    case 'getSyncState':
+      return songs.getSyncState(request.workspaceId);
+    case 'applySyncPage':
+      songs.applySyncPage(
+        request.workspaceId,
+        request.epoch,
+        request.nextCursor,
+        request.songs,
+      );
+      return undefined;
+    case 'resetWorkspace':
+      songs.resetWorkspace(request.workspaceId);
+      return undefined;
+    case 'listSongs':
+      return songs.listSongs(
+        request.workspaceId,
+        request.search,
+        request.isArchived,
+      );
+    case 'getSong':
+      return songs.getSong(request.workspaceId, request.songId);
   }
 }
 

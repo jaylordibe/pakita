@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- The projector loads nothing but its own bundle; see index.html. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+    />
+    <title>Pakita — projector</title>
+  </head>
+  <body>
+    <main id="stage" class="stage" aria-live="off">
+      <p id="slide" class="slide"></p>
+    </main>
+    <script type="module" src="./src/projector/main.ts"></script>
+  </body>
+</html>

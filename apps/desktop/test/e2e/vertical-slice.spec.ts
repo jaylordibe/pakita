@@ -1,0 +1,159 @@
+import {
+  type ElectronApplication,
+  expect,
+  type Page,
+  test,
+} from '@playwright/test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { findProjector, launchApp } from './support/launch';
+import { startTestApi, type TestApi } from './support/test-api';
+
+// Phase 2's acceptance flow, end to end against a real API:
+// create a song → save it to the API → synchronise it to the desktop →
+// disconnect → present it on the projector, also after a restart offline.
+
+test.describe.configure({ mode: 'serial' });
+
+let api: TestApi;
+let userDataDirectory: string;
+let application: ElectronApplication;
+let operator: Page;
+
+test.beforeAll(async () => {
+  api = await startTestApi();
+  userDataDirectory = mkdtempSync(join(tmpdir(), 'pakita-slice-'));
+  ({ application, operator } = await launchApp(userDataDirectory));
+});
+
+test.afterAll(async () => {
+  await application?.close();
+  await api?.dispose();
+  rmSync(userDataDirectory, { recursive: true, force: true });
+});
+
+test('connects, signs in and chooses the workspace', async () => {
+  await operator.getByTestId('server-address').fill(api.origin);
+  await operator.getByRole('button', { name: 'Connect' }).click();
+  await operator.getByTestId('sign-in-identifier').fill(api.owner.identifier);
+  await operator.getByTestId('sign-in-password').fill(api.owner.password);
+  await operator.getByRole('button', { name: 'Sign in' }).click();
+  await operator.getByTestId(`workspace-${api.workspace.slug}`).click();
+  await expect(operator.getByTestId('sync-status')).toContainText(
+    'Synchronised',
+  );
+
+  const health = await operator.evaluate(() =>
+    window.pakita.database.getHealth(),
+  );
+  expect(health).toMatchObject({ journalMode: 'wal' });
+  expect(health?.schemaVersion).toBe(health?.latestSchemaVersion);
+});
+
+test('creates a song, saved to the API and synchronised back', async () => {
+  await operator.getByTestId('new-song').click();
+  await operator.getByTestId('song-title').fill('Amazing Grace');
+  await operator.getByTestId('song-artist').fill('John Newton');
+  await operator.getByTestId('section-label-0').fill('Verse 1');
+  await operator
+    .getByTestId('section-lyrics-0')
+    .fill('Amazing grace, how sweet the sound\n\nThat saved a wretch like me');
+  await operator.getByTestId('song-save').click();
+
+  await expect(
+    operator.getByTestId('library-song-Amazing Grace'),
+  ).toBeVisible();
+  const songs = await api.request<{ data: Array<{ title: string }> }>(
+    'GET',
+    `/api/workspaces/${api.workspace.id}/songs`,
+  );
+  expect(songs.data.map((song) => song.title)).toEqual(['Amazing Grace']);
+});
+
+test('presents the song on the projector', async () => {
+  await operator.getByTestId('library-song-Amazing Grace').click();
+  await operator.getByTestId('go-live').click();
+
+  const projector = await findProjector(application);
+  await expect(projector.locator('#slide')).toHaveText(
+    'Amazing grace, how sweet the sound',
+  );
+  await operator.keyboard.press('ArrowRight');
+  await expect(projector.locator('#slide')).toHaveText(
+    'That saved a wretch like me',
+  );
+  await operator.getByTestId('live-blackout').click();
+  await expect(projector.locator('#stage')).toHaveClass(/is-dark/);
+  await operator.getByTestId('live-blackout').click();
+  await expect(projector.locator('#stage')).not.toHaveClass(/is-dark/);
+});
+
+test('a synchronisation never replaces what is on the projector', async () => {
+  const projector = await findProjector(application);
+  const [song] = (
+    await api.request<{ data: Array<{ id: string }> }>(
+      'GET',
+      `/api/workspaces/${api.workspace.id}/songs`,
+    )
+  ).data;
+  await api.request(
+    'PATCH',
+    `/api/workspaces/${api.workspace.id}/songs/${song!.id}`,
+    {
+      sections: [
+        {
+          key: 'v',
+          kind: 'verse',
+          label: 'Verse 1',
+          lyrics: 'Edited on the server',
+        },
+      ],
+    },
+  );
+  await operator.getByTestId('sync-now').click();
+  await expect(operator.getByTestId('sync-status')).toContainText(
+    'Synchronised',
+  );
+
+  // Still the deck taken when the presentation started.
+  await expect(projector.locator('#slide')).toHaveText(
+    'That saved a wretch like me',
+  );
+  const state = await operator.evaluate(() => window.pakita.live.getState());
+  expect(state.slides.map((slide) => slide.text)).toEqual([
+    'Amazing grace, how sweet the sound',
+    'That saved a wretch like me',
+  ]);
+
+  // Starting the song again takes the synchronised content.
+  await operator.getByTestId('live-stop').click();
+  await operator.getByTestId('library-song-Amazing Grace').click();
+  await operator.getByTestId('go-live').click();
+  await expect((await findProjector(application)).locator('#slide')).toHaveText(
+    'Edited on the server',
+  );
+  await operator.getByTestId('live-stop').click();
+});
+
+test('presents offline, and again after restarting offline', async () => {
+  await api.stop();
+
+  await operator.getByTestId('sync-now').click();
+  await expect(operator.getByTestId('sync-status')).toContainText('Offline');
+  await operator.getByTestId('library-song-Amazing Grace').click();
+  await operator.getByTestId('go-live').click();
+  await expect((await findProjector(application)).locator('#slide')).toHaveText(
+    'Edited on the server',
+  );
+
+  // Restart with no server: the app opens straight into the library.
+  await application.close();
+  ({ application, operator } = await launchApp(userDataDirectory));
+  await operator.getByTestId('library-song-Amazing Grace').click();
+  await operator.getByTestId('go-live').click();
+  await expect((await findProjector(application)).locator('#slide')).toHaveText(
+    'Edited on the server',
+  );
+});

@@ -1,11 +1,22 @@
 import { Worker } from 'node:worker_threads';
 
 import type { DatabaseHealth } from '../../shared/ipc-contract';
+import type { SongSummary, SyncState } from './song-store';
 import {
   DatabaseHealthResult,
-  type DatabaseWorkerRequest,
+  type DatabaseWorkerRequestInput,
   DatabaseWorkerResponse,
+  SongSummaryResult,
+  SyncStateResult,
+  type syncedSongChangeSchema,
 } from './worker-protocol';
+import type { z } from 'zod';
+
+type RequestWithoutId = DatabaseWorkerRequestInput extends infer Request
+  ? Request extends unknown
+    ? Omit<Request, 'requestId'>
+    : never
+  : never;
 
 type PendingRequest = {
   readonly resolve: (result: unknown) => void;
@@ -48,6 +59,53 @@ export class DatabaseClient {
     return DatabaseHealthResult.parse(await this.request({ type: 'health' }));
   }
 
+  async getSyncState(workspaceId: string): Promise<SyncState | null> {
+    return SyncStateResult.parse(
+      await this.request({ type: 'getSyncState', workspaceId }),
+    );
+  }
+
+  async applySyncPage(
+    workspaceId: string,
+    page: {
+      readonly epoch: string;
+      readonly nextCursor: number;
+      readonly songs: ReadonlyArray<z.input<typeof syncedSongChangeSchema>>;
+    },
+  ): Promise<void> {
+    await this.request({
+      type: 'applySyncPage',
+      workspaceId,
+      epoch: page.epoch,
+      nextCursor: page.nextCursor,
+      songs: [...page.songs],
+    });
+  }
+
+  async resetWorkspace(workspaceId: string): Promise<void> {
+    await this.request({ type: 'resetWorkspace', workspaceId });
+  }
+
+  async listSongs(
+    workspaceId: string,
+    search: string,
+    isArchived: boolean,
+  ): Promise<SongSummary[]> {
+    return SongSummaryResult.parse(
+      await this.request({
+        type: 'listSongs',
+        workspaceId,
+        search,
+        isArchived,
+      }),
+    );
+  }
+
+  /** The song as the server sent it (validate before use), or null. */
+  async getSong(workspaceId: string, songId: string): Promise<unknown> {
+    return this.request({ type: 'getSong', workspaceId, songId });
+  }
+
   /**
    * Asks the worker to close the database (finishing its current statement),
    * and terminates it only if it does not answer in time.
@@ -71,9 +129,7 @@ export class DatabaseClient {
     }
   }
 
-  private request(
-    request: Omit<DatabaseWorkerRequest, 'requestId'>,
-  ): Promise<unknown> {
+  private request(request: RequestWithoutId): Promise<unknown> {
     if (this.stoppedError) {
       return Promise.reject(this.stoppedError);
     }

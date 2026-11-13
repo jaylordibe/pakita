@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <!--
       The renderer loads nothing from the network: every request goes to the
-      app's own origin, which IPC-backed data never needs. Styles allow
-      'unsafe-inline' for Vue's scoped style injection during development;
-      no inline script is allowed anywhere.
+      app's own origin; data arrives over IPC. Inline styles are allowed while
+      developing only (Vite injects them); the production build removes that
+      (electron.vite.config.ts). No inline script is allowed anywhere.
     -->
     <meta
       http-equiv="Content-Security-Policy"

@@ -42,9 +42,28 @@ export default defineConfig({
     },
   },
   // CommonJS (the default without "type": "module"): a sandboxed preload
-  // cannot load an ES module.
-  preload: {},
+  // cannot load an ES module, nor a shared chunk — so each preload is built
+  // on its own (`isolatedEntries`), self-contained. One per window kind.
+  preload: {
+    build: {
+      isolatedEntries: true,
+      rolldownOptions: {
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          projector: resolve(__dirname, 'src/preload/projector.ts'),
+        },
+      },
+    },
+  },
   renderer: {
     plugins: [vue(), productionContentSecurityPolicy()],
+    build: {
+      rolldownOptions: {
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          projector: resolve(__dirname, 'src/renderer/projector.html'),
+        },
+      },
+    },
   },
 });
