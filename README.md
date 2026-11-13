@@ -1,6 +1,6 @@
 # Pakita
 
-![Pakita — worship presentation made simple](docs/images/pakita-hero.jpg)
+![Pakita — worship presentation made simple](.github/assets/pakita-hero.jpg)
 
 **Simply present.**
 
