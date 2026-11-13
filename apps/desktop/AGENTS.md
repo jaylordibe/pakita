@@ -11,7 +11,7 @@ root).
 
 | Purpose | Command | Notes |
 |---|---|---|
-| Run in development | `pnpm dev` | Renderer from the Vite dev server, with hot reload |
+| Run in development | `pnpm dev` | Renderer from the Vite dev server, with hot reload; a main-process or preload change rebuilds and restarts the app |
 | Build | `pnpm build` | Writes `out/` |
 | Type check | `pnpm typecheck` | Main + preload, renderer (`vue-tsc`), and the e2e tests |
 | Lint / format check | `pnpm lint` | Evidence is `lint`, never `lint:fix`; Prettier runs inside it |
