@@ -49,7 +49,7 @@ test('signs in with two songs in the library', async () => {
   await operator.getByTestId('sign-in-identifier').fill(api.owner.identifier);
   await operator.getByTestId('sign-in-password').fill(api.owner.password);
   await operator.getByRole('button', { name: 'Sign in' }).click();
-  await operator.getByTestId(`workspace-${api.workspace.slug}`).click();
+  // The owner's only church opens without asking.
   await expect(
     operator.getByTestId('library-song-Be Thou My Vision'),
   ).toBeVisible();

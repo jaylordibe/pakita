@@ -52,6 +52,7 @@ test('copies a song to another branch', async () => {
   await operator.getByTestId('sign-in-identifier').fill(api.owner.identifier);
   await operator.getByTestId('sign-in-password').fill(api.owner.password);
   await operator.getByRole('button', { name: 'Sign in' }).click();
+  // Two churches: the operator is asked which one.
   await operator.getByTestId(`workspace-${api.workspace.slug}`).click();
 
   await operator.getByTestId('library-song-Amazing Grace').click();

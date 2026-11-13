@@ -93,7 +93,9 @@ To try a service, sign in as the **staff** or **manager** account.
 
 Then walk through a Sunday as the media team would:
 
-1. Choose **Grace Community Church**. The laptop downloads the library.
+1. Sign in. Each sample account belongs to one church, so **Grace Community
+   Church** opens straight away and the laptop downloads the library. (Someone
+   in several churches chooses one; **Change church** switches later.)
 2. **Songs**: open *Amazing Grace*, switch the arrangement to *Short*, and
    press **Go live**. Move with the arrow keys or Space; press **B** for
    blackout. A second display shows the projector; with one screen it opens

@@ -46,9 +46,10 @@ test('signs in through the Turnstile check window', async () => {
           ),
       )
       .toBe(true);
-    await expect(
-      operator.getByTestId(`workspace-${api.workspace.slug}`),
-    ).toBeVisible({ timeout: 60_000 });
+    // Signed in: the owner's only church opens without asking.
+    await expect(operator.getByTestId('library-search')).toBeVisible({
+      timeout: 60_000,
+    });
     expect(
       application
         .windows()

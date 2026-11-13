@@ -20,6 +20,9 @@ type Screen = 'loading' | 'connect' | 'sign-in' | 'workspace' | 'main';
 const state = ref<AppState | null>(null);
 const screen = ref<Screen>('loading');
 const isChangingServer = ref(false);
+// The operator asked for the church list ("Change church"): show it even
+// when there is only one church.
+const isChurchListRequested = ref(false);
 const liveState = ref<LiveState>({
   isLive: false,
   title: null,
@@ -54,6 +57,21 @@ const canGoBack = computed(() =>
 const isLivePanelShown = computed(
   () => screen.value === 'main' || liveState.value.isLive,
 );
+
+function showChurchList(): void {
+  isChurchListRequested.value = true;
+  screen.value = 'workspace';
+}
+
+function backToLibrary(): void {
+  isChurchListRequested.value = false;
+  screen.value = 'main';
+}
+
+async function onChurchSelected(): Promise<void> {
+  isChurchListRequested.value = false;
+  await refresh();
+}
 
 async function refresh(): Promise<void> {
   state.value = await window.pakita.app.getState();
@@ -130,8 +148,9 @@ onUnmounted(() => {
       <WorkspaceView
         v-else-if="screen === 'workspace'"
         :can-go-back="canGoBack"
-        @selected="refresh"
-        @back="screen = 'main'"
+        :opens-only-church="!isChurchListRequested"
+        @selected="onChurchSelected"
+        @back="backToLibrary"
       />
       <MainView
         v-else-if="screen === 'main' && state?.account"
@@ -140,7 +159,7 @@ onUnmounted(() => {
         @signed-out="refresh"
         @sign-in="screen = 'sign-in'"
         @state-changed="refresh"
-        @change-workspace="screen = 'workspace'"
+        @change-workspace="showChurchList"
       />
     </div>
     <LivePanel v-if="isLivePanelShown" :state="liveState" />

@@ -42,7 +42,7 @@ test('signs in and shows that the laptop has no Bible yet', async () => {
   await operator.getByTestId('sign-in-identifier').fill(api.owner.identifier);
   await operator.getByTestId('sign-in-password').fill(api.owner.password);
   await operator.getByRole('button', { name: 'Sign in' }).click();
-  await operator.getByTestId(`workspace-${api.workspace.slug}`).click();
+  // The owner's only church opens without asking.
   await expect(operator.getByTestId('sync-status')).toContainText(
     'Synchronised',
   );

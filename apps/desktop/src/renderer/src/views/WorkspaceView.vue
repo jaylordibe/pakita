@@ -6,13 +6,23 @@ import pakitaMark from '../assets/pakita-mark.png';
 import AppIcon from '../components/AppIcon.vue';
 import { messageOf } from '../errors';
 
-defineProps<{ canGoBack: boolean }>();
+const props = defineProps<{
+  canGoBack: boolean;
+  /**
+   * At sign-in, a person with exactly one church goes straight into it.
+   * False when the operator asked for the list ("Change church"), which is
+   * also where a new church is created.
+   */
+  opensOnlyChurch: boolean;
+}>();
 const emit = defineEmits<{ selected: [workspaceId: string]; back: [] }>();
 
 const workspaces = ref<WorkspaceSummary[] | null>(null);
 const errorMessage = ref<string | null>(null);
 const isBusy = ref(false);
 const newName = ref('');
+/** The church being opened without asking, while it opens. */
+const openingName = ref<string | null>(null);
 
 async function create(): Promise<void> {
   if (newName.value.trim().length < 2) return;
@@ -33,6 +43,14 @@ onMounted(async () => {
     workspaces.value = await window.pakita.workspaces.list();
   } catch (error) {
     errorMessage.value = messageOf(error);
+    return;
+  }
+  const [only, ...others] = workspaces.value;
+  if (props.opensOnlyChurch && only && others.length === 0) {
+    openingName.value = only.name;
+    await select(only.id);
+    // On failure the error shows with the list, to choose again.
+    openingName.value = null;
   }
 });
 
@@ -55,7 +73,10 @@ async function select(workspaceId: string): Promise<void> {
       <img class="card-mark" :src="pakitaMark" alt="" width="48" height="48" />
       <div class="card-head">
         <h1>Choose your church</h1>
-        <p v-if="workspaces === null && !errorMessage" class="muted">
+        <p v-if="openingName" class="muted" role="status">
+          Opening {{ openingName }}…
+        </p>
+        <p v-else-if="workspaces === null && !errorMessage" class="muted">
           Loading…
         </p>
         <p v-else-if="workspaces?.length === 0" class="muted">
@@ -63,7 +84,7 @@ async function select(workspaceId: string): Promise<void> {
           your church's administrator to add you.
         </p>
       </div>
-      <ul v-if="workspaces?.length" class="churches">
+      <ul v-if="workspaces?.length && !openingName" class="churches">
         <li v-for="workspace in workspaces" :key="workspace.id">
           <button
             class="church"
@@ -77,7 +98,7 @@ async function select(workspaceId: string): Promise<void> {
           </button>
         </li>
       </ul>
-      <form class="create" @submit.prevent="create">
+      <form v-if="!openingName" class="create" @submit.prevent="create">
         <input
           v-model="newName"
           minlength="2"

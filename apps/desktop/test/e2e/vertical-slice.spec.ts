@@ -34,13 +34,12 @@ test.afterAll(async () => {
   rmSync(userDataDirectory, { recursive: true, force: true });
 });
 
-test('connects, signs in and chooses the workspace', async () => {
+test('connects, signs in and opens its only church without asking', async () => {
   await operator.getByTestId('server-address').fill(api.origin);
   await operator.getByRole('button', { name: 'Connect' }).click();
   await operator.getByTestId('sign-in-identifier').fill(api.owner.identifier);
   await operator.getByTestId('sign-in-password').fill(api.owner.password);
   await operator.getByRole('button', { name: 'Sign in' }).click();
-  await operator.getByTestId(`workspace-${api.workspace.slug}`).click();
   await expect(operator.getByTestId('sync-status')).toContainText(
     'Synchronised',
   );
@@ -121,7 +120,12 @@ test('keeps the presentation in the operator’s hands', async () => {
   expect(state.projector).not.toBe('display-missing');
 
   // Another screen never takes the live controls away.
+  // Asked for, the list shows even with one church (it is also where a
+  // new church is created).
   await operator.getByRole('button', { name: 'Change church' }).click();
+  await expect(
+    operator.getByTestId(`workspace-${api.workspace.slug}`),
+  ).toBeVisible();
   await expect(operator.getByTestId('live-next')).toBeVisible();
   await operator.getByTestId('live-previous').click();
   await expect(slide).toHaveText('Amazing grace, how sweet the sound');
