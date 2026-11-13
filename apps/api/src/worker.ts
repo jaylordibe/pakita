@@ -16,7 +16,7 @@ import { registerShutdownHandlers } from './graceful-shutdown';
 
 // ── Standalone queue worker ──────────────────────────────────────────────────
 // A second entrypoint into the SAME AppModule, with no HTTP server: it consumes
-// BullMQ queues and nothing else. Run it with `yarn start:worker`
+// BullMQ queues and nothing else. Run it with `pnpm start:worker`
 // (`node dist/worker`).
 //
 // This is one half of a two-runtime deployment, and the halves are distinguished
@@ -27,7 +27,7 @@ import { registerShutdownHandlers } from './graceful-shutdown';
 //
 // The API never consumes a job and never installs a recurring schedule; this
 // process does both. Locally, one process may still do everything —
-// `QUEUE_WORKER_ENABLED=true` with `yarn start:dev` — because there is no
+// `QUEUE_WORKER_ENABLED=true` with `pnpm start:dev` — because there is no
 // autoscaler to duplicate the work.
 //
 // Requires QUEUE_WORKER_ENABLED=true — a worker process that does not consume

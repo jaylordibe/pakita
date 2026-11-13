@@ -296,7 +296,7 @@ model Role {
   description String?
   // Every role is seeded and catalog-owned — there is no endpoint that creates
   // one, so in practice this is always true. Retained as an explicit marker
-  // that the row is code-owned and will be reconciled by `yarn prisma:seed`.
+  // that the row is code-owned and will be reconciled by `pnpm prisma:seed`.
 
   permissions RolePermission[]
   userRoles   UserRole[]

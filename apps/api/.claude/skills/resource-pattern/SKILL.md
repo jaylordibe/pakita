@@ -86,4 +86,4 @@ A new resource is not complete until it has:
 - correct soft-delete/partial-unique behavior;
 - migration file prepared but not locally applied;
 - affected e2e coverage;
-- `yarn build` and `yarn lint` evidence.
+- `pnpm build` and `pnpm lint` evidence.

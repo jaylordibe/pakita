@@ -16,7 +16,7 @@ expand(dotenv.config({ override: false }));
 // without booting the app. Same assertion `PermissionCatalogIntegrityService`
 // makes at startup — this is the CI-friendly version.
 //
-//   yarn rbac:check
+//   pnpm rbac:check
 //
 // Exits non-zero on drift, printing what is missing in each direction.
 async function main(): Promise<void> {
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
 
     if (hasDrift) {
       console.error(
-        '\n[rbac:check] FAILED — run `yarn rbac:sync` to reconcile.',
+        '\n[rbac:check] FAILED — run `pnpm rbac:sync` to reconcile.',
       );
       process.exitCode = 1;
       return;

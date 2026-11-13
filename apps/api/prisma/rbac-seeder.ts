@@ -14,7 +14,7 @@ import { SeededRoleName } from '../src/common/enums/seeded-role-name.enum';
 // never the other way around: `PermissionCatalogIntegrityService` refuses to
 // boot the app when the two disagree.
 //
-// Every step is idempotent, so `yarn prisma:seed` is safe to re-run.
+// Every step is idempotent, so `pnpm prisma:seed` is safe to re-run.
 // ─────────────────────────────────────────────────────────────────────────
 
 // The e2e harness reseeds the catalog before every single test; its progress

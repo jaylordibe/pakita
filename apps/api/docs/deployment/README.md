@@ -33,7 +33,7 @@ environment variable names deploy to all of them.
                     └── BullMQ job schedulers   (recurring work lives in Redis)
 
                  ┌──────────────────┐
-                 │  Migration job   │   yarn prisma:deploy && yarn rbac:sync
+                 │  Migration job   │   pnpm prisma:deploy && pnpm rbac:sync
                  │ (runs to exit)   │   run once, before the new API revision
                  └──────────────────┘
 ```
@@ -96,9 +96,9 @@ One process does everything, because there is no autoscaler to duplicate work:
 
 ```bash
 docker compose up -d      # PostgreSQL + Redis + S3-compatible storage + Mailpit
-yarn prisma:deploy        # or yarn prisma:migrate
-yarn rbac:sync            # the API refuses to boot until the catalog is projected
-yarn start:dev            # QUEUE_WORKER_ENABLED=true, API + worker in one process
+pnpm prisma:deploy        # or pnpm prisma:migrate
+pnpm rbac:sync            # the API refuses to boot until the catalog is projected
+pnpm start:dev            # QUEUE_WORKER_ENABLED=true, API + worker in one process
 ```
 
 No cloud account, no credential, no provider SDK configuration. `STORAGE_PROVIDER`
@@ -151,7 +151,7 @@ and an instance whose migration failed would restart-loop after the previous
 release had already stopped.
 
 ```bash
-docker build --target migrate -t <registry>/<service>-migrate:<sha> .
+docker build -f apps/api/Dockerfile --target migrate -t <registry>/<service>-migrate:<sha> .   # from the workspace root
 ```
 
 That image runs **two** steps, and both are required. The schema migration alone
@@ -715,7 +715,7 @@ changes is which values the platform injects and which identity it attaches.
 
 ## Publishing images
 
-This repository **publishes**; it never deploys. `.github/workflows/publish-image.yml`
+This repository **publishes**; it never deploys. The template's `.github/workflows/publish-image.yml` (not yet part of Pakita; it returns with Pakita's release tooling)
 runs the tests and the security scan, then pushes both images (runtime and
 `migrate`) to GHCR under `sha-<commit>`, scans the runtime's digest (the migrate
 image's scan reports without blocking), attests the build provenance of both, and

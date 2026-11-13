@@ -16,7 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 // both are latent authorization bugs that would otherwise surface as a
 // mysterious 403 in production, weeks later.
 //
-// `yarn rbac:check` runs the same assertion without booting the app.
+// `pnpm rbac:check` runs the same assertion without booting the app.
 @Injectable()
 export class PermissionCatalogIntegrityService implements OnApplicationBootstrap {
   private readonly logger = new Logger(PermissionCatalogIntegrityService.name);
@@ -83,7 +83,7 @@ export class PermissionCatalogIntegrityService implements OnApplicationBootstrap
     if (failures.length > 0) {
       throw new Error(
         `Authorization catalog does not match the database.\n  - ${failures.join('\n  - ')}\n` +
-          'Run `yarn rbac:sync` to project the catalog onto the database. ' +
+          'Run `pnpm rbac:sync` to project the catalog onto the database. ' +
           '(Your deploy should already do this — the `migrate` service runs it after ' +
           '`prisma migrate deploy`.) The application will not start with a drifted catalog.',
       );

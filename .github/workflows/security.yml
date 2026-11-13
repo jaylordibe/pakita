@@ -1,7 +1,7 @@
 name: Security
 
 # Dependency + filesystem vulnerability scanning. Kept SEPARATE from the fast
-# merge gate (test.yml) on purpose: a slow or noisy scan must never block the
+# merge gate (api.yml) on purpose: a slow or noisy scan must never block the
 # deterministic test signal.
 #
 # Each trigger below covers something the others cannot, so none is redundant:
@@ -10,17 +10,17 @@ name: Security
 #                     dependencies nobody is currently touching; a PR-only audit
 #                     would not surface one until somebody happened to open a
 #                     pull request, which is not a security cadence.
-#   - workflow_call — the publish path. The publish workflow gates only on
+#   - workflow_call — the publish path. A publish workflow gates only on
 #                     the workflows it explicitly calls, so scanning that lives
-#                     outside test.yml sits outside the publish gate unless it is
+#                     outside api.yml sits outside the publish gate unless it is
 #                     called too, and a push straight to a release branch would
-#                     publish with no dependency scan at all. Do not remove this
-#                     trigger without removing the caller in publish-image.yml.
+#                     publish with no dependency scan at all. Keep this trigger
+#                     while any publish workflow calls it (Phase 6 adds one).
 #   - workflow_dispatch — the on-demand button in the Actions tab.
 #
-# The IMAGE scan lives in test.yml's `docker` job, which needs the image that
-# job builds. The two are complementary: this workflow reads package.json and
-# yarn.lock plus the whole working tree — so it sees secrets and Dockerfile
+# The IMAGE scan lives in api.yml's `docker` job, which needs the image that
+# job builds. The two are complementary: this workflow reads the manifests and
+# pnpm-lock.yaml plus the whole working tree — so it sees secrets and Dockerfile
 # misconfigurations in files that never reach the runtime image — while that one
 # reads the base image's OS packages and the installed node_modules tree.
 on:
@@ -56,42 +56,59 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # pnpm itself, at the version `packageManager` pins in the root
+      # package.json (the action ignores the pinned hash; corepack verifies it
+      # in the Docker build). Pinned by commit SHA, not a moving tag: it is a
+      # third-party action that runs before the lockfile protects anything.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: yarn
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
-      # `yarn audit` reads package.json + yarn.lock and needs no node_modules,
-      # so this step is here for its OTHER effect: `--frozen-lockfile` fails
-      # when the lockfile and manifest have drifted apart. That is a real
-      # finding for a security job — an out-of-sync lockfile means the versions
-      # being audited are not the versions that would be installed.
+      # `pnpm audit` reads the lockfile and needs no node_modules, so this step
+      # is here for its OTHER effect: `--frozen-lockfile` fails when the
+      # lockfile and the manifests have drifted apart. That is a real finding
+      # for a security job — an out-of-sync lockfile means the versions being
+      # audited are not the versions that would be installed. `--ignore-scripts`
+      # because nothing here runs the installed code.
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --silent
-        env:
-          # Suppress Node's "DEP0169 url.parse" warning emitted by
-          # yarn 1.x itself — yarn-internal, no upstream fix available.
-          NODE_OPTIONS: --no-deprecation
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # The audit gate's own tests: a gate whose parser silently broke would
+      # read every report as clean.
+      - name: Audit gate self-test
+        run: pnpm test:scripts
 
       # Informational: lists everything moderate and above. Never fails, so
       # low/moderate transitive findings stay visible without red-lighting
       # every PR.
       #
-      # NO known moderates as of 2026-08-24. The three that stood here — uuid,
+      # Known moderates as of 2026-11-13, all reported identically by the
+      # template's yarn audit on the same day, none on a runtime path:
+      #   - glob, minimatch  jest / @nestjs/cli / typescript-eslint tooling
+      #   (lows: deepmerge under jest; fast-xml-parser under the Azure and GCS
+      #   storage SDKs). Re-check them against package.json `dependencies`
+      #   before carrying them forward.
+      #
+      # Template history, kept for its reasoning: NO known moderates as of 2026-08-24. The three that stood here — uuid,
       # valibot, @hono/node-server — were cleared rather than re-dated, and two
       # of their stated blockers had simply stopped being true:
       #   - valibot / @hono/node-server  both sat behind `prisma > @prisma/dev`.
       #                An in-range `prisma` bump to 7.9.1 moved valibot to the
       #                patched 1.4.2 and dropped @hono/node-server out of the
-      #                tree entirely, retiring our `resolutions` pin for it too.
+      #                tree entirely, retiring our override for it too.
       #   - uuid       the note claimed uuid 11+ was ESM-only and so unusable on
       #                the CJS `require` chain its consumers use. It is not:
       #                11.1.1 ships a `require` condition, and the ONLY API any
       #                consumer in this tree touches is `v4`. An in-range
       #                `resend` bump dropped `svix` (and its uuid) outright; the
       #                surviving `@google-cloud/storage > gaxios` path pins uuid
-      #                ^9.0.1 with no in-range fix, so it takes a `resolutions`
+      #                ^9.0.1 with no in-range fix, so it takes an `overrides`
       #                entry at ^11.1.1.
       #
       # Runtime-path moderates are NOT accepted as "known" — `qs` reached
@@ -104,37 +121,37 @@ jobs:
       # an assumption, and an unfixable-looking blocker is one to re-test rather
       # than carry forward.
       - name: Dependency audit (informational)
-        run: yarn audit --level moderate || true
+        run: pnpm audit --audit-level moderate || true
 
       # Blocks on any high/critical advisory, EXCEPT ones explicitly accepted
       # (with rationale + review date) in .github/scripts/audit-gate.mjs.
       #
-      # A raw `yarn audit --level high || test $? -lt 8` bitmask check would
-      # isolate high+ correctly — yarn 1.x's exit code is a bitmask of ALL
-      # severities (1=info, 2=low, 4=moderate, 8=high, 16=critical) — but it is
-      # all-or-nothing: yarn 1.x cannot accept a *single* advisory, so one
+      # A raw `pnpm audit --audit-level high` would isolate high+ correctly, but
+      # it is all-or-nothing: an accepted advisory can only be muted
+      # (`auditConfig.ignoreGhsas`), with no reason and no expiry, so one
       # genuinely-unfixable high finding would either red-light the job forever
-      # or force deleting the whole gate. The script threads that needle: hard
+      # or be silenced for good. The script threads that needle: hard
       # on everything unaccepted, and it nags when an acceptance goes stale or
       # past its review date. It also refuses to treat an unparseable report as
       # a clean result: the `|| true` below means a crashed audit would
       # otherwise leave an empty file that reads as "no findings".
       #
-      # When a NEW high trips this, reach for an upgrade BEFORE a `resolutions`
+      # When a NEW high trips this, reach for an upgrade BEFORE an `overrides`
       # override, and only allowlist as a last resort — advisories are often
       # satisfied by a version the parent's declared range ALREADY permits, i.e.
       # the lockfile is stale rather than the upstream constraint being real.
       # Diagnose with:
       #
-      #   yarn audit --level high --json       → module, vulnerable_versions, path
+      #   pnpm audit --audit-level high        → module, vulnerable versions, paths
+      #   pnpm why <package>                   → which parent pulls it in
       #   npm view <parent> dependencies.<pkg> → does its range allow the fix?
       #
-      # Escalation ladder: in-range `yarn upgrade <parent>` → `resolutions`
-      # override (only when a parent pins a vulnerable range, and note when it
+      # Escalation ladder: in-range `pnpm update <parent>` → an `overrides`
+      # entry in pnpm-workspace.yaml (only when a parent pins a vulnerable range, and note when it
       # can be removed) → documented allowlist entry (only when NO compatible
       # patched version exists at all, e.g. an ESM-only fix on a CJS chain).
       #
-      # Highs currently cleared by a `resolutions` override rather than a
+      # Highs currently cleared by an `overrides` entry rather than a
       # parent bump (verified 2026-08-24):
       #   - deepmerge-ts  `prisma > @prisma/config > deepmerge-ts`
       #                [GHSA-ggr8-5vv4-36mx / CVE-2026-40345 — stack exhaustion
@@ -142,7 +159,7 @@ jobs:
       #                >=8.0.0, and @prisma/config still pins an EXACT 7.1.5 at
       #                7.9.1 — the version this repo now resolves — so rung 1
       #                does not exist here and the lockfile is not merely stale.
-      #                Our `resolutions` entry forces ^8.0.2. Safe because
+      #                Our `overrides` entry forces ^8.0.2. Safe because
       #                @prisma/config calls plain `deepmerge` (one dynamic
       #                import in its config loader), while v8's breaking changes
       #                are confined to `deepmergeInto` mutation semantics and
@@ -150,8 +167,8 @@ jobs:
       #                Remove the entry once @prisma/config depends on 8.x.
       - name: Dependency audit (blocks on high+)
         run: |
-          yarn audit --level high --json > yarn-audit.json || true
-          node .github/scripts/audit-gate.mjs yarn-audit.json
+          pnpm audit --json > pnpm-audit.json || true
+          node .github/scripts/audit-gate.mjs pnpm-audit.json
 
   trivy-fs:
     name: Trivy filesystem scan
@@ -163,7 +180,7 @@ jobs:
         uses: actions/checkout@v7
 
       # Scans the WORKING TREE, which is what makes this different from the
-      # image scan in test.yml's `docker` job. That one sees only what the
+      # image scan in api.yml's `docker` job. That one sees only what the
       # Dockerfile copied in; this one sees everything committed — so a secret
       # or a misconfiguration in a file that never reaches the runtime image
       # (compose files, scripts, docs, CI config) is still caught. `misconfig`
@@ -177,7 +194,7 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
-          trivyignores: .trivyignore
+          trivyignores: apps/api/.trivyignore
           scanners: vuln,secret,misconfig
           format: table
           exit-code: '1'
@@ -193,5 +210,5 @@ jobs:
           #   dir=$(mktemp -d) && git archive HEAD | tar -x -C "$dir" &&
           #   trivy fs "$dir" --scanners vuln,secret,misconfig \
           #     --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-          #     --ignorefile "$dir/.trivyignore"
+          #     --ignorefile "$dir/apps/api/.trivyignore"
           skip-dirs: node_modules,dist,coverage

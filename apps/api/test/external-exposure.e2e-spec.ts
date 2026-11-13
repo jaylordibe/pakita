@@ -32,15 +32,18 @@ import { createTestApp } from './setup/test-app';
 const REPOSITORY_ROOT = resolve(__dirname, '..');
 
 // Files that exist in the repository, the build context or the image, and
-// must never be readable over HTTP. Absent ones (no `dist/` before a build, no
-// `.git` in some checkouts) are skipped; the list is asserted non-empty.
+// must never be readable over HTTP. Paths are relative to apps/api; the
+// lockfile and `.git` live at the workspace root. Only the OPTIONAL ones may be
+// absent (no `dist/` before a build, no `.git` in some checkouts); every other
+// entry must exist, so moving a file fails this spec instead of silently
+// dropping its probe.
 const SENSITIVE_FILES = [
   '.env.test',
   '.env.example',
-  '.git/HEAD',
-  '.git/config',
+  '../../.git/HEAD',
+  '../../.git/config',
   'package.json',
-  'yarn.lock',
+  '../../pnpm-lock.yaml',
   'tsconfig.json',
   'prisma/schema.prisma',
   'prisma.config.ts',
@@ -61,7 +64,7 @@ const PROBE_PATHS = [
   '/api/.git/config',
   '/package.json',
   '/api/package.json',
-  '/yarn.lock',
+  '/pnpm-lock.yaml',
   '/tsconfig.json',
   '/prisma/schema.prisma',
   '/api/prisma/schema.prisma',
@@ -140,6 +143,12 @@ function rawGet(
 
 // Distinctive lines of every sensitive file present on disk: long enough that
 // an innocent JSON error envelope cannot contain one by coincidence.
+function isOptionalSensitiveFile(relativePath: string): boolean {
+  return (
+    relativePath.startsWith('dist/') || relativePath.startsWith('../../.git/')
+  );
+}
+
 function sensitiveContentMarkers(): string[] {
   const markers = new Set<string>();
   for (const relativePath of SENSITIVE_FILES) {
@@ -242,6 +251,12 @@ describe('External exposure (e2e)', () => {
 
     it('has real file content and secrets to look for', () => {
       // Guards against a vacuous pass: with no markers every probe "passes".
+      const missingRequiredFiles = SENSITIVE_FILES.filter(
+        (relativePath) =>
+          !isOptionalSensitiveFile(relativePath) &&
+          !existsSync(resolve(REPOSITORY_ROOT, relativePath)),
+      );
+      expect(missingRequiredFiles).toEqual([]);
       expect(markers.length).toBeGreaterThan(50);
       expect(runtimeSecrets().length).toBeGreaterThanOrEqual(5);
     });
@@ -416,7 +431,8 @@ describe('External exposure (e2e)', () => {
 
     it('points the DAST scan at the served JSON document', () => {
       const workflow = readFileSync(
-        resolve(REPOSITORY_ROOT, '.github/workflows/security-dast.yml'),
+        // CI lives at the workspace root, the only `.github/` GitHub reads.
+        resolve(REPOSITORY_ROOT, '../../.github/workflows/security-dast.yml'),
         'utf8',
       );
       expect(workflow).toContain(`/${SWAGGER_JSON_PATH} `);

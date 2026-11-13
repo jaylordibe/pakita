@@ -11,7 +11,7 @@ import { envValidationSchema } from './env.validation';
 // `.env.example` is the only artifact an operator reads when provisioning an
 // environment, so "the schema requires it" and "the example documents it" have
 // to be the same set. This spec keeps them the same set; it costs milliseconds
-// inside `yarn test`, which already runs in CI, so it needs no workflow wiring.
+// inside `pnpm test`, which already runs in CI, so it needs no workflow wiring.
 const ENVIRONMENT_EXAMPLE_PATH = join(__dirname, '..', '..', '.env.example');
 
 // Every environment the schema can tighten for. `production` and `staging` are

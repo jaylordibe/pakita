@@ -20,7 +20,7 @@ describe('isEnvFileIgnored', () => {
     },
   );
 
-  it('reads `.env` when NODE_ENV is unset, as `yarn start:dev` runs', () => {
+  it('reads `.env` when NODE_ENV is unset, as `pnpm start:dev` runs', () => {
     delete process.env.NODE_ENV;
     expect(isEnvFileIgnored()).toBe(false);
   });

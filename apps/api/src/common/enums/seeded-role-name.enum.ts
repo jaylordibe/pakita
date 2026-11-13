@@ -1,7 +1,7 @@
 // The roles the seeder installs on every deployment, and the ONLY roles that
 // exist. They are catalog-owned, unreachable by any write endpoint, and their
 // permission sets are reconciled from ROLE_DEFINITION_CATALOG on every
-// `yarn prisma:seed`.
+// `pnpm prisma:seed`.
 //
 // There is no `isSystem` flag on the row, because there is no other kind of
 // role for it to distinguish.

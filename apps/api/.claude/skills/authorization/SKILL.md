@@ -39,5 +39,5 @@ Use the `e2e-testing` skill for the harness. Cover, as relevant:
 - dual-scoped owner/staff behavior;
 - escalation and rank denial;
 - grants-cache invalidation;
-- permission catalog integrity (`yarn rbac:check`);
+- permission catalog integrity (`pnpm rbac:check`);
 - stable `errorCode`, never message text.

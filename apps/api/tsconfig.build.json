@@ -18,7 +18,7 @@
     // pinning rootDir to ./src alone pushes it OUT of dist/ to the project
     // root. There it survives nest-cli's `deleteOutDir`, and the next build
     // sees an up-to-date cache against a dist/ that was just wiped — emitting
-    // nothing while exiting 0. `yarn build` twice in a row would produce assets
+    // nothing while exiting 0. `pnpm build` twice in a row would produce assets
     // with no compiled code.
     "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
   },

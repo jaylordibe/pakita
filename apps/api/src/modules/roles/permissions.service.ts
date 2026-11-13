@@ -7,7 +7,7 @@ import type { PermissionRow } from './dto/permission-response.dto';
 
 // Permissions are code-owned: they exist only in
 // `src/common/authorization/permission-catalog.ts` and are projected into the
-// database by `yarn rbac:sync`. There is deliberately no write path — a
+// database by `pnpm rbac:sync`. There is deliberately no write path — a
 // permission the code cannot reference is a permission no guard can check.
 //
 // Separate from RolesService because roles are DATA (operators create them) and

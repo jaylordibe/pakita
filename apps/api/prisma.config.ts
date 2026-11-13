@@ -15,7 +15,7 @@ export default defineConfig({
   migrations: {
     path: 'prisma/migrations',
     // Seed command is declared here (Prisma 7+) rather than in
-    // package.json. `yarn prisma:seed` resolves to `prisma db seed`,
+    // package.json. `pnpm prisma:seed` resolves to `prisma db seed`,
     // which executes this command.
     seed: 'ts-node --transpile-only prisma/seed.ts',
   },

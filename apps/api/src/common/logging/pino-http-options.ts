@@ -20,7 +20,7 @@ import { resolveRequestId } from '../util/request-id.util';
 // A control that cannot fail a test is a control nobody can trust. The spec
 // beside this file drives these exact options through a real pino-http instance
 // over a real request and asserts the secrets do not appear in the output, so
-// the next prefix mistake fails `yarn test` instead of shipping.
+// the next prefix mistake fails `pnpm test` instead of shipping.
 export interface PinoHttpOptionsInput {
   readonly isProduction: boolean;
   readonly isTest: boolean;

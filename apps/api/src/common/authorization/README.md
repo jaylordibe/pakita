@@ -171,14 +171,14 @@ query is the failure mode this split exists to prevent.
 
 1. Add a `PermissionDefinition` to `PERMISSION_CATALOG`.
 2. Grant it to the relevant roles in `ROLE_DEFINITION_CATALOG`.
-3. `yarn rbac:sync` (idempotent: inserts, updates descriptions, deletes orphans).
+3. `pnpm rbac:sync` (idempotent: inserts, updates descriptions, deletes orphans).
 4. Use it: `@RequirePermission('yourAction', 'YourSubject')`.
 
-`yarn rbac:check` verifies the database matches; CI runs it, and the deploy's
+`pnpm rbac:check` verifies the database matches; CI runs it, and the deploy's
 `migrate` service runs `rbac:sync` after `prisma migrate deploy`. **The app will
 not boot on drift**, so catalog projection is a deploy step, never a manual one.
 
-`yarn prisma:seed` = `rbac:sync` + the bootstrap admin/demo users. It needs
+`pnpm prisma:seed` = `rbac:sync` + the bootstrap admin/demo users. It needs
 `SEED_*` env; `rbac:sync` needs only `DATABASE_URL`. Deploys run the latter.
 
 **Never hand-edit `permissions` or seeded `roles` rows.** They are code.

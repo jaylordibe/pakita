@@ -12,7 +12,7 @@ import { toSnakeCase } from '../util/string-case.util';
 //
 // The database is a *projection* of this file — never hand-edit permission
 // rows. `PermissionCatalogIntegrityService` refuses to boot the app if the
-// two ever disagree, and `yarn rbac:check` asserts the same thing in CI.
+// two ever disagree, and `pnpm rbac:check` asserts the same thing in CI.
 //
 // Central design rule: a permission row records WHAT (action + subject).
 // It never records a condition. `AbilityFactory` derives the WHERE from

@@ -1,7 +1,7 @@
 # prisma/seeds
 
 Static seed data as JSON (or CSV/YAML) — the input files that
-`prisma/seed.ts` reads from when running `yarn prisma:seed`.
+`prisma/seed.ts` reads from when running `pnpm prisma:seed`.
 
 Why a separate dir from `seed.ts`:
 
@@ -30,4 +30,4 @@ check a string in a `.json` file.
 
 The database is a projection of the catalog, never the reverse.
 `PermissionCatalogIntegrityService` refuses to boot the app when the two
-disagree, and `yarn rbac:check` asserts the same in CI.
+disagree, and `pnpm rbac:check` asserts the same in CI.

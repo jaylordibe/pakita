@@ -19,7 +19,7 @@ const ROLE_INCLUDE = {
  *
  * There is deliberately no create / update / delete. Roles are code; the
  * `roles` and `role_permissions` tables are a projection written by
- * `yarn prisma:seed`, and `PermissionCatalogIntegrityService` refuses to boot
+ * `pnpm prisma:seed`, and `PermissionCatalogIntegrityService` refuses to boot
  * the application if the two ever disagree.
  */
 @Injectable()

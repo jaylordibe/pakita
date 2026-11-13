@@ -1,0 +1,14 @@
+# Workspace-wide. Each app keeps its own .gitignore for its build outputs.
+node_modules
+.DS_Store
+.idea
+*.log
+
+# Secrets never belong in the repository.
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Claude Code per-developer settings. Shared config is .claude/settings.json.
+.claude/settings.local.json

@@ -1,5 +1,5 @@
 # Trivy vulnerability exceptions. Read by BOTH Trivy jobs: the production image
-# scan (the `docker` job in .github/workflows/test.yml) and the working-tree
+# scan (the `docker` job in the root .github/workflows/api.yml) and the working-tree
 # scan (the `trivy-fs` job in .github/workflows/security.yml), so an entry here
 # suppresses a finding in both. Each entry is a conscious,
 # documented risk acceptance — keep the rationale and review date current, and

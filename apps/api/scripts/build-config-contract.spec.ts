@@ -79,9 +79,10 @@ describe('build configuration contract', () => {
     });
   });
 
+  // The image is built from the workspace root, so its ignore list is there.
   describe('.dockerignore', () => {
     const dockerignore = () =>
-      readFileSync(join(repositoryRoot, '.dockerignore'), 'utf8');
+      readFileSync(join(repositoryRoot, '../../.dockerignore'), 'utf8');
 
     // A stale cache copied in via `COPY . .` makes the in-image build emit
     // nothing. The pattern must match at any depth, not just the repo root.
@@ -111,8 +112,12 @@ describe('lint gate contract', () => {
       readFileSync(join(repositoryRoot, 'package.json'), 'utf8'),
     ) as PackageManifest;
 
+  // CI lives at the workspace root, the only `.github/` GitHub reads.
   const testWorkflow = () =>
-    readFileSync(join(repositoryRoot, '.github/workflows/test.yml'), 'utf8');
+    readFileSync(
+      join(repositoryRoot, '../../.github/workflows/api.yml'),
+      'utf8',
+    );
 
   it('keeps the default lint script free of --fix so it can actually fail', () => {
     const lintScript = packageManifest().scripts?.lint;
@@ -123,7 +128,7 @@ describe('lint gate contract', () => {
   // One definition of the lint scope. If the fixer stops delegating, the two
   // scripts drift and a path added to one is silently unlinted by the other.
   it('derives the fixing script from the checking script', () => {
-    expect(packageManifest().scripts?.['lint:fix']).toContain('yarn lint');
+    expect(packageManifest().scripts?.['lint:fix']).toContain('pnpm lint');
   });
 
   // `prisma/` is linted like any other source directory, and nothing else
@@ -133,10 +138,10 @@ describe('lint gate contract', () => {
   });
 
   it('runs the checking script in CI', () => {
-    expect(testWorkflow()).toMatch(/run:\s*yarn lint\s*$/m);
+    expect(testWorkflow()).toMatch(/run:\s*pnpm lint\s*$/m);
   });
 
   it('never invokes the fixing script from CI', () => {
-    expect(testWorkflow()).not.toContain('yarn lint:fix');
+    expect(testWorkflow()).not.toContain('pnpm lint:fix');
   });
 });

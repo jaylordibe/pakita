@@ -1,3 +1,11 @@
+> **Pakita API.** This package was created from the
+> [`nestjs-api`](https://github.com/jaylordibe/nestjs-api) template (the commit
+> is recorded in the root [`NOTICE`](../../NOTICE)). The documentation below is
+> the template's, kept because it describes this code. Two differences: run
+> commands from a pnpm workspace (see the root [`AGENTS.md`](../../AGENTS.md)),
+> and the image publishing workflow is not part of Pakita yet — it returns with
+> Pakita's release tooling.
+
 <div align="center">
 
 # nestjs-api
@@ -7,12 +15,6 @@
 A NestJS API template for systems that will run in production —<br>
 authentication, authorization, tenancy, background work and operations already decided.
 
-[![Tests](https://img.shields.io/github/actions/workflow/status/jaylordibe/nestjs-api/test.yml?branch=main&label=tests&style=flat-square)](https://github.com/jaylordibe/nestjs-api/actions/workflows/test.yml)
-[![Security](https://img.shields.io/github/actions/workflow/status/jaylordibe/nestjs-api/security.yml?branch=main&label=security&style=flat-square)](https://github.com/jaylordibe/nestjs-api/actions/workflows/security.yml)
-[![NestJS](https://img.shields.io/github/package-json/dependency-version/jaylordibe/nestjs-api/@nestjs/core?label=NestJS&style=flat-square&color=57606a)](package.json)
-[![Node](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjaylordibe%2Fnestjs-api%2Fmain%2Fpackage.json&query=%24.engines.node&label=node&style=flat-square&color=57606a)](.nvmrc)
-[![TypeScript](https://img.shields.io/github/package-json/dependency-version/jaylordibe/nestjs-api/dev/typescript?label=TypeScript&style=flat-square&color=57606a)](tsconfig.json)
-[![License: MIT](https://img.shields.io/badge/license-MIT-57606a?style=flat-square)](LICENSE)
 
 **[Why](#why-nestjs-api)** · **[Guardrails](#enforced-not-just-documented)** ·
 **[Architecture](#architecture)** · **[What's&nbsp;included](#whats-included)** ·
@@ -121,7 +123,7 @@ cannot read a record gets a 404; one who can read it but not act gets a 403.
 
 **Roles are code.** Permissions and roles are defined once, in
 [`permission-catalog.ts`](src/common/authorization/permission-catalog.ts). The
-database is a projection of it (`yarn rbac:sync`) and no endpoint creates a
+database is a projection of it (`pnpm rbac:sync`) and no endpoint creates a
 role, so granting authority is a reviewable diff rather than an API call. Four
 platform roles separate governance (`PLATFORM_ADMIN`) from technical authority
 (`PLATFORM_ENGINEER`) and from two tiers of support; four workspace roles run
@@ -185,7 +187,7 @@ Google Cloud, Azure, Kubernetes, or Docker Compose on a single VM.
 
 - Multi-stage Dockerfile: a non-root runtime under `tini` with npm stripped, plus a separate `migrate` target for the migration job.
 - Swagger UI at `/api/docs`, generated from DTOs. It is always off in production and can be turned off elsewhere.
-- An image publishing workflow ([`publish-image.yml`](.github/workflows/publish-image.yml)) that, after the test and security gates pass on `main` or `staging`, builds the runtime and `migrate` images, scans the runtime by digest with Trivy, attests build provenance and pushes both to GHCR. It is opt-in (`PUBLISH_ENABLED=true`), holds no server credential and deploys nothing: a single server, a container service or an autoscaled cluster pulls the same images.
+- An image publishing workflow (`publish-image.yml` in the template; not yet in Pakita) that, after the test and security gates pass on `main` or `staging`, builds the runtime and `migrate` images, scans the runtime by digest with Trivy, attests build provenance and pushes both to GHCR. It is opt-in (`PUBLISH_ENABLED=true`), holds no server credential and deploys nothing: a single server, a container service or an autoscaled cluster pulls the same images.
 - [`docs/operations.md`](docs/operations.md) separates the operational controls that are enforced from those that are only scaffolded: backups, RPO/RTO, secret rotation, retention, incident response, rollback.
 
 <details>
@@ -239,13 +241,13 @@ The routes that send an email, create an account or check a password require an 
 
 ## Quick start
 
-**Prerequisites:** Node 24 ([`.nvmrc`](.nvmrc)), Yarn 1.22, and Docker with Compose.
+**Prerequisites:** Node 24 ([`.nvmrc`](../../.nvmrc)), pnpm 10 (via Corepack: `corepack enable pnpm`), and Docker with Compose.
 
 Create your own repository with **Use this template** on GitHub, or clone this one:
 
 ```bash
 git clone https://github.com/jaylordibe/nestjs-api.git my-api && cd my-api
-yarn install
+pnpm install
 
 # Environment: the defaults match docker-compose; only JWT_SECRET must be set
 cp .env.example .env
@@ -256,12 +258,12 @@ sed -i.bak "s|^JWT_SECRET=.*|JWT_SECRET=\"$(openssl rand -hex 48)\"|" .env && rm
 docker compose up -d
 
 # Schema, then the RBAC catalog. The API refuses to boot until the catalog is in the database
-yarn prisma:generate
-yarn prisma:migrate
-yarn prisma:seed        # projects the catalog and creates the SEED_* admin and user
-                        # (`yarn rbac:sync` projects the catalog alone)
+pnpm prisma:generate
+pnpm prisma:migrate
+pnpm prisma:seed        # projects the catalog and creates the SEED_* admin and user
+                        # (`pnpm rbac:sync` projects the catalog alone)
 
-yarn start:dev
+pnpm start:dev
 ```
 
 The Swagger UI is at [localhost:3000/api/docs](http://localhost:3000/api/docs)
@@ -279,8 +281,8 @@ The e2e stack does not run Mailpit; the suite refuses every provider but the stu
 Run the tests:
 
 ```bash
-yarn test         # unit tests
-yarn test:e2e     # e2e: starts its own isolated stack on 5434 / 6380 / 9002 (.env.test)
+pnpm test         # unit tests
+pnpm test:e2e     # e2e: starts its own isolated stack on 5434 / 6380 / 9002 (.env.test)
 ```
 
 <details>
@@ -290,7 +292,7 @@ yarn test:e2e     # e2e: starts its own isolated stack on 5434 / 6380 / 9002 (.e
 
 ```bash
 docker compose up -d      # idempotent
-yarn start:dev
+pnpm start:dev
 ```
 
 `docker compose down` stops the containers and keeps the data;
@@ -299,19 +301,19 @@ yarn start:dev
 **After pulling changes:**
 
 ```bash
-yarn install              # package.json changed
-yarn prisma:generate      # prisma/schema.prisma changed
-yarn prisma:migrate       # new migrations
-yarn rbac:sync            # permission catalog changed
+pnpm install              # package.json changed
+pnpm prisma:generate      # prisma/schema.prisma changed
+pnpm prisma:migrate       # new migrations
+pnpm rbac:sync            # permission catalog changed
 ```
 
 **Troubleshooting**
 
 - **Port already in use (5433 / 6378 / 9000)**: something else is bound to it; `lsof -i :5433` finds it.
 - **`JWT_SECRET` boot error**: `.env.example` leaves it blank, and validation requires at least 32 characters. Generate one with `openssl rand -hex 48`.
-- **"Authorization catalog does not match the database"**: run `yarn rbac:sync`.
-- **Prisma client out of date**: run `yarn prisma:generate` after schema changes.
-- **Starting over**: run `docker compose down -v`, then `docker compose up -d`, `yarn prisma:migrate` and `yarn prisma:seed`. This deletes your local data.
+- **"Authorization catalog does not match the database"**: run `pnpm rbac:sync`.
+- **Prisma client out of date**: run `pnpm prisma:generate` after schema changes.
+- **Starting over**: run `docker compose down -v`, then `docker compose up -d`, `pnpm prisma:migrate` and `pnpm prisma:seed`. This deletes your local data.
 
 </details>
 
@@ -319,21 +321,21 @@ yarn rbac:sync            # permission catalog changed
 
 | Command | What it does |
 |---|---|
-| `yarn start:dev` | API and worker in one process, in watch mode |
-| `yarn start:worker:dev` | The queue worker alone, in watch mode (needs `QUEUE_WORKER_ENABLED=true`) |
-| `yarn build` | Compile and type-check into `dist/` |
-| `yarn start:prod` / `yarn start:worker` | Run the compiled API / worker |
-| `yarn lint` / `yarn lint:fix` | ESLint over `src`, `test`, `scripts` and `prisma`. `lint` is the gate and never rewrites files; `lint:fix` does |
-| `yarn test` / `yarn test:cov` | Unit tests, optionally with coverage |
-| `yarn test:e2e` | e2e tests against the isolated test stack, which it starts itself |
-| `yarn stack:up` / `yarn stack:down` | Start / stop both the dev and the test stacks |
-| `yarn prisma:generate` | Regenerate the Prisma client after schema edits |
-| `yarn prisma:migrate` | Create and apply a migration in development (interactive) |
-| `yarn prisma:deploy` | Apply pending migrations non-interactively, as a deploy does |
-| `yarn prisma:seed` | Project the RBAC catalog and upsert the `SEED_*` admin and user |
-| `yarn prisma:reset` | Drop, re-migrate and reseed the development database |
-| `yarn prisma:studio` | Database browser |
-| `yarn rbac:sync` / `yarn rbac:check` | Project the permission catalog into the database / exit 1 on drift |
+| `pnpm start:dev` | API and worker in one process, in watch mode |
+| `pnpm start:worker:dev` | The queue worker alone, in watch mode (needs `QUEUE_WORKER_ENABLED=true`) |
+| `pnpm build` | Compile and type-check into `dist/` |
+| `pnpm start:prod` / `pnpm start:worker` | Run the compiled API / worker |
+| `pnpm lint` / `pnpm lint:fix` | ESLint over `src`, `test`, `scripts` and `prisma`. `lint` is the gate and never rewrites files; `lint:fix` does |
+| `pnpm test` / `pnpm test:cov` | Unit tests, optionally with coverage |
+| `pnpm test:e2e` | e2e tests against the isolated test stack, which it starts itself |
+| `pnpm stack:up` / `pnpm stack:down` | Start / stop both the dev and the test stacks |
+| `pnpm prisma:generate` | Regenerate the Prisma client after schema edits |
+| `pnpm prisma:migrate` | Create and apply a migration in development (interactive) |
+| `pnpm prisma:deploy` | Apply pending migrations non-interactively, as a deploy does |
+| `pnpm prisma:seed` | Project the RBAC catalog and upsert the `SEED_*` admin and user |
+| `pnpm prisma:reset` | Drop, re-migrate and reseed the development database |
+| `pnpm prisma:studio` | Database browser |
+| `pnpm rbac:sync` / `pnpm rbac:check` | Project the permission catalog into the database / exit 1 on drift |
 
 ## Building on it
 
@@ -427,7 +429,7 @@ needed to build, run or test the API.
 Start with the [deployment contract](docs/deployment/README.md): runtime
 commands, container, database, Redis, storage, secrets, health and environment.
 This repository publishes images and leaves deploying to your platform. Deploy
-**by digest**. Each deploy runs the `migrate` image (`yarn prisma:deploy && yarn rbac:sync`)
+**by digest**. Each deploy runs the `migrate` image (`pnpm prisma:deploy && pnpm rbac:sync`)
 to completion, then rolls out the API with `QUEUE_WORKER_ENABLED=false` and the
 worker with `QUEUE_WORKER_ENABLED=true`.
 
@@ -472,7 +474,7 @@ worker with `QUEUE_WORKER_ENABLED=true`.
 
 | Concern | Choice |
 |---|---|
-| Runtime | Node 24 (`.nvmrc`, `.node-version`, `engines`, the Dockerfile and CI agree), Yarn 1.22 pinned via `packageManager` |
+| Runtime | Node 24 (the root `.nvmrc` and `.node-version`, `engines`, the Dockerfile and CI agree), pnpm 10 pinned, with its hash, via `packageManager` in the workspace root `package.json` |
 | Framework | NestJS 12 on Express, TypeScript in strict mode |
 | Data | PostgreSQL 18, Prisma 7 via `@prisma/adapter-pg` |
 | Cache, sessions, queues | Redis 8 (ioredis), BullMQ via `@nestjs/bullmq` |

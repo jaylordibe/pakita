@@ -1,0 +1,48 @@
+# Ignore list for `docker build -f apps/api/Dockerfile .`, whose context is the
+# WORKSPACE ROOT (the only image built from this repository). A root
+# `.dockerignore` is read by every builder — BuildKit, the legacy builder,
+# kaniko, buildah — so secrets stay out of the context whichever one runs.
+# Paths are relative to the workspace root.
+
+# Only the API image is built from this context.
+apps/desktop
+
+**/node_modules
+**/dist
+**/coverage
+
+# TypeScript incremental build cache. `dist` above does not cover it — tsc puts
+# it at the project root once `rootDir` is pinned. Copying a developer's or a
+# deploy host's stale cache into the build context makes the in-image
+# `pnpm build` emit nothing while still exiting 0, producing an image with no
+# application code. `git reset --hard` on a deploy host does not remove
+# untracked files, so one left behind there would poison every later build.
+# `**/` because Docker ignore patterns are path-segment-scoped and a bare `*`
+# would not match a nested cache.
+**/*.tsbuildinfo
+.git
+**/.gitignore
+**/.env
+**/.env.*
+!apps/api/.env.example
+**/.idea
+**/.vscode
+**/*.log
+.github
+.claude
+apps/api/.claude
+apps/api/.github
+apps/api/.zap
+apps/api/test
+apps/api/docs
+**/README.md
+**/AGENTS.md
+**/CLAUDE.md
+apps/api/docker-compose.yml
+apps/api/Dockerfile
+.dockerignore
+.prettierrc
+apps/api/eslint.config.mjs
+# Private keys and certificates never belong in the image.
+**/*.pem
+**/*.key

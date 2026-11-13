@@ -1,7 +1,9 @@
-name: Test
+name: API
 
-# Runs on pushes and PRs to the long-lived branches, and is reusable: deploy
-# workflows call it via `uses:` to gate a deploy.
+# The API's merge gate (apps/api). Runs on pushes and PRs to the long-lived
+# branches, and is reusable: a release workflow calls it via `uses:` to gate a
+# release. Every job runs its commands in apps/api (see `defaults` below); the
+# install runs at the workspace root, where the one lockfile lives.
 on:
   push:
     branches:
@@ -14,9 +16,8 @@ on:
       - staging
       - develop
   # Makes this workflow callable from other workflows as
-  # `jobs.<name>.uses: ./.github/workflows/test.yml`. Needed by the
-  # publish-image workflow, which gates every published image on a passing
-  # test run. No `inputs` or `secrets` are declared, and no
+  # `jobs.<name>.uses: ./.github/workflows/api.yml`. The image-publishing
+  # workflow (Phase 6) gates every published image on a passing test run. No `inputs` or `secrets` are declared, and no
   # `env:` either — all configuration comes from the committed `.env.test`
   # (see the note on the `ci` job).
   workflow_call:
@@ -33,6 +34,12 @@ concurrency:
 # can escalate if they ever need to (e.g., to push images to GHCR).
 permissions:
   contents: read
+
+# Every `run:` step works in the API package; `.env.test`, docker-compose.yml
+# and the package scripts all live there.
+defaults:
+  run:
+    working-directory: apps/api
 
 jobs:
   # Every job below is independent, with no `needs:` between them — the deploy
@@ -76,21 +83,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # pnpm itself, at the version `packageManager` pins in the root
+      # package.json (the action ignores the pinned hash; corepack verifies it
+      # in the Docker build). Pinned by commit SHA, not a moving tag: it is a
+      # third-party action that runs before the lockfile protects anything.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: yarn
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --silent
-        env:
-          # Suppress Node's "DEP0169 url.parse" warning emitted by
-          # yarn 1.x itself — yarn-internal, no upstream fix available.
-          NODE_OPTIONS: --no-deprecation
+        run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma client
-        run: yarn prisma:generate
+        run: pnpm prisma:generate
 
       # `lint`, never `lint:fix`. `eslint --fix` exits 0 after rewriting
       # whatever it could repair — so a fixing linter in CI silently patches the
@@ -98,13 +109,13 @@ jobs:
       # Formatting and every other auto-fixable rule would be enforced nowhere.
       # `scripts/build-config-contract.spec.ts` asserts this step stays honest.
       - name: Lint
-        run: yarn lint
+        run: pnpm lint
 
       - name: Build
-        run: yarn build
+        run: pnpm build
 
       - name: Unit tests
-        run: yarn test --passWithNoTests
+        run: pnpm test --passWithNoTests
 
       # Dependency advisories are deliberately NOT audited in this job. They
       # belong to .github/workflows/security.yml, which the deploy workflows
@@ -128,7 +139,7 @@ jobs:
   # can regroup the slow specs and make things worse. Re-measure instead of
   # guessing when the suite grows:
   #
-  #   for s in 1 2 3 4; do yarn test:e2e --shard=$s/4 --listTests; done
+  #   for s in 1 2 3 4; do pnpm test:e2e --shard=$s/4 --listTests; done
   #
   # then weigh the slowest shard against ~2 min of per-shard install + build
   # overhead. Four is a sane default here; a large suite may want more.
@@ -159,34 +170,38 @@ jobs:
       # is a second reason to use compose.) `--wait` blocks on the healthchecks
       # the compose file already defines.
       #
-      # `yarn test:e2e` would start this itself via the `pretest:e2e` hook
+      # `pnpm test:e2e` would start this itself via the `pretest:e2e` hook
       # (idempotent, so this is not a double-start); it stays an explicit step
       # so a failure to bring up the stack reads as a stack failure in the
       # logs rather than as a mysterious test failure.
       - name: Start Postgres + Redis from docker-compose.yml
         run: docker compose --env-file .env.test up -d --wait postgres redis s3
 
+      # pnpm itself, at the version `packageManager` pins in the root
+      # package.json (the action ignores the pinned hash; corepack verifies it
+      # in the Docker build). Pinned by commit SHA, not a moving tag: it is a
+      # third-party action that runs before the lockfile protects anything.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: yarn
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --silent
-        env:
-          # Suppress Node's "DEP0169 url.parse" warning emitted by
-          # yarn 1.x itself — yarn-internal, no upstream fix available.
-          NODE_OPTIONS: --no-deprecation
+        run: pnpm install --frozen-lockfile
 
       # Needed for the generated client the specs import. Deliberately no
-      # `yarn build`/`lint` here — ts-jest compiles the sources directly, and
+      # `pnpm build`/`lint` here — ts-jest compiles the sources directly, and
       # `quality` already covers those in parallel.
       - name: Generate Prisma client
-        run: yarn prisma:generate
+        run: pnpm prisma:generate
 
       - name: E2E tests
-        run: yarn test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       # Container logs are the first thing you want when the failure is
       # "Postgres never came up" rather than "an assertion failed", and they
@@ -241,28 +256,32 @@ jobs:
       # is a second reason to use compose.) `--wait` blocks on the healthchecks
       # the compose file already defines.
       #
-      # `yarn test:e2e` would start this itself via the `pretest:e2e` hook
+      # `pnpm test:e2e` would start this itself via the `pretest:e2e` hook
       # (idempotent, so this is not a double-start); it stays an explicit step
       # so a failure to bring up the stack reads as a stack failure in the
       # logs rather than as a mysterious test failure.
       - name: Start Postgres + Redis from docker-compose.yml
         run: docker compose --env-file .env.test up -d --wait postgres redis s3
 
+      # pnpm itself, at the version `packageManager` pins in the root
+      # package.json (the action ignores the pinned hash; corepack verifies it
+      # in the Docker build). Pinned by commit SHA, not a moving tag: it is a
+      # third-party action that runs before the lockfile protects anything.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: yarn
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --silent
-        env:
-          # Suppress Node's "DEP0169 url.parse" warning emitted by
-          # yarn 1.x itself — yarn-internal, no upstream fix available.
-          NODE_OPTIONS: --no-deprecation
+        run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma client
-        run: yarn prisma:generate
+        run: pnpm prisma:generate
 
       # Credentials/host/port come from .env.test (loaded above) — never
       # retyped here, or this step would drift from the stack it connects to.
@@ -276,9 +295,9 @@ jobs:
           PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres \
             -c "DROP DATABASE IF EXISTS \"$RBAC_DB_NAME\";" \
             -c "CREATE DATABASE \"$RBAC_DB_NAME\";"
-          yarn prisma:deploy
-          yarn rbac:sync
-          yarn rbac:check
+          pnpm prisma:deploy
+          pnpm rbac:sync
+          pnpm rbac:check
 
 
   docker:
@@ -297,13 +316,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # Context is the workspace root (the lockfile lives there); the
+      # Dockerfile and its ignore list live in apps/api.
       - name: Build image
         uses: docker/build-push-action@v7
         with:
           context: .
+          file: apps/api/Dockerfile
+          target: runtime
           push: false
           load: true
-          tags: nestjs-api:ci
+          tags: pakita-api:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -322,7 +345,7 @@ jobs:
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: nestjs-api:ci
+          image-ref: pakita-api:ci
           format: table
           exit-code: '1'
           severity: 'HIGH,CRITICAL'
@@ -330,4 +353,4 @@ jobs:
           # Documented, dated risk acceptances (mirrors the source-side audit
           # allowlist in .github/scripts/audit-gate.mjs). Ships empty — an
           # entry here is the image-side half of the same last-resort decision.
-          trivyignores: '.trivyignore'
+          trivyignores: 'apps/api/.trivyignore'

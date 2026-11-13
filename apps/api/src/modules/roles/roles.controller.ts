@@ -19,7 +19,7 @@ import { RolesService } from './roles.service';
  * There is no `POST`, `PATCH`, or `DELETE` here, and their absence is the
  * feature. Every role and every role→permission grant is defined in
  * `src/common/authorization/permission-catalog.ts`, reviewed like code, and
- * projected into the database by `yarn prisma:seed`. A runtime-editable role is
+ * projected into the database by `pnpm prisma:seed`. A runtime-editable role is
  * a privilege-escalation primitive with an audit trail nobody reads: an
  * operator who can add `platform.all.manage` to a role they already hold has
  * made themselves an admin without anyone approving a diff.

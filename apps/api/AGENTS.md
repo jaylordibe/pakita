@@ -19,12 +19,12 @@ something most changes need; feature detail belongs in the code, its tests and
 
 NestJS 12 (TypeScript, Express) + Prisma 7 + PostgreSQL + Redis + BullMQ.
 JWT auth with DB-backed RBAC + CASL over two scopes (PLATFORM / WORKSPACE).
-Unversioned `/api/...`; Swagger at `/api/docs`. Package manager: yarn 1,
-`yarn.lock` committed.
+Unversioned `/api/...`; Swagger at `/api/docs`. Package manager: pnpm, from the workspace root (one
+`pnpm-lock.yaml` there; see the root `AGENTS.md`).
 
-A **GitHub template**: every new API is forked from it, so a defect here
-reaches every fork. Set `SERVICE_NAME` in `.env`; it drives the DB name,
-container names and JWT `iss`/`aud`.
+Pakita's API, created once from the `nestjs-api` template (commit in the
+root `NOTICE`) and not kept in sync with it. `SERVICE_NAME` (`pakita`) drives
+the DB name, container names and JWT `iss`/`aud`.
 
 Cloud-provider neutral by construction; `docs/deployment/README.md` owns the
 runtime contract. One image, two runtimes: `QUEUE_WORKER_ENABLED=false` +
@@ -35,23 +35,23 @@ process does both.
 
 | Purpose | Command | Notes |
 |---|---|---|
-| Install | `yarn install --frozen-lockfile` | |
-| Build + type check | `yarn build` | `nest build` typechecks |
-| Lint / format check | `yarn lint` | Evidence is `lint`, never `lint:fix`; Prettier runs inside it |
-| Lint (apply fixes) | `yarn lint:fix` | Closing step only |
-| Unit tests | `yarn test` | |
-| Integration / e2e tests | `yarn test:e2e` | Starts the test stack itself |
-| Single e2e spec | `yarn test:e2e <pattern>` | The cadence during implementation |
-| Migration status | `yarn prisma migrate status` | Read-only |
-| Apply migrations (local) | `yarn prisma:deploy` | Committed migrations only; never mid-work |
-| RBAC catalog check | `yarn rbac:check` | Read-only; `rbac:sync` writes |
-| Security scan | `yarn audit --level moderate` | CI gate adds `.github/scripts/audit-gate.mjs` |
-| Run locally | `yarn start:dev` | Stacks: `yarn stack:up` / `yarn stack:down` |
+| Install | `pnpm install --frozen-lockfile` | |
+| Build + type check | `pnpm build` | `nest build` typechecks |
+| Lint / format check | `pnpm lint` | Evidence is `lint`, never `lint:fix`; Prettier runs inside it |
+| Lint (apply fixes) | `pnpm lint:fix` | Closing step only |
+| Unit tests | `pnpm test` | |
+| Integration / e2e tests | `pnpm test:e2e` | Starts the test stack itself |
+| Single e2e spec | `pnpm test:e2e <pattern>` | The cadence during implementation |
+| Migration status | `pnpm prisma migrate status` | Read-only |
+| Apply migrations (local) | `pnpm prisma:deploy` | Committed migrations only; never mid-work |
+| RBAC catalog check | `pnpm rbac:check` | Read-only; `rbac:sync` writes |
+| Security scan | `pnpm audit --audit-level moderate` | Run at the workspace root; the CI gate adds the root `.github/scripts/audit-gate.mjs` |
+| Run locally | `pnpm start:dev` | Stacks: `pnpm stack:up` / `pnpm stack:down` |
 
-Every change: `yarn build` + `yarn lint` + the affected e2e specs. Full
-`yarn test:e2e` only when a module is complete or on request.
+Every change: `pnpm build` + `pnpm lint` + the affected e2e specs. Full
+`pnpm test:e2e` only when a module is complete or on request.
 
-`yarn build` type-checks `src/` only. After changing a shared DTO, fixture or
+`pnpm build` type-checks `src/` only. After changing a shared DTO, fixture or
 seeder, run `npx tsc --noEmit -p tsconfig.json` and compare with the errors
 the branch already had. A feature without e2e coverage of its contract is not
 done; update stale assertions instead of adding duplicates.
@@ -65,7 +65,7 @@ done; update stale assertions instead of adding duplicates.
 | `src/common/errors/*` | The `errorCode` contract clients program against |
 | `src/modules/queue-admin/*` | Privileged retry/cancel over every tenant's jobs |
 | `prisma/schema.prisma`, `prisma/migrations/*` | Schema and applied migrations |
-| `.claude/settings.json` | The committed permission rules; an unmatched rule is a hole |
+| `../../.claude/settings.json` (workspace root) | The committed permission rules; an unmatched rule is a hole |
 | `eslint.config.mjs` | Tenant-isolation, layering and error guardrails; block order can silently disable a rule |
 
 ## Architecture
@@ -209,7 +209,7 @@ test/            e2e specs + setup/ (global DB setup, worker isolation)
   `this.worker` outside `startConsuming()`.
 - **The local dev DB holds the user's data.** Never reset, drop or re-seed it
   without explicit permission.
-- **Never apply migrations during in-progress work.** `yarn build` verifies
+- **Never apply migrations during in-progress work.** `pnpm build` verifies
   schema changes. Consolidate into one migration and let the user apply it.
   If applied by mistake, un-apply surgically; never `migrate reset`.
 - **Never edit an applied migration** in a project built from this template:
@@ -219,7 +219,7 @@ test/            e2e specs + setup/ (global DB setup, worker isolation)
   A migration's folder is `YYYYMMDDHHMMSS_<what_it_does>`, never a ticket key.
 - **Storage adapters are `require`d lazily**; don't convert to static imports.
   No adapter accepts a long-lived cloud credential.
-- **`.claude/settings.json` is the only enforcement layer.** Mirror every
+- **The workspace-root `.claude/settings.json` is the only enforcement layer.** Mirror every
   `Bash(...)` rule as `PowerShell(...)`; see the conventions doc before
   editing it.
 
@@ -227,10 +227,9 @@ test/            e2e specs + setup/ (global DB setup, worker isolation)
 
 | Consumer | Repository / location | Audience | Owner |
 |---|---|---|---|
-| application-security-framework | `../application-security-framework` (`.github/workflows/reference-apps.yml`, `internal/openapi/openapi.go` `WellKnownPaths`) | Reference-app CI: clones this repo's default branch unpinned and reads the OpenAPI document at `/api/docs/json` | jaylordibe |
+| Pakita desktop | `apps/desktop` (this repository) | The operator and projector app; it will consume the API from Phase 2, with its types generated from the OpenAPI document at `/api/docs/json` | jaylordibe |
 
-A fork must replace these rows with its real consumers before its first
-contract change. A contract change (DTO field, `errorCode`, enum value,
+A contract change (DTO field, `errorCode`, enum value,
 status, nullability, pagination, event payload) is done only when every
 consumer is updated or recorded as unaffected, with the deploy order stated.
 A consumer not updated in the same change gets a handoff naming its
@@ -250,5 +249,5 @@ repository, the change and the owner.
 | Error envelope and `ErrorCode` catalog | `src/common/errors/README.md` |
 | Deployment contract | `docs/deployment/README.md` |
 | MCP endpoint (`/api/mcp`), its OAuth sign-in and adding a tool | `docs/mcp.md` |
-| Publishing images | `.github/workflows/publish-image.yml`, `docs/README.md` |
+| Publishing images | Not yet: the template's `publish-image.yml` returns in Phase 6 (see `docs/README.md`) |
 | Which operational controls are enforced | `docs/operations.md` |

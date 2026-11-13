@@ -12,7 +12,7 @@ expand(dotenv.config({ override: false }));
  * Projects `src/common/authorization/permission-catalog.ts` onto the database:
  * permissions, the system roles, and their grants. Nothing else.
  *
- *   yarn rbac:sync
+ *   pnpm rbac:sync
  *
  * THIS MUST RUN ON EVERY DEPLOY, immediately after `prisma migrate deploy`.
  *
@@ -21,7 +21,7 @@ expand(dotenv.config({ override: false }));
  * new permission would otherwise apply its migration, fail the boot check, and
  * never pass its healthcheck.
  *
- * Deliberately separate from `yarn prisma:seed`, which ALSO creates the seeded
+ * Deliberately separate from `pnpm prisma:seed`, which ALSO creates the seeded
  * admin and demo users and therefore requires `SEED_ADMIN_*` / `SEED_USER_*`.
  * Those are bootstrap concerns: an operator who removes them from `.env` after
  * the first deploy must not thereby break every subsequent deploy. This script

@@ -457,7 +457,7 @@ intervals (~15 minutes).
 
 | Runtime | How |
 |---|---|
-| Combined (local dev) | `yarn start:dev` — `QUEUE_WORKER_ENABLED=true` |
+| Combined (local dev) | `pnpm start:dev` — `QUEUE_WORKER_ENABLED=true` |
 | API-only (deployed API service) | `node dist/main.js` with `QUEUE_WORKER_ENABLED=false` |
 | Worker-only (deployed worker pool) | `node dist/worker.js` with `QUEUE_WORKER_ENABLED=true` |
 

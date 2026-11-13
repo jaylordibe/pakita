@@ -42,8 +42,8 @@ token is pasted and nothing is configured per client.
 
 ## 2. Installation and configuration
 
-Nothing MCP-specific to configure. `yarn install --frozen-lockfile` installs the
-dependencies, `yarn prisma:deploy` applies the `oauth_payloads` migration, and
+Nothing MCP-specific to configure. `pnpm install --frozen-lockfile` installs the
+dependencies, `pnpm prisma:deploy` applies the `oauth_payloads` migration, and
 the endpoint and its sign-in work with the defaults. The issuer, the signing
 keys and the cookie keys come from settings every deployment already has
 (`API_BASE_URL`, `JWT_SECRET`); see §4.
@@ -173,8 +173,8 @@ error `-32602`.
 ## 7. Local testing
 
 ```bash
-yarn test src/common/util/mcp-config src/common/util/oauth-keys
-yarn test:e2e mcp     # mcp.e2e-spec.ts and mcp-oauth.e2e-spec.ts
+pnpm test src/common/util/mcp-config src/common/util/oauth-keys
+pnpm test:e2e mcp     # mcp.e2e-spec.ts and mcp-oauth.e2e-spec.ts
 ```
 
 `test/mcp-oauth.e2e-spec.ts` signs in with the official MCP client SDK and a

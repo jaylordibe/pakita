@@ -1,7 +1,7 @@
 name: Security DAST
 
-# Dynamic Application Security Testing (OWASP ZAP), kept OUT of test.yml on
-# purpose. test.yml is the fast, deterministic merge/deploy gate (lint, build,
+# Dynamic Application Security Testing (OWASP ZAP) against the API, kept OUT of
+# api.yml on purpose. api.yml is the fast, deterministic merge/deploy gate (lint, build,
 # unit/e2e, Trivy image scan; the dependency audit and the working-tree scan sit
 # in security.yml, which the deploys also call). DAST is the opposite shape: it
 # boots a live app and probes it over HTTP — slow, stateful (active rules send
@@ -22,6 +22,13 @@ concurrency:
 permissions:
   contents: read
 
+# Every `run:` step works in the API package (`.env.test`, docker-compose.yml,
+# `.zap/` and the package scripts live there). `uses:` steps are not affected,
+# so their paths below are relative to the workspace root.
+defaults:
+  run:
+    working-directory: apps/api
+
 jobs:
   zap-api-scan:
     name: ZAP API scan (ephemeral app)
@@ -32,7 +39,7 @@ jobs:
 
     # No `services:` / `env:` blocks — `.env.test` is the single source of
     # truth for throwaway-environment config, and the backing services come
-    # from the same docker-compose.yml developers run. See test.yml for the
+    # from the same docker-compose.yml developers run. See api.yml for the
     # full rationale; duplicating the values here would recreate exactly the
     # drift that pattern exists to prevent.
 
@@ -40,7 +47,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # Same loader as test.yml. This job boots the COMPILED app
+      # Same loader as api.yml. This job boots the COMPILED app
       # (`node dist/main`), which reads process.env only — it never loads
       # `.env.test` the way the jest harness does — so the file has to reach
       # the environment here rather than being read by the app.
@@ -68,39 +75,45 @@ jobs:
       - name: Start Postgres + Redis from docker-compose.yml
         run: docker compose --env-file .env.test up -d --wait postgres redis s3
 
+      # pnpm itself, at the version `packageManager` pins in the root
+      # package.json (the action ignores the pinned hash; corepack verifies it
+      # in the Docker build). Pinned by commit SHA, not a moving tag: it is a
+      # third-party action that runs before the lockfile protects anything.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: yarn
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile --silent
-        env:
-          NODE_OPTIONS: --no-deprecation
+        run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma client
-        run: yarn prisma:generate
+        run: pnpm prisma:generate
 
       # Creates the ${DB_NAME} database (Prisma creates the target DB if
       # absent) and applies all migrations — the schema ZAP will exercise.
       - name: Apply migrations
-        run: yarn prisma:deploy
+        run: pnpm prisma:deploy
 
       # Roles and permissions are a projection of `permission-catalog.ts`, not
       # migration data, so a freshly migrated database holds none of them.
       # Without this the token mint cannot find PLATFORM_ADMIN, and a token
       # minted anyway would carry no grants — `PermissionsGuard` would answer
       # every protected route with 403/404 and the scan would cover only the
-      # auth wall. Same `deploy` + `sync` pairing as test.yml and the
+      # auth wall. Same `deploy` + `sync` pairing as api.yml and the
       # prod/staging `migrate` service; `rbac:sync` is idempotent and needs
       # only DATABASE_URL, unlike `prisma:seed` which also creates a seed admin
       # this job has no use for.
       - name: Project the authorization catalog
-        run: yarn rbac:sync
+        run: pnpm rbac:sync
 
       - name: Build
-        run: yarn build
+        run: pnpm build
 
       # Boot the compiled server detached. The process survives into later
       # steps on GitHub runners; we capture its PID + logs for teardown/debug.
@@ -133,7 +146,7 @@ jobs:
       - name: Mint admin JWT for authenticated scan
         id: token
         run: |
-          TOKEN="$(npx ts-node --transpile-only prisma/scripts/zap-mint-admin-token.ts)"
+          TOKEN="$(pnpm exec ts-node --transpile-only prisma/scripts/zap-mint-admin-token.ts)"
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
@@ -212,9 +225,9 @@ jobs:
         with:
           name: zap-api-scan-report
           path: |
-            zap-out/zap-report.html
-            zap-out/zap-report.md
-            zap-out/zap-report.json
+            apps/api/zap-out/zap-report.html
+            apps/api/zap-out/zap-report.md
+            apps/api/zap-out/zap-report.json
           if-no-files-found: warn
 
       - name: Upload API logs on failure
@@ -222,7 +235,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: api-logs
-          path: app.log
+          path: apps/api/app.log
           if-no-files-found: ignore
 
       - name: Stop API

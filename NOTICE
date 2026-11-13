@@ -1,3 +1,14 @@
+Pakita
+Copyright (C) 2026 Jay Lord Ibe
+
+Pakita is licensed under the GNU Affero General Public License, version 3 or
+(at your option) any later version. See LICENSE.
+
+apps/api was created from the nestjs-api template
+(https://github.com/jaylordibe/nestjs-api), commit
+b4ee19cffbae0b3f60e7a42862b1cb4687126075, which is distributed under the
+following licence:
+
 MIT License
 
 Copyright (c) 2026 Jay Lord Ibe

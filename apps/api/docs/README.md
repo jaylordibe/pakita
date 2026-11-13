@@ -11,7 +11,7 @@ Three commands deploy it anywhere:
 |---|---|---|
 | API | `node dist/main.js` | `false` |
 | Worker | `node dist/worker.js` | `true` |
-| Migration | the `migrate` image — `yarn prisma:deploy && yarn rbac:sync` | n/a |
+| Migration | the `migrate` image — `pnpm prisma:deploy && pnpm rbac:sync` | n/a |
 
 | Document | What it is |
 |---|---|
@@ -23,7 +23,7 @@ Three commands deploy it anywhere:
 
 ## This repository publishes; your platform deploys
 
-`.github/workflows/publish-image.yml` builds, scans and publishes the runtime and
+The template's `.github/workflows/publish-image.yml` (not yet part of Pakita; it returns with Pakita's release tooling) builds, scans and publishes the runtime and
 `migrate` images to GHCR on every push to `main` or `staging`, with a
 build-provenance attestation, once the repository variable `PUBLISH_ENABLED=true`
 is set. It holds no server credential and deploys nothing: a single server, a
