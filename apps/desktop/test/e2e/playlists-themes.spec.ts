@@ -96,7 +96,74 @@ test('plans a playlist from the library and shows what is ready', async () => {
   await expect(operator.getByTestId('playlist-readiness')).toHaveText(
     '2 of 2 ready on this laptop',
   );
+});
 
+test('reorders the playlist by dragging, or with the step buttons', async () => {
+  const workspaceUrl = `/api/workspaces/${api.workspace.id}`;
+  const serverOrder = async () => {
+    const playlists = await api.request<{
+      data: Array<{ id: string; name: string }>;
+    }>('GET', `${workspaceUrl}/playlists`);
+    const { id } = playlists.data.find(
+      (entry) => entry.name === 'Sunday service',
+    )!;
+    const playlist = await api.request<{
+      items: Array<{ position: number; songId: string | null }>;
+    }>('GET', `${workspaceUrl}/playlists/${id}`);
+    return [...playlist.items]
+      .sort((first, second) => first.position - second.position)
+      .map((item) => item.songId);
+  };
+  const songs = await api.request<{
+    data: Array<{ id: string; title: string }>;
+  }>('GET', `${workspaceUrl}/songs`);
+  const amazingGrace = songs.data.find(
+    (entry) => entry.title === 'Amazing Grace',
+  )!.id;
+
+  // Drag the second entry's grip onto the top half of the first.
+  await operator
+    .getByTestId('playlist-entry-grip-1')
+    .dragTo(operator.getByTestId('playlist-entry-0'), {
+      targetPosition: { x: 40, y: 4 },
+    });
+  await expect(operator.getByTestId('playlist-entry-1')).toContainText(
+    'Amazing Grace',
+  );
+
+  // Straight away, while that save may still be in flight, the step button
+  // moves it back; focus follows the entry it moved, and both saves land.
+  const moveUp = operator
+    .getByTestId('playlist-entry-1')
+    .getByRole('button', { name: 'Move up' });
+  await moveUp.focus();
+  await operator.keyboard.press('Enter');
+  await expect(operator.getByTestId('playlist-entry-0')).toContainText(
+    'Amazing Grace',
+  );
+  await expect(
+    operator
+      .getByTestId('playlist-entry-0')
+      .getByRole('button', { name: 'Move down' }),
+  ).toBeFocused();
+  await expect.poll(serverOrder).toEqual([amazingGrace, expect.any(String)]);
+  await expect(operator.getByRole('alert')).toHaveCount(0);
+
+  // One drag on its own reaches the server too.
+  await operator
+    .getByTestId('playlist-entry-grip-1')
+    .dragTo(operator.getByTestId('playlist-entry-0'), {
+      targetPosition: { x: 40, y: 4 },
+    });
+  await expect.poll(serverOrder).toEqual([expect.any(String), amazingGrace]);
+  await operator
+    .getByTestId('playlist-entry-0')
+    .getByRole('button', { name: 'Move down' })
+    .click();
+  await expect.poll(serverOrder).toEqual([amazingGrace, expect.any(String)]);
+});
+
+test('marks an entry whose song was deleted as not ready', async () => {
   // A song deleted on the server leaves its entry not ready on the laptop.
   const songs = await api.request<{
     data: Array<{ id: string; title: string }>;
@@ -137,4 +204,44 @@ test('presents the playlist with the default theme', async () => {
   );
   expect(loadedFaces).toContain('Merriweather loaded');
   await operator.getByTestId('live-stop').click();
+});
+
+test('reorders a song’s arrangement by dragging its chips', async () => {
+  await operator.getByTestId('tab-songs').click();
+  await operator.getByTestId('library-song-Amazing Grace').click();
+  await operator.getByRole('button', { name: 'Edit', exact: true }).click();
+  await operator.getByRole('button', { name: 'Add section' }).click();
+  await operator.getByTestId('section-label-1').fill('Chorus');
+  await operator.getByTestId('section-lyrics-1').fill('My chains are gone');
+  await expect(operator.getByTestId('arrangement-0-chip-1')).toContainText(
+    'Chorus',
+  );
+
+  // Drop the Chorus chip on the left half of Verse 1.
+  await operator
+    .getByTestId('arrangement-0-chip-1')
+    .dragTo(operator.getByTestId('arrangement-0-chip-0'), {
+      targetPosition: { x: 4, y: 10 },
+    });
+  await expect(operator.getByTestId('arrangement-0-chip-0')).toContainText(
+    'Chorus',
+  );
+  await operator.getByTestId('song-save').click();
+
+  const savedOrder = async () => {
+    const songs = await api.request<{
+      data: Array<{
+        title: string;
+        sections: Array<{ id: string; label: string }>;
+        arrangements: Array<{ isDefault: boolean; sectionIds: string[] }>;
+      }>;
+    }>('GET', `/api/workspaces/${api.workspace.id}/songs`);
+    const saved = songs.data.find((entry) => entry.title === 'Amazing Grace')!;
+    const labelOf = (id: string) =>
+      saved.sections.find((section) => section.id === id)?.label;
+    return saved.arrangements
+      .find((entry) => entry.isDefault)!
+      .sectionIds.map(labelOf);
+  };
+  await expect.poll(savedOrder).toEqual(['Chorus', 'Verse 1']);
 });

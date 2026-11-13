@@ -1,19 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import {
+  computed,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  shallowRef,
+} from 'vue';
 
 import type {
-  PlaylistItemInput,
   PlaylistSummary,
   PlaylistView,
   SyncStatus,
   ThemeSummary,
 } from '../../../shared/ipc-contract';
+import { focusFirstEnabled, moveItem, useDragReorder } from '../drag-reorder';
 import { messageOf } from '../errors';
 import AppIcon from './AppIcon.vue';
 
 const playlists = ref<PlaylistSummary[]>([]);
 const themes = ref<ThemeSummary[]>([]);
-const playlist = ref<PlaylistView | null>(null);
+// Replaced whole, never changed in place: its entries stay plain objects,
+// which IPC can send (a reactive proxy cannot be cloned).
+const playlist = shallowRef<PlaylistView | null>(null);
 const details = reactive({
   name: '',
   serviceDate: '',
@@ -22,6 +31,12 @@ const details = reactive({
 const newName = ref('');
 const isSaving = ref(false);
 const errorMessage = ref<string | null>(null);
+
+// Every change is saved on the server at once (and synchronised back), one
+// save at a time: a change made while a save is in flight (a second quick
+// move) stays on screen and goes in the next save, made from the version the
+// first one returned, so the operator's own changes never conflict.
+let hasUnsavedChange = false;
 
 async function loadLists(): Promise<void> {
   [playlists.value, themes.value] = await Promise.all([
@@ -48,30 +63,44 @@ function show(view: PlaylistView | null): void {
 
 async function open(playlistId: string): Promise<void> {
   errorMessage.value = null;
+  // Another playlist: what was unsaved on the previous one is not saved here.
+  if (playlist.value?.id !== playlistId) hasUnsavedChange = false;
   const view = await window.pakita.playlists.get(playlistId);
   // Null: deleted on the server since (or not received yet).
   if (view) show(view);
   else playlist.value = null;
 }
 
-// Every change is saved on the server at once (and synchronised back).
-async function save(items?: PlaylistItemInput[]): Promise<void> {
-  if (!playlist.value) return;
+// Saves the playlist as shown.
+async function save(): Promise<void> {
+  hasUnsavedChange = true;
+  if (isSaving.value || !playlist.value) return;
   const playlistId = playlist.value.id;
   errorMessage.value = null;
   isSaving.value = true;
   try {
-    show(
-      await window.pakita.playlists.update(playlistId, {
+    while (hasUnsavedChange && playlist.value?.id === playlistId) {
+      hasUnsavedChange = false;
+      const shown = playlist.value;
+      const view = await window.pakita.playlists.update(playlistId, {
         name: details.name.trim(),
         serviceDate: details.serviceDate || null,
         themeId: details.themeId || null,
-        items: items ?? playlist.value.entries.map((entry) => entry.input),
-        expectedSyncVersion: playlist.value.syncVersion,
-      }),
-    );
-    await loadLists();
+        items: shown.entries.map((entry) => entry.input),
+        expectedSyncVersion: shown.syncVersion,
+      });
+      if (playlist.value?.id !== playlistId) break;
+      if (view && hasUnsavedChange) {
+        // Newer changes are on screen: keep them, take the new version.
+        playlist.value = { ...playlist.value, syncVersion: view.syncVersion };
+      } else {
+        // Not received yet (null): nothing newer to save against.
+        show(view);
+        hasUnsavedChange = false;
+      }
+    }
   } catch (error) {
+    hasUnsavedChange = false;
     errorMessage.value = messageOf(error);
     // Changed elsewhere: bring the newer copy down, keeping the message.
     const message = errorMessage.value;
@@ -81,6 +110,13 @@ async function save(items?: PlaylistItemInput[]): Promise<void> {
   } finally {
     isSaving.value = false;
   }
+  // A change made while the lists reloaded, or while a failed save was
+  // being replaced by the server's copy, still gets saved.
+  if (hasUnsavedChange) {
+    await save();
+    return;
+  }
+  await loadLists();
 }
 
 async function create(): Promise<void> {
@@ -115,22 +151,51 @@ async function remove(): Promise<void> {
   }
 }
 
-function inputs(): PlaylistItemInput[] {
-  return playlist.value?.entries.map((entry) => entry.input) ?? [];
+// Read out after every move, by drag or by button.
+const moveAnnouncement = ref('');
+
+// The new order shows at once; the save follows (and a failed save brings
+// the server's order back).
+async function moveEntry(from: number, to: number): Promise<void> {
+  if (!playlist.value || from === to) return;
+  const entries = moveItem(playlist.value.entries, from, to);
+  const moved = entries[to];
+  if (!moved) return;
+  playlist.value = { ...playlist.value, entries };
+  moveAnnouncement.value = `Moved ${moved.title} to position ${to + 1} of ${entries.length}.`;
+  await save();
 }
 
-async function move(index: number, offset: number): Promise<void> {
-  const items = inputs();
-  const target = index + offset;
-  if (target < 0 || target >= items.length) return;
-  [items[index], items[target]] = [items[target]!, items[index]!];
-  await save(items);
+async function moveByButton(index: number, offset: -1 | 1): Promise<void> {
+  const to = index + offset;
+  const direction = offset < 0 ? 'up' : 'down';
+  const opposite = offset < 0 ? 'down' : 'up';
+  const moving = moveEntry(index, to);
+  // Keep focus on the entry that moved, so the next press moves it again.
+  await focusFirstEnabled(
+    `[data-move="${to}-${direction}"]`,
+    `[data-move="${to}-${opposite}"]`,
+  );
+  await moving;
+}
+
+const reorder = useDragReorder<'entries'>({
+  axis: 'vertical',
+  onMove: (_list, from, to) => void moveEntry(from, to),
+});
+
+function startDrag(index: number, event: DragEvent): void {
+  const row = (event.currentTarget as HTMLElement).closest('li');
+  reorder.start('entries', index, event, row ?? undefined);
 }
 
 async function removeEntry(index: number): Promise<void> {
-  const items = inputs();
-  items.splice(index, 1);
-  await save(items);
+  if (!playlist.value) return;
+  playlist.value = {
+    ...playlist.value,
+    entries: playlist.value.entries.filter((_entry, at) => at !== index),
+  };
+  await save();
 }
 
 async function present(entryIndex: number): Promise<void> {
@@ -160,8 +225,9 @@ onMounted(async () => {
   unsubscribe = window.pakita.sync.onStatus((status: SyncStatus) => {
     if (status.state !== 'idle') return;
     void loadLists();
-    // Readiness changes as content arrives.
-    if (playlist.value) void open(playlist.value.id);
+    // Readiness changes as content arrives. Not during a save: it shows
+    // the result itself, and a refresh would replace changes still unsaved.
+    if (playlist.value && !isSaving.value) void open(playlist.value.id);
   });
   await loadLists();
 });
@@ -288,13 +354,32 @@ onUnmounted(() => unsubscribe?.());
             laptop
           </p>
         </div>
-        <ol class="entries">
+        <ol class="entries" @dragleave="reorder.leave">
           <li
             v-for="(entry, index) in playlist.entries"
             :key="index"
-            :class="{ missing: !entry.isReady }"
+            :class="{
+              missing: !entry.isReady,
+              dragged: reorder.isDragged('entries', index),
+              [`drop-${reorder.markerAt('entries', index)}`]: reorder.markerAt(
+                'entries',
+                index,
+              ),
+            }"
             :data-testid="`playlist-entry-${index}`"
+            @dragover="reorder.over('entries', index, $event)"
+            @drop="reorder.drop('entries', $event)"
           >
+            <span
+              class="grip"
+              draggable="true"
+              title="Drag to reorder"
+              :data-testid="`playlist-entry-grip-${index}`"
+              @dragstart="startDrag(index, $event)"
+              @dragend="reorder.end"
+            >
+              <AppIcon name="grip" />
+            </span>
             <span class="position">{{ index + 1 }}</span>
             <span class="state" :title="entry.isReady ? 'Ready' : 'Not ready'">
               <AppIcon :name="entry.isReady ? 'check' : 'alert'" />
@@ -322,20 +407,22 @@ onUnmounted(() => unsubscribe?.());
                 Present from here
               </button>
               <button
-                class="sm ghost icon-only"
+                class="sm ghost icon-only reorder"
                 aria-label="Move up"
                 title="Move up"
+                :data-move="`${index}-up`"
                 :disabled="index === 0"
-                @click="move(index, -1)"
+                @click="moveByButton(index, -1)"
               >
                 <AppIcon name="arrow-up" />
               </button>
               <button
-                class="sm ghost icon-only"
+                class="sm ghost icon-only reorder"
                 aria-label="Move down"
                 title="Move down"
+                :data-move="`${index}-down`"
                 :disabled="index === playlist.entries.length - 1"
-                @click="move(index, 1)"
+                @click="moveByButton(index, 1)"
               >
                 <AppIcon name="arrow-down" />
               </button>
@@ -353,6 +440,9 @@ onUnmounted(() => unsubscribe?.());
             Add songs from the Songs tab and passages from the Bible tab.
           </li>
         </ol>
+        <p class="visually-hidden" aria-live="polite">
+          {{ moveAnnouncement }}
+        </p>
       </template>
       <div v-else class="empty">
         <span class="empty-mark"><AppIcon name="playlists" /></span>
@@ -448,6 +538,7 @@ onUnmounted(() => unsubscribe?.());
 }
 
 .entries > li:not(.entries-empty) {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -466,6 +557,71 @@ onUnmounted(() => unsubscribe?.());
   border-color: rgb(255 190 92 / 0.35);
   background:
     linear-gradient(90deg, var(--warning-soft), transparent 60%), var(--surface);
+}
+
+/* Drag to reorder: the grip is the handle; the row is what moves. */
+.grip {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 2rem;
+  margin: 0 -0.35rem 0 -0.4rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  cursor: grab;
+  transition: color 120ms var(--ease-out);
+}
+
+.grip .icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.entries > li:hover .grip {
+  color: var(--text-muted);
+}
+
+.grip:active {
+  cursor: grabbing;
+}
+
+.entries > li.dragged {
+  opacity: 0.45;
+}
+
+/* Where the row will land: a violet line in the gap. */
+.entries > li.drop-before::before,
+.entries > li.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px rgb(139 108 255 / 0.25);
+  pointer-events: none;
+}
+
+.entries > li.drop-before::before {
+  top: calc(-0.225rem - 2px);
+}
+
+.entries > li.drop-after::after {
+  bottom: calc(-0.225rem - 2px);
+}
+
+/* The step buttons stay for keyboard and for anyone who cannot drag, but
+   only show on the row being pointed at or focused. */
+.entry-actions .reorder {
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out);
+}
+
+.entries > li:hover .reorder,
+.entries > li:focus-within .reorder {
+  opacity: 1;
 }
 
 .position {

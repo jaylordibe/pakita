@@ -230,6 +230,12 @@ Gently rounded and consistent: 6px for small controls and thumbnails, 9px for bu
 
 - **Rows** are full-width buttons: title plus a muted subline, transparent at rest, Panel on hover, `accent-soft` with a violet hairline when current.
 
+### Reordering
+
+- **Drag where the order is the task** — playlist entries and arrangement chips (`src/renderer/src/drag-reorder.ts`). Never on the slide grid: its order comes from the arrangement.
+- A `grip` icon in `text-faint` marks what can be dragged (the row's grip; the whole chip). The dragged item dims to 45%; a 2px `accent` line in the gap shows where it will land, and only where the drop would change something.
+- **The step buttons stay** (↑ ↓ on rows, ‹ › on chips) for keyboard and for anyone who cannot drag, shown only on the hovered or focused item. Focus follows the item it moved, and every move is announced.
+
 ### Navigation
 
 - **Sidebar items:** icon and label, Hymnal Grey at rest; the current section is a filled violet → indigo pill with white text.

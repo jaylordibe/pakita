@@ -2,6 +2,7 @@
 import { computed, reactive, ref } from 'vue';
 
 import type { Song, SongInput } from '../../../shared/ipc-contract';
+import { focusFirstEnabled, moveItem, useDragReorder } from '../drag-reorder';
 import { messageOf } from '../errors';
 import AppIcon from './AppIcon.vue';
 
@@ -105,6 +106,43 @@ function move<Value>(list: Value[], index: number, offset: number): void {
   const [moved] = list.splice(index, 1);
   list.splice(target, 0, moved!);
 }
+
+// Read out after every chip move, by drag or by button.
+const moveAnnouncement = ref('');
+
+function moveChip(
+  arrangement: EditableArrangement,
+  from: number,
+  to: number,
+): void {
+  if (from === to) return;
+  arrangement.sectionKeys = moveItem(arrangement.sectionKeys, from, to);
+  const label = labelOf(arrangement.sectionKeys[to] ?? '');
+  moveAnnouncement.value = `Moved ${label} to position ${to + 1} of ${arrangement.sectionKeys.length} in ${arrangement.name}.`;
+}
+
+async function moveChipByButton(
+  arrangementIndex: number,
+  position: number,
+  offset: -1 | 1,
+): Promise<void> {
+  const arrangement = arrangements[arrangementIndex];
+  if (!arrangement) return;
+  const to = position + offset;
+  if (to < 0 || to >= arrangement.sectionKeys.length) return;
+  moveChip(arrangement, position, to);
+  // Keep focus on the chip that moved, so the next press moves it again.
+  const at = (step: string) =>
+    `[data-move="${arrangementIndex}-${to}-${step}"]`;
+  const direction = offset < 0 ? 'earlier' : 'later';
+  const opposite = offset < 0 ? 'later' : 'earlier';
+  await focusFirstEnabled(at(direction), at(opposite));
+}
+
+const reorder = useDragReorder<EditableArrangement>({
+  axis: 'horizontal',
+  onMove: moveChip,
+});
 
 function addArrangement(): void {
   arrangements.push({
@@ -268,27 +306,45 @@ async function save(): Promise<void> {
             <AppIcon name="trash" />
           </button>
         </div>
-        <ol class="sequence">
+        <ol class="sequence" @dragleave="reorder.leave">
           <li
             v-for="(key, position) in arrangement.sectionKeys"
             :key="position"
+            class="chip"
+            :class="{
+              dragged: reorder.isDragged(arrangement, position),
+              [`drop-${reorder.markerAt(arrangement, position)}`]:
+                reorder.markerAt(arrangement, position),
+            }"
+            draggable="true"
+            title="Drag to reorder"
+            :data-testid="`arrangement-${index}-chip-${position}`"
+            @dragstart="reorder.start(arrangement, position, $event)"
+            @dragend="reorder.end"
+            @dragover="reorder.over(arrangement, position, $event)"
+            @drop="reorder.drop(arrangement, $event)"
           >
+            <AppIcon name="grip" class="chip-grip" />
             <span class="chip-label">{{ labelOf(key) }}</span>
             <button
               type="button"
-              class="chip-button"
+              class="chip-button reorder"
               aria-label="Earlier"
+              title="Earlier"
+              :data-move="`${index}-${position}-earlier`"
               :disabled="position === 0"
-              @click="move(arrangement.sectionKeys, position, -1)"
+              @click="moveChipByButton(index, position, -1)"
             >
               <AppIcon name="chevron-left" />
             </button>
             <button
               type="button"
-              class="chip-button"
+              class="chip-button reorder"
               aria-label="Later"
+              title="Later"
+              :data-move="`${index}-${position}-later`"
               :disabled="position === arrangement.sectionKeys.length - 1"
-              @click="move(arrangement.sectionKeys, position, 1)"
+              @click="moveChipByButton(index, position, 1)"
             >
               <AppIcon name="chevron-right" />
             </button>
@@ -328,6 +384,7 @@ async function save(): Promise<void> {
         <AppIcon name="plus" />
         Add arrangement
       </button>
+      <p class="visually-hidden" aria-live="polite">{{ moveAnnouncement }}</p>
     </section>
 
     <div class="actions">
@@ -422,12 +479,15 @@ textarea {
   list-style: none;
 }
 
-.sequence li:not(.add-chip) {
+.sequence .chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.05rem;
   height: 2rem;
-  padding: 0 0.2rem 0 0.75rem;
+  padding: 0 0.2rem 0 0.45rem;
+  cursor: grab;
+  user-select: none;
   border: 1px solid rgb(139 108 255 / 0.3);
   border-radius: 999px;
   background: var(--accent-softer);
@@ -435,8 +495,60 @@ textarea {
   font-weight: 500;
 }
 
+.chip:active {
+  cursor: grabbing;
+}
+
+.chip-grip {
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-right: 0.2rem;
+  color: var(--text-faint);
+}
+
+.chip:hover .chip-grip {
+  color: var(--text-muted);
+}
+
+.chip.dragged {
+  opacity: 0.45;
+}
+
+/* Where the chip will land: a violet bar in the gap. */
+.chip.drop-before::before,
+.chip.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 0.15rem;
+  bottom: 0.15rem;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.chip.drop-before::before {
+  left: calc(-0.2rem - 2px);
+}
+
+.chip.drop-after::after {
+  right: calc(-0.2rem - 2px);
+}
+
 .chip-label {
   margin-right: 0.2rem;
+}
+
+/* The step buttons stay for keyboard and for anyone who cannot drag, but
+   only show on the chip being pointed at or focused. */
+.chip-button.reorder {
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out);
+}
+
+.chip:hover .reorder,
+.chip:focus-within .reorder {
+  opacity: 1;
 }
 
 .chip-button {
