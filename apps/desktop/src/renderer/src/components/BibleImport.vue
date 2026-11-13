@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 
 import type {
   BibleImportPreview,
@@ -23,11 +23,20 @@ const form = reactive({
   sourceUrl: '',
 });
 
+const isSuggested = computed(
+  () => Object.keys(preview.value?.suggested ?? {}).length > 0,
+);
+
 async function chooseFolder(): Promise<void> {
   errorMessage.value = null;
   try {
-    preview.value =
-      (await window.pakita.bible.chooseImportFolder()) ?? preview.value;
+    const chosen = await window.pakita.bible.chooseImportFolder();
+    if (!chosen) return;
+    preview.value = chosen;
+    // Fill in what the folder states; keep what it does not.
+    for (const detail of Object.keys(form) as Array<keyof typeof form>) {
+      form[detail] = chosen.suggested[detail] ?? form[detail];
+    }
   } catch (error) {
     errorMessage.value = messageOf(error);
   }
@@ -109,45 +118,73 @@ onUnmounted(() => unsubscribe?.());
     </div>
 
     <form v-if="preview" class="sheet field-grid" @submit.prevent="submit">
+      <p
+        v-if="isSuggested"
+        class="wide suggested muted"
+        data-testid="bible-import-suggested"
+      >
+        <AppIcon name="check" class="ok" />
+        <span>
+          Filled in from the folder’s copyright page. Check them, then import.
+        </span>
+      </p>
       <label>
-        Code
+        Short name
         <input
           v-model="form.code"
           required
           maxlength="12"
+          pattern="[A-Za-z0-9]{2,12}"
           placeholder="WEB"
+          aria-describedby="bible-import-code-help"
           data-testid="bible-import-code"
         />
+        <span id="bible-import-code-help" class="field-help">
+          A few letters or digits for the translation picker, e.g. WEB or KJV.
+        </span>
       </label>
       <label>
-        Name
+        Full name
         <input
           v-model="form.name"
           required
           maxlength="120"
           placeholder="World English Bible"
+          aria-describedby="bible-import-name-help"
           data-testid="bible-import-name"
         />
+        <span id="bible-import-name-help" class="field-help">
+          The translation’s name, as its publisher writes it.
+        </span>
       </label>
       <label>
-        Language (BCP 47)
+        Language
         <input
           v-model="form.languageCode"
           required
           maxlength="40"
           placeholder="en"
+          aria-describedby="bible-import-language-help"
           data-testid="bible-import-language"
         />
+        <span id="bible-import-language-help" class="field-help">
+          A language code: en for English, tl for Tagalog, ceb for Cebuano.
+        </span>
       </label>
       <label>
-        Shown with every passage
+        On-screen credit
         <input
           v-model="form.attribution"
           required
           maxlength="200"
-          placeholder="World English Bible (public domain)"
+          placeholder="World English Bible (Public Domain)"
+          aria-describedby="bible-import-attribution-help"
           data-testid="bible-import-attribution"
         />
+        <span id="bible-import-attribution-help" class="field-help">
+          Shown small under every verse: “John 3:16 · World English Bible
+          (Public Domain)”.
+        </span>
       </label>
       <label class="wide">
         Licence
@@ -156,9 +193,13 @@ onUnmounted(() => unsubscribe?.());
           required
           maxlength="2000"
           rows="3"
-          placeholder="The terms the publisher states"
+          placeholder="Public Domain"
+          aria-describedby="bible-import-licence-help"
           data-testid="bible-import-licence"
         ></textarea>
+        <span id="bible-import-licence-help" class="field-help">
+          What the publisher allows, kept with the translation for reference.
+        </span>
       </label>
       <label class="wide">
         Source (optional)
@@ -167,7 +208,12 @@ onUnmounted(() => unsubscribe?.());
           type="url"
           maxlength="500"
           placeholder="https://ebible.org/…"
+          aria-describedby="bible-import-source-help"
+          data-testid="bible-import-source"
         />
+        <span id="bible-import-source-help" class="field-help">
+          The page the translation was downloaded from.
+        </span>
       </label>
       <div class="row wide submit">
         <button
@@ -227,6 +273,14 @@ onUnmounted(() => unsubscribe?.());
   flex: 1 1 16rem;
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.suggested {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.85rem;
 }
 
 .ok {

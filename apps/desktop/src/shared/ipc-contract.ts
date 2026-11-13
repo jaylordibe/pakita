@@ -189,6 +189,14 @@ export interface BibleTranslationInput {
   readonly sourceUrl: string | null;
 }
 
+/**
+ * Details suggested from the chosen folder (an eBible.org download's
+ * copyright page), each valid for the server. Absent when not found.
+ */
+export type BibleImportSuggestion = {
+  readonly [Detail in keyof BibleTranslationInput]?: string;
+};
+
 /** A folder of USFM files, read and ready to import. */
 export interface BibleImportPreview {
   readonly folderName: string;
@@ -197,6 +205,7 @@ export interface BibleImportPreview {
   readonly firstBook: string;
   readonly lastBook: string;
   readonly skippedCodes: readonly string[];
+  readonly suggested: BibleImportSuggestion;
 }
 
 export interface BibleImportProgress {

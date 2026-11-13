@@ -11,6 +11,7 @@ import {
 import { IpcChannel, type IpcChannelName } from '../shared/ipc-contract';
 import { AppController } from './app-controller';
 import { showDevelopmentDockIcon, windowIcon } from './app-icon';
+import { bibleTranslationInputSchema } from './bible/bible-translation-input';
 import { registerIpcHandler } from './ipc-registry';
 import {
   installWebContentsGuards,
@@ -97,21 +98,6 @@ const bookCode = z.enum(bibleBookCodeValues);
 const chapterNumber = z.number().int().min(1).max(200);
 const versePosition = z
   .object({ chapter: chapterNumber, verse: z.number().int().min(1).max(200) })
-  .strict();
-
-// The server validates these fully; this bounds what reaches it.
-const bibleTranslationInputSchema = z
-  .object({
-    code: z.string().regex(/^[A-Za-z0-9]{2,12}$/),
-    name: z.string().trim().min(1).max(120),
-    languageCode: z.string().regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/),
-    licence: z.string().trim().min(1).max(2000),
-    attribution: z.string().trim().min(1).max(200),
-    sourceUrl: z
-      .url({ protocol: /^https?$/ })
-      .max(500)
-      .nullable(),
-  })
   .strict();
 
 const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/);

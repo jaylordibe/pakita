@@ -64,12 +64,22 @@ test('imports a USFM folder, publishes it and synchronises it', async () => {
   await expect(operator.getByTestId('bible-import-preview')).toContainText(
     '2 books (Genesis to John), 6 verses — left out: FRT',
   );
-  await operator.getByTestId('bible-import-code').fill('WEB');
-  await operator.getByTestId('bible-import-name').fill('World English Bible');
-  await operator
-    .getByTestId('bible-import-attribution')
-    .fill('World English Bible (public domain)');
-  await operator.getByTestId('bible-import-licence').fill('Public domain');
+  // The fixture's copr.htm, laid out as eBible.org's, fills in every detail.
+  await expect(operator.getByTestId('bible-import-suggested')).toBeVisible();
+  await expect(operator.getByTestId('bible-import-code')).toHaveValue('WEB');
+  await expect(operator.getByTestId('bible-import-name')).toHaveValue(
+    'World English Bible',
+  );
+  await expect(operator.getByTestId('bible-import-language')).toHaveValue('en');
+  await expect(operator.getByTestId('bible-import-attribution')).toHaveValue(
+    'World English Bible (Public Domain)',
+  );
+  await expect(operator.getByTestId('bible-import-licence')).toHaveValue(
+    'Public Domain',
+  );
+  await expect(operator.getByTestId('bible-import-source')).toHaveValue(
+    'https://ebible.org/web',
+  );
   await operator.getByTestId('bible-import-submit').click();
 
   await expect(operator.getByTestId('bible-translation')).toContainText(
@@ -100,11 +110,11 @@ test('finds a passage and presents it with its reference', async () => {
     '16 For God so loved the world, that he gave his one and only Son,',
   );
   await expect(projector.locator('#caption')).toHaveText(
-    'John 3:16 · World English Bible (public domain)',
+    'John 3:16 · World English Bible (Public Domain)',
   );
   await operator.keyboard.press('ArrowRight');
   await expect(projector.locator('#caption')).toHaveText(
-    'John 3:17 · World English Bible (public domain)',
+    'John 3:17 · World English Bible (Public Domain)',
   );
   await operator.getByTestId('live-stop').click();
 });

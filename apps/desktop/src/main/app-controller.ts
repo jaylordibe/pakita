@@ -74,6 +74,7 @@ import {
   uploadTranslation,
   type UsfmFolder,
 } from './bible/bible-import';
+import { readSuggestedDetails } from './bible/ebible-details';
 import { checkCompatibility } from './compatibility';
 import { DatabaseClient } from './database/database-client';
 import { LiveSession } from './presentation/live-session';
@@ -523,6 +524,7 @@ export class AppController {
       firstBook: folder.books[0]!.name,
       lastBook: folder.books.at(-1)!.name,
       skippedCodes: folder.skippedCodes,
+      suggested: await readSuggestedDetails(directory),
     };
   }
 
