@@ -6,6 +6,7 @@ import type {
   BibleSearchHit,
   BibleTranslation,
   BibleVerse,
+  LiveState,
   PlaylistItemInput,
   SyncStatus,
 } from '../../../shared/ipc-contract';
@@ -32,6 +33,19 @@ const errorMessage = ref<string | null>(null);
 const referenceText = ref('');
 /** Why the last reference could not be opened; shown once Enter is pressed. */
 const referenceProblem = ref<string | null>(null);
+const liveState = ref<LiveState | null>(null);
+
+/** The verse on the projector, when it is in the chapter open here. */
+const liveVerse = computed(() => {
+  const state = liveState.value;
+  const verse = state?.isLive ? state.slides[state.index]?.verse : undefined;
+  return verse &&
+    verse.translationId === translationId.value &&
+    verse.bookCode === bookCode.value &&
+    verse.chapter === chapter.value
+    ? verse.verse
+    : null;
+});
 
 const book = computed(
   () =>
@@ -234,14 +248,32 @@ watch(bookCode, () => {
   if (chapter.value > (book.value?.chapterCount ?? 1)) chapter.value = 1;
 });
 
+// Follows the projector: as Next and Previous move through the reading, the
+// verse on screen stays in view here.
+watch(liveVerse, async (verse) => {
+  if (verse === null) return;
+  await nextTick();
+  document
+    .querySelector(`[data-testid="bible-verse-${verse}"]`)
+    ?.scrollIntoView({ block: 'nearest' });
+});
+
 let unsubscribe: (() => void) | null = null;
+let unsubscribeLive: (() => void) | null = null;
 onMounted(async () => {
   unsubscribe = window.pakita.sync.onStatus((status: SyncStatus) => {
     if (status.state === 'idle') void loadTranslations();
   });
+  unsubscribeLive = window.pakita.live.onState((state) => {
+    liveState.value = state;
+  });
+  liveState.value = await window.pakita.live.getState();
   await loadTranslations();
 });
-onUnmounted(() => unsubscribe?.());
+onUnmounted(() => {
+  unsubscribe?.();
+  unsubscribeLive?.();
+});
 </script>
 
 <template>
@@ -377,7 +409,9 @@ onUnmounted(() => unsubscribe?.());
           <li v-for="verse in verses" :key="verse.verse">
             <button
               class="verse"
+              :class="{ 'is-live': verse.verse === liveVerse }"
               :aria-pressed="selection.includes(verse)"
+              :aria-current="verse.verse === liveVerse ? 'true' : undefined"
               :data-testid="`bible-verse-${verse.verse}`"
               @click="chooseVerse(verse.verse, $event.shiftKey)"
               @dblclick="goLiveWith(verse.verse)"
@@ -490,6 +524,15 @@ onUnmounted(() => unsubscribe?.());
 .verse[aria-pressed='true'] {
   background: var(--accent-soft);
   border-color: rgb(139 108 255 / 0.3);
+}
+
+.verse.is-live {
+  border-color: var(--live);
+  box-shadow: inset 3px 0 0 var(--live);
+}
+
+.verse.is-live:not([aria-pressed='true']) {
+  background: var(--live-soft);
 }
 
 .verse sup {

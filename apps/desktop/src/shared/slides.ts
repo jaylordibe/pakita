@@ -9,6 +9,15 @@ export interface Slide {
   readonly text: string;
   /** Shown small beneath the text, e.g. a Bible reference and attribution. */
   readonly caption?: string;
+  /** For a Bible verse: which one, so the Bible page can follow what is live. */
+  readonly verse?: SlideVerse;
+}
+
+export interface SlideVerse {
+  readonly translationId: string;
+  readonly bookCode: string;
+  readonly chapter: number;
+  readonly verse: number;
 }
 
 /**
@@ -79,16 +88,22 @@ export function formatReference(
  * translation's attribution (which its licence may require on screen).
  */
 export function buildPassageSlides(
-  bookName: string,
-  attribution: string,
+  translation: { readonly id: string; readonly attribution: string },
+  book: { readonly code: string; readonly name: string },
   verses: readonly PassageVerse[],
 ): Slide[] {
   return verses.map((verse) => {
-    const reference = formatReference(bookName, [verse]);
+    const reference = formatReference(book.name, [verse]);
     return {
       sectionLabel: reference,
       text: `${verse.verse} ${verse.text}`,
-      caption: `${reference} · ${attribution}`,
+      caption: `${reference} · ${translation.attribution}`,
+      verse: {
+        translationId: translation.id,
+        bookCode: book.code,
+        chapter: verse.chapter,
+        verse: verse.verse,
+      },
     };
   });
 }

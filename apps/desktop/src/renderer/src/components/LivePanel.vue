@@ -164,6 +164,7 @@ onUnmounted(() => {
         <div class="controls">
           <button
             data-testid="live-previous"
+            :disabled="state.index <= 0"
             @click="run(() => live.previous())"
           >
             <AppIcon name="arrow-left" />
@@ -172,6 +173,7 @@ onUnmounted(() => {
           <button
             class="primary next"
             data-testid="live-next"
+            :disabled="state.index >= state.slides.length - 1"
             @click="run(() => live.next())"
           >
             Next

@@ -115,14 +115,17 @@ describe('formatReference', () => {
 describe('buildPassageSlides', () => {
   it('makes one numbered, captioned slide per verse', () => {
     expect(
-      buildPassageSlides('John', 'WEB (public domain)', [
-        { chapter: 3, verse: 16, text: 'For God so loved the world,' },
-      ]),
+      buildPassageSlides(
+        { id: 't1', attribution: 'WEB (public domain)' },
+        { code: 'JHN', name: 'John' },
+        [{ chapter: 3, verse: 16, text: 'For God so loved the world,' }],
+      ),
     ).toEqual([
       {
         sectionLabel: 'John 3:16',
         text: '16 For God so loved the world,',
         caption: 'John 3:16 · WEB (public domain)',
+        verse: { translationId: 't1', bookCode: 'JHN', chapter: 3, verse: 16 },
       },
     ]);
   });

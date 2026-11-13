@@ -273,12 +273,36 @@ test('puts a double-clicked verse live, with Go live in reach after scrolling', 
     .locator('.verses')
     .evaluate((list) => (list.style.paddingBottom = ''));
 
-  await operator.getByTestId('bible-verse-17').dblclick();
+  await operator.getByTestId('bible-verse-16').dblclick();
   const projector = await findProjector(application);
+  await expect(projector.locator('#caption')).toHaveText(
+    'John 3:16 · World English Bible (Public Domain)',
+  );
+  // One verse goes live with its whole chapter, so Next carries on reading;
+  // the Bible page follows the verse on the projector.
+  await expect(operator.getByTestId('bible-verse-16')).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(operator.getByTestId('live-previous')).toBeDisabled();
+  await operator.getByTestId('live-next').click();
   await expect(projector.locator('#caption')).toHaveText(
     'John 3:17 · World English Bible (Public Domain)',
   );
+  await expect(operator.getByTestId('bible-verse-17')).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(operator.getByTestId('bible-verse-16')).not.toHaveAttribute(
+    'aria-current',
+  );
+  // The chapter's last verse: nothing follows.
+  await expect(operator.getByTestId('live-next')).toBeDisabled();
+  await expect(operator.getByTestId('live-previous')).toBeEnabled();
   await operator.getByTestId('live-stop').click();
+  await expect(operator.getByTestId('bible-verse-17')).not.toHaveAttribute(
+    'aria-current',
+  );
 });
 
 test('presents from the laptop’s copy after a restart with the server down', async () => {

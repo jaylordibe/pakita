@@ -1051,9 +1051,25 @@ export class AppController {
     return this.broadcastLiveState();
   }
 
-  /** Presents a passage from the laptop's copy of a translation. */
+  /**
+   * Presents a passage from the laptop's copy of a translation. A range is
+   * presented as chosen. A single verse is presented with its whole chapter,
+   * opened at that verse, so Next and Previous carry on through the reading.
+   */
   async startPassage(passage: PassageRequest): Promise<LiveState> {
-    const loaded = await this.loadPassage(passage);
+    const isSingleVerse =
+      passage.start.chapter === passage.end.chapter &&
+      passage.start.verse === passage.end.verse;
+    const chapter = passage.start.chapter;
+    const loaded = await this.loadPassage(
+      isSingleVerse
+        ? {
+            ...passage,
+            start: { chapter, verse: 1 },
+            end: { chapter, verse: Number.MAX_SAFE_INTEGER },
+          }
+        : passage,
+    );
     if (!loaded) {
       throw new Error('That passage is not on this laptop.');
     }
@@ -1062,6 +1078,16 @@ export class AppController {
       loaded.slides,
       await this.resolveLook(null),
     );
+    if (isSingleVerse) {
+      this.live.goTo(
+        Math.max(
+          0,
+          loaded.slides.findIndex(
+            (slide) => slide.verse?.verse === passage.start.verse,
+          ),
+        ),
+      );
+    }
     this.projector.open();
     return this.broadcastLiveState();
   }
@@ -1313,7 +1339,7 @@ export class AppController {
     return {
       reference: formatReference(book.name, verses),
       translationCode: translation.code,
-      slides: buildPassageSlides(book.name, translation.attribution, verses),
+      slides: buildPassageSlides(translation, book, verses),
     };
   }
 
