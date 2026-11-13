@@ -3,6 +3,7 @@ import type { PrismaAbility, Subjects } from '@casl/prisma';
 import type {
   AppVersion,
   AuditLog,
+  BibleTranslation,
   Workspace,
   WorkspaceInvitation,
   WorkspaceMembership,
@@ -49,6 +50,7 @@ export type AppAbility = PrismaAbility<
           DeviceToken: DeviceToken;
           AuditLog: AuditLog;
           Song: Song;
+          BibleTranslation: BibleTranslation;
           QueueJob: QueueJobSubject;
         }>
       | 'all'

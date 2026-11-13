@@ -160,10 +160,15 @@ describe('ROLE_DEFINITION_CATALOG', () => {
     // subject would hand every registered account authority inside every
     // workspace on the platform.
     const SHARED_VOCABULARY_SUBJECTS = new Set(['Role', 'Permission']);
+    // Content shared by the whole installation, never by one tenant: a
+    // church's Bible licence covers all its branches. Reading only.
+    const INSTALLATION_SHARED_SUBJECTS = new Set(['BibleTranslation']);
     for (const permission of AUTHENTICATED_USER_PERMISSIONS) {
       const isSafe =
         permission.ownership === PermissionOwnership.OWN ||
         SHARED_VOCABULARY_SUBJECTS.has(permission.subject) ||
+        (permission.action === 'read' &&
+          INSTALLATION_SHARED_SUBJECTS.has(permission.subject)) ||
         // Creating a workspace grants authority over a tenant that does not yet
         // exist, and the creator becomes its owner. Deliberately open in this
         // template; see the note in the catalog.

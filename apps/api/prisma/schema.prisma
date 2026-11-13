@@ -715,3 +715,66 @@ model SongArrangementItem {
   @@index([songSectionId])
   @@map("song_arrangement_items")
 }
+
+/// A Bible translation, shared by the whole installation: a church's licence
+/// to a translation covers all its branches. Imported as a draft, chapter by
+/// chapter, then published; a published translation never changes (to update
+/// one, delete it and import it again), so desktops download it once and
+/// verify it against `contentHash`.
+model BibleTranslation {
+  id           String    @id @default(uuid()) @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  /// Short and unique, e.g. "WEB".
+  code         String    @unique
+  name         String
+  /// BCP 47, e.g. "en", "tl".
+  languageCode String    @map("language_code")
+  /// The terms the text is used under, as the publisher states them.
+  licence      String
+  /// Shown with every passage presented from this translation.
+  attribution  String
+  sourceUrl    String?   @map("source_url")
+  isPublished  Boolean   @default(false) @map("is_published")
+  publishedAt  DateTime? @map("published_at")
+  /// SHA-256 of the canonical content (see BibleContentService); set at
+  /// publication.
+  contentHash  String?   @map("content_hash")
+  verseCount   Int       @default(0) @map("verse_count")
+
+  books  BibleBook[]
+  verses BibleVerse[]
+
+  @@map("bible_translations")
+}
+
+model BibleBook {
+  id                 String @id @default(uuid()) @db.Uuid
+  bibleTranslationId String @map("bible_translation_id") @db.Uuid
+  /// The USFM book code, e.g. "GEN", "JHN".
+  code               String
+  /// The book's name in the translation's language, e.g. "Juan".
+  name               String
+  /// Canonical order (BIBLE_BOOK_CODES).
+  position           Int
+
+  bibleTranslation BibleTranslation @relation(fields: [bibleTranslationId], references: [id], onDelete: Cascade)
+
+  @@unique([bibleTranslationId, code])
+  @@map("bible_books")
+}
+
+model BibleVerse {
+  bibleTranslationId String @map("bible_translation_id") @db.Uuid
+  bookCode           String @map("book_code")
+  chapter            Int
+  verse              Int
+  text               String
+
+  bibleTranslation BibleTranslation @relation(fields: [bibleTranslationId], references: [id], onDelete: Cascade)
+
+  @@id([bibleTranslationId, bookCode, chapter, verse])
+  @@map("bible_verses")
+}

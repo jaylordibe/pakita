@@ -86,6 +86,7 @@ export const AUTHORIZATION_SUBJECTS = [
   'AuditLog',
   'QueueJob',
   'Song',
+  'BibleTranslation',
 ] as const;
 export type AuthorizationSubject = (typeof AUTHORIZATION_SUBJECTS)[number];
 
@@ -382,6 +383,17 @@ const DELETE_WORKSPACE_INVITATION = workspace(
   'Revoke a pending invitation',
 );
 
+// ── Platform scope: Bible translations ───────────────────────────────────
+// Shared by the whole installation (a church's licence covers its branches),
+// so every signed-in person reads them. Importing and deleting one is an
+// administrator's job: the platform admin's `manage all` covers it.
+const READ_BIBLE_TRANSLATION = platform(
+  'read',
+  'BibleTranslation',
+  ANY,
+  'View and download the installation’s published Bible translations',
+);
+
 // ── Workspace scope: worship content ─────────────────────────────────────
 // Reading is what every member needs to present and to synchronise a laptop;
 // editing the library is a separate, narrower grant.
@@ -447,6 +459,7 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   CREATE_SONG,
   UPDATE_SONG,
   DELETE_SONG,
+  READ_BIBLE_TRANSLATION,
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -484,6 +497,8 @@ export const AUTHENTICATED_USER_PERMISSIONS: readonly PermissionDefinition[] = [
   // Needed to pick a `roleId` when inviting someone to a workspace.
   READ_ROLE,
   READ_PERMISSION,
+  // Every member presents Bible passages.
+  READ_BIBLE_TRANSLATION,
 ] as const;
 
 export interface RoleDefinition {
