@@ -4,6 +4,7 @@ import { computed, reactive, ref } from 'vue';
 import type { Song, SongInput } from '../../../shared/ipc-contract';
 import {
   automaticLabel,
+  followSectionOrder,
   isAutomaticLabel,
   type SectionKind,
 } from '../../../shared/song-sections';
@@ -125,11 +126,24 @@ function removeSection(index: number): void {
   }
 }
 
-function move<Value>(list: Value[], index: number, offset: number): void {
+/**
+ * Moves a section one step. Arrangements that play the sections in their
+ * listed order move with it, so the song is still sung in the order shown.
+ */
+function moveSection(index: number, offset: number): void {
   const target = index + offset;
-  if (target < 0 || target >= list.length) return;
-  const [moved] = list.splice(index, 1);
-  list.splice(target, 0, moved!);
+  if (target < 0 || target >= sections.length) return;
+  const before = sections.map((section) => section.key);
+  const [moved] = sections.splice(index, 1);
+  sections.splice(target, 0, moved!);
+  const after = sections.map((section) => section.key);
+  for (const arrangement of arrangements) {
+    arrangement.sectionKeys = followSectionOrder(
+      arrangement.sectionKeys,
+      before,
+      after,
+    );
+  }
 }
 
 // Read out after every chip move, by drag or by button.
@@ -267,7 +281,7 @@ async function save(): Promise<void> {
             aria-label="Move section up"
             title="Move up"
             :disabled="index === 0"
-            @click="move(sections, index, -1)"
+            @click="moveSection(index, -1)"
           >
             <AppIcon name="arrow-up" />
           </button>
@@ -277,7 +291,7 @@ async function save(): Promise<void> {
             aria-label="Move section down"
             title="Move down"
             :disabled="index === sections.length - 1"
-            @click="move(sections, index, 1)"
+            @click="moveSection(index, 1)"
           >
             <AppIcon name="arrow-down" />
           </button>

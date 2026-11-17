@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   automaticLabel,
+  followSectionOrder,
   isAutomaticLabel,
   kindName,
   type SectionKind,
@@ -63,5 +64,29 @@ describe('isAutomaticLabel', () => {
     expect(isAutomaticLabel('Verse 2', 'chorus')).toBe(false);
     expect(isAutomaticLabel('Verse 2b', 'verse')).toBe(false);
     expect(isAutomaticLabel('Section 4', 'verse')).toBe(false);
+  });
+});
+
+describe('followSectionOrder', () => {
+  const before = ['v1', 'v2', 'v3', 'v4'];
+  const after = ['v1', 'v2', 'v4', 'v3'];
+
+  it('moves an arrangement that plays every section once, in order', () => {
+    expect(followSectionOrder(before, before, after)).toEqual(after);
+  });
+
+  it('keeps an arrangement with a repeated section', () => {
+    const sequence = ['v1', 'v2', 'v3', 'v4', 'v1'];
+    expect(followSectionOrder(sequence, before, after)).toEqual(sequence);
+  });
+
+  it('keeps an arrangement in its own order', () => {
+    const sequence = ['v2', 'v1', 'v3', 'v4'];
+    expect(followSectionOrder(sequence, before, after)).toEqual(sequence);
+  });
+
+  it('keeps an arrangement that leaves a section out', () => {
+    const sequence = ['v1', 'v2', 'v3'];
+    expect(followSectionOrder(sequence, before, after)).toEqual(sequence);
   });
 });

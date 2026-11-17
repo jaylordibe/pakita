@@ -46,3 +46,21 @@ export function automaticLabel(
   );
   return `${kindName(kind)} ${Math.max(sameKind.length, highestInUse) + 1}`;
 }
+
+/**
+ * An arrangement's sequence after the song's sections are reordered from
+ * `before` to `after` (both lists of section keys). An arrangement that plays
+ * every section once, in section order, follows the sections to their new
+ * order; any other arrangement (repeats, omissions, its own order) was
+ * arranged by the person and is kept as it is.
+ */
+export function followSectionOrder(
+  sequence: readonly string[],
+  before: readonly string[],
+  after: readonly string[],
+): string[] {
+  const followsSections =
+    sequence.length === before.length &&
+    sequence.every((key, index) => key === before[index]);
+  return followsSections ? [...after] : [...sequence];
+}

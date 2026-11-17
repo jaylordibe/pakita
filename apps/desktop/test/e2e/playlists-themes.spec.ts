@@ -257,3 +257,49 @@ test('reorders a song’s arrangement by dragging its chips', async () => {
   };
   await expect.poll(savedOrder).toEqual(['Chorus 1', 'Verse 1']);
 });
+
+test('moving a section moves it in an arrangement that follows the sections', async () => {
+  await api.request(
+    'POST',
+    `/api/workspaces/${api.workspace.id}/songs`,
+    song('Holy, Holy, Holy', 'Holy, holy, holy'),
+  );
+  await operator.getByRole('button', { name: 'Sync now' }).click();
+  await operator.getByTestId('library-song-Holy, Holy, Holy').click();
+  await operator.getByRole('button', { name: 'Edit', exact: true }).click();
+  await operator.getByRole('button', { name: 'Add section' }).click();
+  await operator.getByTestId('section-lyrics-1').fill('Lord God Almighty');
+  await expect(operator.getByTestId('arrangement-0-chip-1')).toContainText(
+    'Verse 2',
+  );
+
+  // Move Verse 2 above Verse 1 with the section's own arrow.
+  await operator
+    .getByRole('button', { name: 'Move section up' })
+    .nth(1)
+    .click();
+  await expect(operator.getByTestId('section-label-0')).toHaveValue('Verse 2');
+  await expect(operator.getByTestId('arrangement-0-chip-0')).toContainText(
+    'Verse 2',
+  );
+  await operator.getByTestId('song-save').click();
+
+  const savedOrder = async () => {
+    const songs = await api.request<{
+      data: Array<{
+        title: string;
+        sections: Array<{ id: string; label: string }>;
+        arrangements: Array<{ isDefault: boolean; sectionIds: string[] }>;
+      }>;
+    }>('GET', `/api/workspaces/${api.workspace.id}/songs`);
+    const saved = songs.data.find(
+      (entry) => entry.title === 'Holy, Holy, Holy',
+    )!;
+    const labelOf = (id: string) =>
+      saved.sections.find((section) => section.id === id)?.label;
+    return saved.arrangements
+      .find((entry) => entry.isDefault)!
+      .sectionIds.map(labelOf);
+  };
+  await expect.poll(savedOrder).toEqual(['Verse 2', 'Verse 1']);
+});
