@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   automaticLabel,
-  followSectionOrder,
   kindName,
+  sectionsInSungOrder,
   type SectionKind,
 } from './song-sections';
 
@@ -56,26 +56,31 @@ describe('automaticLabel', () => {
   });
 });
 
-describe('followSectionOrder', () => {
-  const before = ['v1', 'v2', 'v3', 'v4'];
-  const after = ['v1', 'v2', 'v4', 'v3'];
+describe('sectionsInSungOrder', () => {
+  const sections = ['v1', 'c1', 'v2', 'br'].map((key) => ({ key }));
+  const keysOf = (list: Array<{ key: string }>) => list.map(({ key }) => key);
 
-  it('moves an arrangement that plays every section once, in order', () => {
-    expect(followSectionOrder(before, before, after)).toEqual(after);
+  it('lists each section once, where it is first sung', () => {
+    expect(
+      keysOf(sectionsInSungOrder(sections, ['c1', 'v1', 'c1', 'v2', 'c1'])),
+    ).toEqual(['c1', 'v1', 'v2', 'br']);
   });
 
-  it('keeps an arrangement with a repeated section', () => {
-    const sequence = ['v1', 'v2', 'v3', 'v4', 'v1'];
-    expect(followSectionOrder(sequence, before, after)).toEqual(sequence);
+  it('keeps a section that is not sung, after the sung ones', () => {
+    expect(keysOf(sectionsInSungOrder(sections, ['v2', 'v1']))).toEqual([
+      'v2',
+      'v1',
+      'c1',
+      'br',
+    ]);
   });
 
-  it('keeps an arrangement in its own order', () => {
-    const sequence = ['v2', 'v1', 'v3', 'v4'];
-    expect(followSectionOrder(sequence, before, after)).toEqual(sequence);
-  });
-
-  it('keeps an arrangement that leaves a section out', () => {
-    const sequence = ['v1', 'v2', 'v3'];
-    expect(followSectionOrder(sequence, before, after)).toEqual(sequence);
+  it('ignores a key that names no section', () => {
+    expect(keysOf(sectionsInSungOrder(sections, ['gone', 'br']))).toEqual([
+      'br',
+      'v1',
+      'c1',
+      'v2',
+    ]);
   });
 });

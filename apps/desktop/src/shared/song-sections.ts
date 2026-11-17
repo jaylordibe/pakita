@@ -43,19 +43,22 @@ export function automaticLabel(
 }
 
 /**
- * An arrangement's sequence after the song's sections are reordered from
- * `before` to `after` (both lists of section keys). An arrangement that plays
- * every section once, in section order, follows the sections to their new
- * order; any other arrangement (repeats, omissions, its own order) was
- * arranged by the person and is kept as it is.
+ * The song's sections in the order `sequence` (an arrangement's section keys)
+ * first sings them, then any it does not sing, in their existing order. Each
+ * section appears once, however often it is sung.
  */
-export function followSectionOrder(
+export function sectionsInSungOrder<Section extends { readonly key: string }>(
+  sections: readonly Section[],
   sequence: readonly string[],
-  before: readonly string[],
-  after: readonly string[],
-): string[] {
-  const followsSections =
-    sequence.length === before.length &&
-    sequence.every((key, index) => key === before[index]);
-  return followsSections ? [...after] : [...sequence];
+): Section[] {
+  const byKey = new Map(sections.map((section) => [section.key, section]));
+  const ordered = new Map<string, Section>();
+  for (const key of sequence) {
+    const section = byKey.get(key);
+    if (section) ordered.set(key, section);
+  }
+  for (const section of sections) {
+    if (!ordered.has(section.key)) ordered.set(section.key, section);
+  }
+  return [...ordered.values()];
 }

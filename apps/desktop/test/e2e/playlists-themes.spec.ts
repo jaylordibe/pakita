@@ -214,7 +214,24 @@ test('presents the playlist with the default theme', async () => {
   await operator.getByTestId('live-stop').click();
 });
 
-test('reorders a song’s arrangement by dragging its chips', async () => {
+/** The labels of a saved song's default order, as the server holds it. */
+async function savedOrder(title: string): Promise<Array<string | undefined>> {
+  const songs = await api.request<{
+    data: Array<{
+      title: string;
+      sections: Array<{ id: string; label: string }>;
+      arrangements: Array<{ isDefault: boolean; sectionIds: string[] }>;
+    }>;
+  }>('GET', `/api/workspaces/${api.workspace.id}/songs`);
+  const saved = songs.data.find((entry) => entry.title === title)!;
+  const labelOf = (id: string) =>
+    saved.sections.find((section) => section.id === id)?.label;
+  return saved.arrangements
+    .find((entry) => entry.isDefault)!
+    .sectionIds.map(labelOf);
+}
+
+test('reorders a song by dragging its section cards', async () => {
   await operator.getByTestId('tab-songs').click();
   await operator.getByTestId('library-song-Amazing Grace').click();
   await operator.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -226,40 +243,23 @@ test('reorders a song’s arrangement by dragging its chips', async () => {
   await expect(operator.getByTestId('section-label-1')).toHaveValue('Verse 2');
   await operator.getByTestId('section-label-1').fill('Chorus 1');
   await operator.getByTestId('section-lyrics-1').fill('My chains are gone');
-  await expect(operator.getByTestId('arrangement-0-chip-1')).toContainText(
-    'Chorus',
-  );
+  await expect(operator.getByTestId('section-card-1')).toContainText('Chorus');
 
-  // Drop the Chorus chip on the left half of Verse 1.
+  // Drop the Chorus card on the left half of Verse 1.
   await operator
-    .getByTestId('arrangement-0-chip-1')
-    .dragTo(operator.getByTestId('arrangement-0-chip-0'), {
-      targetPosition: { x: 4, y: 10 },
+    .getByTestId('section-card-1')
+    .dragTo(operator.getByTestId('section-card-0'), {
+      targetPosition: { x: 4, y: 20 },
     });
-  await expect(operator.getByTestId('arrangement-0-chip-0')).toContainText(
-    'Chorus',
-  );
+  await expect(operator.getByTestId('section-card-0')).toContainText('Chorus');
   await operator.getByTestId('song-save').click();
 
-  const savedOrder = async () => {
-    const songs = await api.request<{
-      data: Array<{
-        title: string;
-        sections: Array<{ id: string; label: string }>;
-        arrangements: Array<{ isDefault: boolean; sectionIds: string[] }>;
-      }>;
-    }>('GET', `/api/workspaces/${api.workspace.id}/songs`);
-    const saved = songs.data.find((entry) => entry.title === 'Amazing Grace')!;
-    const labelOf = (id: string) =>
-      saved.sections.find((section) => section.id === id)?.label;
-    return saved.arrangements
-      .find((entry) => entry.isDefault)!
-      .sectionIds.map(labelOf);
-  };
-  await expect.poll(savedOrder).toEqual(['Chorus 1', 'Verse 1']);
+  await expect
+    .poll(() => savedOrder('Amazing Grace'))
+    .toEqual(['Chorus 1', 'Verse 1']);
 });
 
-test('moving a section moves it in an arrangement that follows the sections', async () => {
+test('sings a section again as a linked copy, and removes one', async () => {
   await api.request(
     'POST',
     `/api/workspaces/${api.workspace.id}/songs`,
@@ -270,9 +270,6 @@ test('moving a section moves it in an arrangement that follows the sections', as
   await operator.getByRole('button', { name: 'Edit', exact: true }).click();
   await operator.getByRole('button', { name: 'Add section' }).click();
   await operator.getByTestId('section-lyrics-1').fill('Lord God Almighty');
-  await expect(operator.getByTestId('arrangement-0-chip-1')).toContainText(
-    'Verse 2',
-  );
 
   // The new section is the one being edited, with its slides previewed.
   await expect(operator.getByTestId('section-card-1')).toHaveAttribute(
@@ -288,38 +285,41 @@ test('moving a section moves it in an arrangement that follows the sections', as
   await operator.getByTestId('section-card-1').hover();
   await operator.getByRole('button', { name: 'Move Verse 2 earlier' }).click();
   await expect(operator.getByTestId('section-card-0')).toContainText('Verse 2');
-  await expect(operator.getByTestId('section-label-0')).toHaveValue('Verse 2');
-  await expect(operator.getByTestId('arrangement-0-chip-0')).toContainText(
-    'Verse 2',
+
+  // Repeat Verse 1: a second card, linked to the same lyrics.
+  await operator.getByTestId('section-card-1').click();
+  await operator.getByTestId('section-repeat').click();
+  await expect(operator.getByTestId('section-card-2')).toContainText('Verse 1');
+  await expect(operator.getByTestId('section-card-2')).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await operator.getByTestId('section-lyrics-1').fill('Holy, holy, holy!');
+  await expect(operator.getByTestId('section-card-1')).toContainText(
+    'Holy, holy, holy!',
   );
 
-  // A card picks the section to edit; "All lyrics" shows every section.
-  await operator.getByTestId('section-card-1').click();
-  await expect(operator.getByTestId('section-lyrics-1')).toHaveValue(
-    'Holy, holy, holy',
-  );
-  await expect(operator.getByTestId('section-lyrics-0')).toBeHidden();
+  // Removing one of its two cards keeps the section…
+  await operator.getByTestId('section-remove').click();
+  await expect(operator.getByTestId('section-card-2')).toHaveCount(0);
+  // …but removing Verse 2's only card asks before deleting it.
+  await operator.getByTestId('section-card-0').click();
+  await operator.getByTestId('section-remove').click();
+  await expect(operator.getByTestId('section-delete-confirm')).toBeVisible();
+  await operator.getByRole('button', { name: 'Keep' }).click();
+  await expect(operator.getByTestId('section-card-0')).toContainText('Verse 2');
+
+  // "All lyrics" shows every section once.
   await operator.getByTestId('section-view-toggle').click();
   await expect(operator.getByTestId('section-lyrics-0')).toBeVisible();
   await expect(operator.getByTestId('section-lyrics-1')).toBeVisible();
-  await operator.getByTestId('song-save').click();
+  await operator.getByTestId('section-card-1').click();
+  await operator.getByTestId('section-view-toggle').click();
 
-  const savedOrder = async () => {
-    const songs = await api.request<{
-      data: Array<{
-        title: string;
-        sections: Array<{ id: string; label: string }>;
-        arrangements: Array<{ isDefault: boolean; sectionIds: string[] }>;
-      }>;
-    }>('GET', `/api/workspaces/${api.workspace.id}/songs`);
-    const saved = songs.data.find(
-      (entry) => entry.title === 'Holy, Holy, Holy',
-    )!;
-    const labelOf = (id: string) =>
-      saved.sections.find((section) => section.id === id)?.label;
-    return saved.arrangements
-      .find((entry) => entry.isDefault)!
-      .sectionIds.map(labelOf);
-  };
-  await expect.poll(savedOrder).toEqual(['Verse 2', 'Verse 1']);
+  // Sing Verse 1 twice more, save, and the server holds that order.
+  await operator.getByTestId('section-repeat').click();
+  await operator.getByTestId('song-save').click();
+  await expect
+    .poll(() => savedOrder('Holy, Holy, Holy'))
+    .toEqual(['Verse 2', 'Verse 1', 'Verse 1']);
 });

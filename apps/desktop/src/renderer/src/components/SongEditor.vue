@@ -14,12 +14,18 @@ import type { Song, SongInput } from '../../../shared/ipc-contract';
 import { splitIntoSlides } from '../../../shared/slides';
 import {
   automaticLabel,
-  followSectionOrder,
+  sectionsInSungOrder,
   type SectionKind,
 } from '../../../shared/song-sections';
 import { focusFirstEnabled, moveItem, useDragReorder } from '../drag-reorder';
 import { messageOf } from '../errors';
 import AppIcon from './AppIcon.vue';
+
+// The editor shows a song the way it is sung: the strip is the order of one
+// version (an arrangement; the default one unless another is picked), so
+// what the operator arranges here is what goes live. A section sung more
+// than once appears once per time, and every copy edits the same lyrics.
+// The song's own list of sections is derived from that order on save.
 
 interface EditableSection {
   key: string;
@@ -27,9 +33,14 @@ interface EditableSection {
   label: string;
   lyrics: string;
 }
-interface EditableArrangement {
+interface EditableVersion {
   name: string;
   sectionKeys: string[];
+}
+/** The card being edited: a place in the order, or a section it leaves out. */
+interface Selection {
+  key: string;
+  position: number | null;
 }
 
 const SECTION_KINDS: SectionKind[] = [
@@ -47,8 +58,8 @@ const emit = defineEmits<{ saved: [song: Song]; cancel: [] }>();
 let newKeyCount = 0;
 const nextKey = () => `new-${(newKeyCount += 1)}`;
 
-// Existing sections keep their server ids as keys, so arrangements that refer
-// to them survive the edit.
+// Existing sections keep their server ids as keys, so versions that refer to
+// them survive the edit.
 const title = ref(props.song?.title ?? '');
 const artist = ref(props.song?.artist ?? '');
 const sections = reactive<EditableSection[]>(
@@ -66,7 +77,7 @@ const sections = reactive<EditableSection[]>(
     },
   ],
 );
-const arrangements = reactive<EditableArrangement[]>(
+const versions = reactive<EditableVersion[]>(
   props.song?.arrangements.map((arrangement) => ({
     name: arrangement.name,
     sectionKeys: [...arrangement.sectionIds],
@@ -80,14 +91,14 @@ const defaultIndex = ref(
     ) ?? 0,
   ),
 );
+const activeIndex = ref(defaultIndex.value);
+const active = computed(() => versions[activeIndex.value]!);
 const errorMessage = ref<string | null>(null);
 const isSaving = ref(false);
 
-// The strip of section cards picks the one section being edited; "All
-// lyrics" shows every section at once, for reading a song through.
-const selectedKey = ref(sections[0]!.key);
-const showsAllLyrics = ref(false);
-
+const sectionOf = (key: string) =>
+  sections.find((section) => section.key === key);
+const labelOf = (key: string) => sectionOf(key)?.label || 'Unnamed';
 const slidesOf = (section: EditableSection) => splitIntoSlides(section.lyrics);
 const isIncomplete = (section: EditableSection) =>
   !section.label.trim() || !section.lyrics.trim();
@@ -96,14 +107,67 @@ const slideCount = (section: EditableSection) => {
   return count === 1 ? '1 slide' : `${count} slides`;
 };
 
-/** Edits this section: in "All lyrics", brings it into view instead. */
-async function selectSection(key: string): Promise<void> {
-  selectedKey.value = key;
+/** The sung order of the version on screen, one entry per card. */
+const sung = computed(() =>
+  active.value.sectionKeys.flatMap((key, position) => {
+    const section = sectionOf(key);
+    return section ? [{ section, position }] : [];
+  }),
+);
+/** Sections this version leaves out (sung only in another, or nowhere). */
+const unsung = computed(() =>
+  sections.filter((section) => !active.value.sectionKeys.includes(section.key)),
+);
+/** Every section once, as this version first sings it: "All lyrics". */
+const orderedSections = computed(() =>
+  sectionsInSungOrder(sections, active.value.sectionKeys),
+);
+const timesSung = (key: string) =>
+  active.value.sectionKeys.filter((other) => other === key).length;
+const isSungInAnotherVersion = (key: string) =>
+  versions.some(
+    (version, index) =>
+      index !== activeIndex.value && version.sectionKeys.includes(key),
+  );
+
+// The strip picks the card being edited; "All lyrics" shows every section at
+// once, for reading a song through.
+const firstSelection = (): Selection =>
+  active.value.sectionKeys[0]
+    ? { key: active.value.sectionKeys[0], position: 0 }
+    : { key: sections[0]!.key, position: null };
+const selection = ref<Selection>(firstSelection());
+const showsAllLyrics = ref(false);
+/** The section waiting for "Delete section?" to be answered. */
+const pendingDeletion = ref<string | null>(null);
+
+const isSelected = (position: number | null, key: string) =>
+  selection.value.position === position && selection.value.key === key;
+
+/** Edits this card: in "All lyrics", brings its section into view instead. */
+async function select(key: string, position: number | null): Promise<void> {
+  selection.value = { key, position };
+  pendingDeletion.value = null;
   if (!showsAllLyrics.value) return;
   await nextTick();
   document
     .querySelector(`[data-section-sheet="${key}"]`)
     ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+async function focusLyrics(key: string): Promise<void> {
+  await nextTick();
+  document
+    .querySelector<HTMLTextAreaElement>(
+      `[data-section-sheet="${key}"] textarea`,
+    )
+    ?.focus();
+}
+
+function chooseVersion(index: number): void {
+  activeIndex.value = index;
+  selection.value = firstSelection();
+  pendingDeletion.value = null;
 }
 
 // Which ends of the strip have cards scrolled out of view, so those edges
@@ -122,38 +186,30 @@ onMounted(() => {
   if (strip.value) stripResize.observe(strip.value);
 });
 onBeforeUnmount(() => stripResize.disconnect());
-watch(
-  () => sections.length,
-  () => nextTick(measureStrip),
-);
 
-// Keep the selected card in view as sections are added and moved.
+// Keep the selected card in view as cards are added and moved.
 watch(
-  () => [selectedKey.value, sections.length] as const,
+  () => [selection.value, active.value.sectionKeys.length] as const,
   async () => {
     await nextTick();
+    measureStrip();
     document
-      .querySelector(`[data-section-card="${selectedKey.value}"]`)
+      .querySelector('.section-card[aria-current="true"]')
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   },
 );
-
-const labelOf = (key: string) =>
-  sections.find((section) => section.key === key)?.label ?? '?';
 
 const canSave = computed(
   () =>
     title.value.trim().length > 0 &&
     sections.length > 0 &&
-    sections.every(
-      (section) => section.label.trim() && section.lyrics.trim(),
-    ) &&
-    arrangements.every(
-      (arrangement) =>
-        arrangement.name.trim() && arrangement.sectionKeys.length > 0,
+    sections.every((section) => !isIncomplete(section)) &&
+    versions.every(
+      (version) => version.name.trim() && version.sectionKeys.length > 0,
     ),
 );
 
+/** A new section, sung last in the version on screen. */
 function addSection(): void {
   const section: EditableSection = {
     key: nextKey(),
@@ -162,61 +218,99 @@ function addSection(): void {
     lyrics: '',
   };
   sections.push(section);
-  arrangements[defaultIndex.value]?.sectionKeys.push(section.key);
-  void selectSection(section.key).then(async () => {
-    await nextTick();
-    document
-      .querySelector<HTMLTextAreaElement>(
-        `[data-section-sheet="${section.key}"] textarea`,
-      )
-      ?.focus();
-  });
+  active.value.sectionKeys.push(section.key);
+  void select(section.key, active.value.sectionKeys.length - 1).then(() =>
+    focusLyrics(section.key),
+  );
 }
-
-function removeSection(index: number): void {
-  if (sections.length === 1) return;
-  const [removed] = sections.splice(index, 1);
-  if (!removed) return;
-  if (selectedKey.value === removed.key) {
-    selectedKey.value = (sections[index] ?? sections[index - 1])!.key;
-  }
-  for (const arrangement of arrangements) {
-    arrangement.sectionKeys = arrangement.sectionKeys.filter(
-      (key) => key !== removed.key,
-    );
-  }
-}
-
-// Read out after every section or chip move, by drag or by button.
-const moveAnnouncement = ref('');
 
 /**
- * Moves a section to a new place. Arrangements that play the sections in
- * their listed order move with it, so the song is still sung in the order
- * shown.
+ * Sings the selected section once more, straight after this card; a section
+ * the version leaves out is added at the end.
  */
-function moveSection(_list: EditableSection[], from: number, to: number): void {
-  if (from === to) return;
-  const before = sections.map((section) => section.key);
-  const after = moveItem(before, from, to);
-  sections.splice(0, sections.length, ...moveItem(sections, from, to));
-  for (const arrangement of arrangements) {
-    arrangement.sectionKeys = followSectionOrder(
-      arrangement.sectionKeys,
-      before,
-      after,
-    );
-  }
-  moveAnnouncement.value = `Moved ${labelOf(after[to] ?? '')} to position ${to + 1} of ${sections.length}.`;
+function repeatSelected(): void {
+  const { key, position } = selection.value;
+  const keys = active.value.sectionKeys;
+  const at = position === null ? keys.length : position + 1;
+  keys.splice(at, 0, key);
+  selection.value = { key, position: at };
+  moveAnnouncement.value = `${labelOf(key)} is now sung ${timesSung(key)} ${timesSung(key) === 1 ? 'time' : 'times'}.`;
 }
 
-async function moveSectionByButton(
+/** Whether removing this card would leave its section sung nowhere. */
+const removalDeletesSection = computed(() => {
+  const { key, position } = selection.value;
+  if (position === null) return true;
+  return timesSung(key) === 1 && !isSungInAnotherVersion(key);
+});
+
+/**
+ * Takes the selected card out of the order. Its section stays while it is
+ * sung elsewhere; the last place it is sung asks before deleting it.
+ */
+function removeSelected(): void {
+  const { key, position } = selection.value;
+  if (removalDeletesSection.value) {
+    pendingDeletion.value = key;
+    return;
+  }
+  if (position === null) return;
+  active.value.sectionKeys.splice(position, 1);
+  selectNear(position);
+}
+
+function deleteSection(key: string): void {
+  if (sections.length === 1) return;
+  const index = sections.findIndex((section) => section.key === key);
+  if (index < 0) return;
+  const position = selection.value.position;
+  sections.splice(index, 1);
+  for (const version of versions) {
+    version.sectionKeys = version.sectionKeys.filter((other) => other !== key);
+  }
+  pendingDeletion.value = null;
+  selectNear(position ?? active.value.sectionKeys.length);
+}
+
+/** After a removal: the card now at `position`, else the one before it. */
+function selectNear(position: number): void {
+  const keys = active.value.sectionKeys;
+  const near = Math.min(position, keys.length - 1);
+  selection.value =
+    near >= 0
+      ? { key: keys[near]!, position: near }
+      : { key: sections[0]!.key, position: null };
+}
+
+// Read out after every move, by drag or by button.
+const moveAnnouncement = ref('');
+
+function moveCard(keys: string[], from: number, to: number): void {
+  if (from === to) return;
+  const positions = moveItem(
+    keys.map((_, position) => position),
+    from,
+    to,
+  );
+  active.value.sectionKeys = moveItem(keys, from, to);
+  // The selection stays on the same card wherever it now sits.
+  const selected = selection.value.position;
+  if (selected !== null) {
+    selection.value = {
+      key: selection.value.key,
+      position: positions.indexOf(selected),
+    };
+  }
+  moveAnnouncement.value = `Moved ${labelOf(keys[from] ?? '')} to position ${to + 1} of ${keys.length}.`;
+}
+
+async function moveCardByButton(
   position: number,
   offset: -1 | 1,
 ): Promise<void> {
   const to = position + offset;
-  if (to < 0 || to >= sections.length) return;
-  moveSection(sections, position, to);
+  if (to < 0 || to >= active.value.sectionKeys.length) return;
+  moveCard(active.value.sectionKeys, position, to);
   // Keep focus on the card that moved, so the next press moves it again.
   const at = (step: string) => `[data-section-move="${to}-${step}"]`;
   const direction = offset < 0 ? 'earlier' : 'later';
@@ -224,74 +318,51 @@ async function moveSectionByButton(
   await focusFirstEnabled(at(direction), at(opposite));
 }
 
-const sectionReorder = useDragReorder<EditableSection[]>({
+const cardReorder = useDragReorder<string[]>({
   axis: 'horizontal',
-  onMove: moveSection,
+  onMove: moveCard,
 });
 
-function moveChip(
-  arrangement: EditableArrangement,
-  from: number,
-  to: number,
-): void {
-  if (from === to) return;
-  arrangement.sectionKeys = moveItem(arrangement.sectionKeys, from, to);
-  const label = labelOf(arrangement.sectionKeys[to] ?? '');
-  moveAnnouncement.value = `Moved ${label} to position ${to + 1} of ${arrangement.sectionKeys.length} in ${arrangement.name}.`;
-}
-
-async function moveChipByButton(
-  arrangementIndex: number,
-  position: number,
-  offset: -1 | 1,
-): Promise<void> {
-  const arrangement = arrangements[arrangementIndex];
-  if (!arrangement) return;
-  const to = position + offset;
-  if (to < 0 || to >= arrangement.sectionKeys.length) return;
-  moveChip(arrangement, position, to);
-  // Keep focus on the chip that moved, so the next press moves it again.
-  const at = (step: string) =>
-    `[data-move="${arrangementIndex}-${to}-${step}"]`;
-  const direction = offset < 0 ? 'earlier' : 'later';
-  const opposite = offset < 0 ? 'later' : 'earlier';
-  await focusFirstEnabled(at(direction), at(opposite));
-}
-
-const reorder = useDragReorder<EditableArrangement>({
-  axis: 'horizontal',
-  onMove: moveChip,
-});
-
-function addArrangement(): void {
-  arrangements.push({
-    name: `Arrangement ${arrangements.length + 1}`,
-    sectionKeys: sections.map((section) => section.key),
+/** Another order for the same sections, starting as a copy of this one. */
+function addVersion(): void {
+  versions.push({
+    name: `Version ${versions.length + 1}`,
+    sectionKeys: [...active.value.sectionKeys],
   });
+  chooseVersion(versions.length - 1);
 }
 
-function removeArrangement(index: number): void {
-  if (arrangements.length === 1) return;
-  arrangements.splice(index, 1);
-  if (defaultIndex.value >= arrangements.length) defaultIndex.value = 0;
+function removeVersion(index: number): void {
+  if (versions.length === 1) return;
+  versions.splice(index, 1);
+  if (defaultIndex.value === index) defaultIndex.value = 0;
+  else if (defaultIndex.value > index) defaultIndex.value -= 1;
+  chooseVersion(
+    activeIndex.value === index
+      ? defaultIndex.value
+      : activeIndex.value > index
+        ? activeIndex.value - 1
+        : activeIndex.value,
+  );
 }
 
 async function save(): Promise<void> {
   isSaving.value = true;
   errorMessage.value = null;
+  const defaultOrder = versions[defaultIndex.value]?.sectionKeys ?? [];
   const input: SongInput = {
     title: title.value.trim(),
     artist: artist.value.trim() || null,
-    sections: sections.map((section) => ({
+    sections: sectionsInSungOrder(sections, defaultOrder).map((section) => ({
       key: section.key,
       kind: section.kind,
       label: section.label.trim(),
       lyrics: section.lyrics,
     })),
-    arrangements: arrangements.map((arrangement, index) => ({
-      name: arrangement.name.trim(),
+    arrangements: versions.map((version, index) => ({
+      name: version.name.trim(),
       isDefault: index === defaultIndex.value,
-      sectionKeys: [...arrangement.sectionKeys],
+      sectionKeys: [...version.sectionKeys],
     })),
   };
   try {
@@ -329,8 +400,27 @@ async function save(): Promise<void> {
     <section class="group">
       <div class="group-head">
         <h3>Sections</h3>
-        <p class="muted">A blank line in the lyrics starts a new slide.</p>
+        <p class="muted">In the order they are shown live.</p>
         <span class="grow"></span>
+        <label v-if="versions.length > 1" class="version-pick">
+          <span class="visually-hidden">Version</span>
+          <select
+            :value="activeIndex"
+            data-testid="version-select"
+            @change="
+              chooseVersion(Number(($event.target as HTMLSelectElement).value))
+            "
+          >
+            <option
+              v-for="(version, index) in versions"
+              :key="index"
+              :value="index"
+            >
+              {{ version.name || 'Unnamed version'
+              }}{{ index === defaultIndex ? ' (default)' : '' }}
+            </option>
+          </select>
+        </label>
         <button
           type="button"
           class="ghost sm"
@@ -354,38 +444,54 @@ async function save(): Promise<void> {
           'more-before': stripEdges.before,
           'more-after': stripEdges.after,
         }"
+        :aria-label="`${active.name}: sections in the order they are sung`"
         @scroll.passive="measureStrip"
-        aria-label="Sections, in order"
-        @dragleave="sectionReorder.leave"
+        @dragleave="cardReorder.leave"
       >
         <li
-          v-for="(section, index) in sections"
-          :key="section.key"
+          v-for="{ section, position } in sung"
+          :key="`${section.key}-${position}`"
           class="strip-item"
           :class="{
-            dragged: sectionReorder.isDragged(sections, index),
-            [`drop-${sectionReorder.markerAt(sections, index)}`]:
-              sectionReorder.markerAt(sections, index),
+            dragged: cardReorder.isDragged(active.sectionKeys, position),
+            [`drop-${cardReorder.markerAt(active.sectionKeys, position)}`]:
+              cardReorder.markerAt(active.sectionKeys, position),
           }"
           draggable="true"
-          @dragstart="sectionReorder.start(sections, index, $event)"
-          @dragend="sectionReorder.end"
-          @dragover="sectionReorder.over(sections, index, $event)"
-          @drop="sectionReorder.drop(sections, $event)"
+          @dragstart="cardReorder.start(active.sectionKeys, position, $event)"
+          @dragend="cardReorder.end"
+          @dragover="cardReorder.over(active.sectionKeys, position, $event)"
+          @drop="cardReorder.drop(active.sectionKeys, $event)"
         >
           <button
             type="button"
             class="slide section-card"
-            :class="{ incomplete: isIncomplete(section) }"
-            :aria-current="section.key === selectedKey ? 'true' : undefined"
-            :data-section-card="section.key"
-            :data-testid="`section-card-${index}`"
+            :class="{
+              incomplete: isIncomplete(section),
+              linked:
+                section.key === selection.key &&
+                !isSelected(position, section.key),
+            }"
+            :aria-current="
+              isSelected(position, section.key) ? 'true' : undefined
+            "
+            :data-testid="`section-card-${position}`"
             title="Edit this section · drag to reorder"
-            @click="selectSection(section.key)"
+            @click="select(section.key, position)"
           >
             <span class="slide-label">
-              <span class="card-name">{{ section.label || 'Unnamed' }}</span>
-              <span class="slide-number">{{ slideCount(section) }}</span>
+              <span class="card-name">
+                <AppIcon
+                  v-if="timesSung(section.key) > 1"
+                  name="sync"
+                  class="linked-mark"
+                />
+                {{ section.label || 'Unnamed' }}
+                <span v-if="timesSung(section.key) > 1" class="visually-hidden">
+                  (sung {{ timesSung(section.key) }} times)
+                </span>
+              </span>
+              <span class="slide-number">{{ position + 1 }}</span>
             </span>
             <span class="slide-text">{{
               slidesOf(section)[0] ?? 'No lyrics yet'
@@ -397,9 +503,9 @@ async function save(): Promise<void> {
               class="chip-button"
               :aria-label="`Move ${section.label || 'section'} earlier`"
               title="Earlier"
-              :data-section-move="`${index}-earlier`"
-              :disabled="index === 0"
-              @click="moveSectionByButton(index, -1)"
+              :data-section-move="`${position}-earlier`"
+              :disabled="position === 0"
+              @click="moveCardByButton(position, -1)"
             >
               <AppIcon name="chevron-left" />
             </button>
@@ -408,19 +514,43 @@ async function save(): Promise<void> {
               class="chip-button"
               :aria-label="`Move ${section.label || 'section'} later`"
               title="Later"
-              :data-section-move="`${index}-later`"
-              :disabled="index === sections.length - 1"
-              @click="moveSectionByButton(index, 1)"
+              :data-section-move="`${position}-later`"
+              :disabled="position === active.sectionKeys.length - 1"
+              @click="moveCardByButton(position, 1)"
             >
               <AppIcon name="chevron-right" />
             </button>
           </span>
         </li>
+        <li
+          v-for="(section, index) in unsung"
+          :key="`unsung-${section.key}`"
+          class="strip-item"
+        >
+          <button
+            type="button"
+            class="slide section-card unsung"
+            :aria-current="isSelected(null, section.key) ? 'true' : undefined"
+            :data-testid="`section-card-unsung-${index}`"
+            title="Not sung in this version"
+            @click="select(section.key, null)"
+          >
+            <span class="slide-label">
+              <span class="card-name">{{ section.label || 'Unnamed' }}</span>
+            </span>
+            <span class="slide-text">Not sung in this version</span>
+          </button>
+        </li>
       </ol>
+      <p v-if="sung.length === 0" class="warning-note" role="status">
+        <AppIcon name="alert" />
+        Nothing is sung in {{ active.name || 'this version' }} yet. Pick a
+        section and choose “Sing in this version”.
+      </p>
 
       <fieldset
-        v-for="(section, index) in sections"
-        v-show="showsAllLyrics || section.key === selectedKey"
+        v-for="(section, index) in orderedSections"
+        v-show="showsAllLyrics || section.key === selection.key"
         :key="section.key"
         class="sheet section"
         :class="{ 'in-all': showsAllLyrics }"
@@ -444,17 +574,62 @@ async function save(): Promise<void> {
             aria-label="Section label"
             maxlength="60"
           />
+          <template v-if="!showsAllLyrics && section.key === selection.key">
+            <button
+              type="button"
+              class="sm"
+              data-testid="section-repeat"
+              @click="repeatSelected"
+            >
+              <AppIcon :name="selection.position === null ? 'plus' : 'copy'" />
+              {{
+                selection.position === null ? 'Sing in this version' : 'Repeat'
+              }}
+            </button>
+            <button
+              type="button"
+              class="sm ghost danger"
+              v-if="pendingDeletion !== section.key"
+              data-testid="section-remove"
+              :disabled="removalDeletesSection && sections.length === 1"
+              @click="removeSelected"
+            >
+              <AppIcon name="trash" />
+              {{ removalDeletesSection ? 'Delete section' : 'Remove here' }}
+            </button>
+          </template>
+        </div>
+
+        <p
+          v-if="pendingDeletion === section.key && !showsAllLyrics"
+          class="confirm"
+          role="alert"
+        >
+          <span class="grow">
+            Delete “{{ section.label || 'Unnamed' }}”? It is not sung anywhere
+            else, so its lyrics go too.
+          </span>
           <button
             type="button"
-            class="ghost danger icon-only"
-            aria-label="Remove section"
-            title="Remove"
-            :disabled="sections.length === 1"
-            @click="removeSection(index)"
+            class="sm danger"
+            data-testid="section-delete-confirm"
+            @click="deleteSection(section.key)"
           >
-            <AppIcon name="trash" />
+            Delete section
           </button>
-        </div>
+          <button type="button" class="sm" @click="pendingDeletion = null">
+            Keep
+          </button>
+        </p>
+        <p
+          v-else-if="!showsAllLyrics && timesSung(section.key) > 1"
+          class="linked-note"
+        >
+          <AppIcon name="sync" />
+          Sung {{ timesSung(section.key) }} times in this version. A change here
+          shows in every one.
+        </p>
+
         <div class="section-body">
           <textarea
             v-model="section.lyrics"
@@ -481,28 +656,35 @@ async function save(): Promise<void> {
               </li>
             </ol>
             <p v-else class="preview-empty">
-              Type the lyrics to see this section's slides.
+              Type the lyrics to see this section's slides. A blank line starts
+              a new slide.
             </p>
           </div>
         </div>
       </fieldset>
+      <p class="visually-hidden" aria-live="polite">{{ moveAnnouncement }}</p>
     </section>
 
-    <section class="group">
-      <div class="group-head">
-        <h3>Arrangements</h3>
-        <p class="muted">The order the sections are sung in.</p>
-      </div>
-      <fieldset
-        v-for="(arrangement, index) in arrangements"
-        :key="index"
-        class="sheet section"
-      >
-        <div class="section-head">
+    <details class="versions" :open="versions.length > 1">
+      <summary>
+        <AppIcon name="chevron-right" class="disclosure" />
+        <span class="versions-title">Versions</span>
+        <span class="muted">
+          A different order of the same sections, such as a short version.
+        </span>
+      </summary>
+      <div class="versions-body">
+        <div
+          v-for="(version, index) in versions"
+          :key="index"
+          class="version-row"
+          :class="{ active: index === activeIndex }"
+        >
           <input
-            v-model="arrangement.name"
+            v-model="version.name"
             class="grow"
-            aria-label="Arrangement name"
+            aria-label="Version name"
+            :data-testid="`version-name-${index}`"
             maxlength="60"
           />
           <label class="inline">
@@ -511,95 +693,34 @@ async function save(): Promise<void> {
           </label>
           <button
             type="button"
-            class="ghost danger icon-only"
-            aria-label="Remove arrangement"
+            class="sm"
+            :disabled="index === activeIndex"
+            @click="chooseVersion(index)"
+          >
+            {{ index === activeIndex ? 'Showing' : 'Show' }}
+          </button>
+          <button
+            type="button"
+            class="ghost danger icon-only sm"
+            aria-label="Remove version"
             title="Remove"
-            :disabled="arrangements.length === 1"
-            @click="removeArrangement(index)"
+            :disabled="versions.length === 1"
+            @click="removeVersion(index)"
           >
             <AppIcon name="trash" />
           </button>
         </div>
-        <ol class="sequence" @dragleave="reorder.leave">
-          <li
-            v-for="(key, position) in arrangement.sectionKeys"
-            :key="position"
-            class="chip"
-            :class="{
-              dragged: reorder.isDragged(arrangement, position),
-              [`drop-${reorder.markerAt(arrangement, position)}`]:
-                reorder.markerAt(arrangement, position),
-            }"
-            draggable="true"
-            title="Drag to reorder"
-            :data-testid="`arrangement-${index}-chip-${position}`"
-            @dragstart="reorder.start(arrangement, position, $event)"
-            @dragend="reorder.end"
-            @dragover="reorder.over(arrangement, position, $event)"
-            @drop="reorder.drop(arrangement, $event)"
-          >
-            <AppIcon name="grip" class="chip-grip" />
-            <span class="chip-label">{{ labelOf(key) }}</span>
-            <button
-              type="button"
-              class="chip-button reorder"
-              aria-label="Earlier"
-              title="Earlier"
-              :data-move="`${index}-${position}-earlier`"
-              :disabled="position === 0"
-              @click="moveChipByButton(index, position, -1)"
-            >
-              <AppIcon name="chevron-left" />
-            </button>
-            <button
-              type="button"
-              class="chip-button reorder"
-              aria-label="Later"
-              title="Later"
-              :data-move="`${index}-${position}-later`"
-              :disabled="position === arrangement.sectionKeys.length - 1"
-              @click="moveChipByButton(index, position, 1)"
-            >
-              <AppIcon name="chevron-right" />
-            </button>
-            <button
-              type="button"
-              class="chip-button"
-              aria-label="Remove from arrangement"
-              @click="arrangement.sectionKeys.splice(position, 1)"
-            >
-              <AppIcon name="x" />
-            </button>
-          </li>
-          <li class="add-chip">
-            <select
-              aria-label="Add a section to this arrangement"
-              @change="
-                (event) => {
-                  const select = event.target as HTMLSelectElement;
-                  if (select.value) arrangement.sectionKeys.push(select.value);
-                  select.value = '';
-                }
-              "
-            >
-              <option value="">Add section…</option>
-              <option
-                v-for="section in sections"
-                :key="section.key"
-                :value="section.key"
-              >
-                {{ section.label }}
-              </option>
-            </select>
-          </li>
-        </ol>
-      </fieldset>
-      <button type="button" class="add" @click="addArrangement">
-        <AppIcon name="plus" />
-        Add arrangement
-      </button>
-      <p class="visually-hidden" aria-live="polite">{{ moveAnnouncement }}</p>
-    </section>
+        <button
+          type="button"
+          class="add"
+          data-testid="version-add"
+          @click="addVersion"
+        >
+          <AppIcon name="plus" />
+          Add a version
+        </button>
+      </div>
+    </details>
 
     <div class="actions">
       <p v-if="errorMessage" class="error grow" role="alert">
@@ -814,6 +935,138 @@ textarea {
   --fade-after: var(--fade);
 }
 
+/* Another card of the section being edited: the same lyrics, sung again. */
+.section-card.linked {
+  border-color: rgb(139 108 255 / 0.45);
+}
+
+.linked-mark {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.2rem;
+  vertical-align: -0.1em;
+  color: var(--accent-hover);
+}
+
+/* A section this version leaves out: kept, but plainly not on the screen. */
+.section-card.unsung {
+  border-style: dashed;
+  background: transparent;
+}
+
+.section-card.unsung .slide-text {
+  color: var(--text-faint);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.section-card.unsung:hover:not(:disabled) {
+  background: var(--accent-softer);
+}
+
+.warning-note,
+.linked-note,
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.warning-note {
+  color: var(--warning);
+}
+
+.linked-note {
+  color: var(--text-muted);
+}
+
+.linked-note .icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--accent-hover);
+}
+
+.confirm {
+  padding: 0.55rem 0.6rem 0.55rem 0.8rem;
+  border: 1px solid rgb(255 118 134 / 0.35);
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  color: var(--text);
+}
+
+.version-pick select {
+  --control-height: 1.9rem;
+  font-size: 0.8rem;
+}
+
+/* ---------- Versions ---------- */
+
+.versions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.versions summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  width: fit-content;
+  cursor: pointer;
+  list-style: none;
+}
+
+.versions summary::-webkit-details-marker {
+  display: none;
+}
+
+.versions summary .muted {
+  font-size: 0.8rem;
+}
+
+.versions-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.disclosure {
+  align-self: center;
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--text-muted);
+  transition: transform 160ms var(--ease-out);
+}
+
+.versions[open] .disclosure {
+  transform: rotate(90deg);
+}
+
+.versions-body {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.version-row.active {
+  border-color: rgb(139 108 255 / 0.45);
+}
+
+.version-row .inline {
+  white-space: nowrap;
+}
+
 /* ---------- The section being edited ---------- */
 
 .section-body {
@@ -911,87 +1164,6 @@ textarea {
   border-style: dashed;
 }
 
-.sequence {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.sequence .chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.05rem;
-  height: 2rem;
-  padding: 0 0.2rem 0 0.45rem;
-  cursor: grab;
-  user-select: none;
-  border: 1px solid rgb(139 108 255 / 0.3);
-  border-radius: 999px;
-  background: var(--accent-softer);
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.chip:active {
-  cursor: grabbing;
-}
-
-.chip-grip {
-  width: 0.8rem;
-  height: 0.8rem;
-  margin-right: 0.2rem;
-  color: var(--text-faint);
-}
-
-.chip:hover .chip-grip {
-  color: var(--text-muted);
-}
-
-.chip.dragged {
-  opacity: 0.45;
-}
-
-/* Where the chip will land: a violet bar in the gap. */
-.chip.drop-before::before,
-.chip.drop-after::after {
-  content: '';
-  position: absolute;
-  top: 0.15rem;
-  bottom: 0.15rem;
-  width: 2px;
-  border-radius: 999px;
-  background: var(--accent);
-  pointer-events: none;
-}
-
-.chip.drop-before::before {
-  left: calc(-0.2rem - 2px);
-}
-
-.chip.drop-after::after {
-  right: calc(-0.2rem - 2px);
-}
-
-.chip-label {
-  margin-right: 0.2rem;
-}
-
-/* The step buttons stay for keyboard and for anyone who cannot drag, but
-   only show on the chip being pointed at or focused. */
-.chip-button.reorder {
-  opacity: 0;
-  transition: opacity 120ms var(--ease-out);
-}
-
-.chip:hover .reorder,
-.chip:focus-within .reorder {
-  opacity: 1;
-}
-
 .chip-button {
   min-height: 0;
   width: 1.5rem;
@@ -1011,14 +1183,6 @@ textarea {
 .chip-button .icon {
   width: 0.85rem;
   height: 0.85rem;
-}
-
-.add-chip select {
-  --control-height: 2rem;
-  border-radius: 999px;
-  border-style: dashed;
-  background-color: transparent;
-  font-size: 0.82rem;
 }
 
 .actions {
