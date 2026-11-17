@@ -13,7 +13,8 @@ import {
 import type { Song, SongInput } from '../../../shared/ipc-contract';
 import { splitIntoSlides } from '../../../shared/slides';
 import {
-  automaticLabel,
+  kindName,
+  nameForKind,
   sectionsInSungOrder,
   type SectionKind,
 } from '../../../shared/song-sections';
@@ -72,7 +73,7 @@ const sections = reactive<EditableSection[]>(
     {
       key: nextKey(),
       kind: 'verse',
-      label: automaticLabel('verse', []),
+      label: kindName('verse'),
       lyrics: '',
     },
   ],
@@ -209,12 +210,18 @@ const canSave = computed(
     ),
 );
 
+function changeKind(section: EditableSection, event: Event): void {
+  const kind = (event.target as HTMLSelectElement).value as SectionKind;
+  section.label = nameForKind(section.label, section.kind, kind);
+  section.kind = kind;
+}
+
 /** A new section, sung last in the version on screen. */
 function addSection(): void {
   const section: EditableSection = {
     key: nextKey(),
     kind: 'verse',
-    label: automaticLabel('verse', sections),
+    label: kindName('verse'),
     lyrics: '',
   };
   sections.push(section);
@@ -558,10 +565,11 @@ async function save(): Promise<void> {
       >
         <div class="section-head">
           <select
-            v-model="section.kind"
+            :value="section.kind"
             class="kind"
             aria-label="Section kind"
             :data-testid="`section-kind-${index}`"
+            @change="changeKind(section, $event)"
           >
             <option v-for="kind in SECTION_KINDS" :key="kind" :value="kind">
               {{ kind }}
@@ -587,9 +595,9 @@ async function save(): Promise<void> {
               }}
             </button>
             <button
+              v-if="pendingDeletion !== section.key"
               type="button"
               class="sm ghost danger"
-              v-if="pendingDeletion !== section.key"
               data-testid="section-remove"
               :disabled="removalDeletesSection && sections.length === 1"
               @click="removeSelected"

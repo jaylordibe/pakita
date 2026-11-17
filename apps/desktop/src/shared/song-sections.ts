@@ -1,45 +1,27 @@
 import type { SongInput } from './ipc-contract';
 
-// A new song section starts with a name from its kind and count ("Verse 1",
-// "Verse 2"…). After that the name is the person's: changing a section's
-// kind never renames it.
+// A section is named after its kind ("Verse", "Chorus") until the person
+// types a name of their own. There is no number: the editor shows each
+// section's place in the order, and a long verse may span several sections.
 
 export type SectionKind = SongInput['sections'][number]['kind'];
 
-interface NamedSection {
-  readonly kind: SectionKind;
-  readonly label: string;
-}
-
-/** "verse" → "Verse". */
+/** "verse" → "Verse": a section's name until the person gives it one. */
 export function kindName(kind: SectionKind): string {
   return kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
-/** The number in a name given automatically for this kind, else null. */
-function automaticNumber(label: string, kind: SectionKind): number | null {
-  const match = new RegExp(`^${kindName(kind)} (\\d+)$`, 'u').exec(
-    label.trim(),
-  );
-  return match ? Number(match[1]) : null;
-}
-
 /**
- * The automatic name for a section of `kind` among `others` (the song's other
- * sections): it counts the sections of that kind already there, whatever
- * they are called ("Final chorus" counts as a chorus), and goes past any
- * number already in use, so no two sections share a name.
+ * A section's name after its kind changes: a name that is still just the old
+ * kind's (or empty) follows the new kind; a name the person typed is kept.
  */
-export function automaticLabel(
-  kind: SectionKind,
-  others: readonly NamedSection[],
+export function nameForKind(
+  label: string,
+  from: SectionKind,
+  to: SectionKind,
 ): string {
-  const sameKind = others.filter((section) => section.kind === kind);
-  const highestInUse = Math.max(
-    0,
-    ...sameKind.map((section) => automaticNumber(section.label, kind) ?? 0),
-  );
-  return `${kindName(kind)} ${Math.max(sameKind.length, highestInUse) + 1}`;
+  const name = label.trim();
+  return name === '' || name === kindName(from) ? kindName(to) : label;
 }
 
 /**

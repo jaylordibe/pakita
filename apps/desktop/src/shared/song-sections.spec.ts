@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  automaticLabel,
-  kindName,
-  sectionsInSungOrder,
-  type SectionKind,
-} from './song-sections';
-
-const section = (kind: SectionKind, label: string) => ({ kind, label });
+import { kindName, nameForKind, sectionsInSungOrder } from './song-sections';
 
 describe('kindName', () => {
   it('capitalises the kind', () => {
@@ -16,43 +9,19 @@ describe('kindName', () => {
   });
 });
 
-describe('automaticLabel', () => {
-  it('numbers each kind on its own', () => {
-    expect(automaticLabel('verse', [])).toBe('Verse 1');
-    expect(
-      automaticLabel('verse', [
-        section('verse', 'Verse 1'),
-        section('chorus', 'Chorus 1'),
-      ]),
-    ).toBe('Verse 2');
-    expect(automaticLabel('bridge', [section('verse', 'Verse 1')])).toBe(
-      'Bridge 1',
-    );
+describe('nameForKind', () => {
+  it('follows the kind while the name is just the kind', () => {
+    expect(nameForKind('Verse', 'verse', 'chorus')).toBe('Chorus');
+    expect(nameForKind(' Verse ', 'verse', 'bridge')).toBe('Bridge');
   });
 
-  it('goes past the highest number in use, so no two sections share a name', () => {
-    expect(
-      automaticLabel('verse', [
-        section('verse', 'Verse 3'),
-        section('verse', 'Verse 1'),
-      ]),
-    ).toBe('Verse 4');
+  it('names an unnamed section after its new kind', () => {
+    expect(nameForKind('', 'verse', 'chorus')).toBe('Chorus');
   });
 
-  it('counts every section of the kind, whatever it is called', () => {
-    expect(
-      automaticLabel('chorus', [
-        section('verse', 'Verse 1'),
-        section('chorus', 'Final chorus'),
-      ]),
-    ).toBe('Chorus 2');
-    expect(
-      automaticLabel('verse', [
-        section('verse', 'Verse 1'),
-        section('verse', 'Last verse'),
-        section('chorus', 'Chorus 1'),
-      ]),
-    ).toBe('Verse 3');
+  it('keeps a name the person typed', () => {
+    expect(nameForKind('Verse 1', 'verse', 'chorus')).toBe('Verse 1');
+    expect(nameForKind('Final chorus', 'chorus', 'outro')).toBe('Final chorus');
   });
 });
 

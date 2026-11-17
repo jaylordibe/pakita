@@ -236,12 +236,16 @@ test('reorders a song by dragging its section cards', async () => {
   await operator.getByTestId('library-song-Amazing Grace').click();
   await operator.getByRole('button', { name: 'Edit', exact: true }).click();
   await operator.getByRole('button', { name: 'Add section' }).click();
-  // A new section is named after its kind, counting those already there…
-  await expect(operator.getByTestId('section-label-1')).toHaveValue('Verse 2');
-  // …and changing its kind leaves the name as it is.
+  // A new section is named after its kind, with no number…
+  await expect(operator.getByTestId('section-label-1')).toHaveValue('Verse');
+  // …and that name follows its kind…
   await operator.getByTestId('section-kind-1').selectOption('chorus');
-  await expect(operator.getByTestId('section-label-1')).toHaveValue('Verse 2');
+  await expect(operator.getByTestId('section-label-1')).toHaveValue('Chorus');
+  // …until the person names it; then a change of kind keeps the name.
   await operator.getByTestId('section-label-1').fill('Chorus 1');
+  await operator.getByTestId('section-kind-1').selectOption('bridge');
+  await expect(operator.getByTestId('section-label-1')).toHaveValue('Chorus 1');
+  await operator.getByTestId('section-kind-1').selectOption('chorus');
   await operator.getByTestId('section-lyrics-1').fill('My chains are gone');
   await expect(operator.getByTestId('section-card-1')).toContainText('Chorus');
 
@@ -281,10 +285,13 @@ test('sings a section again as a linked copy, and removes one', async () => {
     operator.locator('.preview .slide').filter({ visible: true }),
   ).toHaveText(/Lord God Almighty/);
 
-  // Move Verse 2 before Verse 1 with its card's step button.
+  // Move the new Verse before Verse 1 with its card's step button.
+  await expect(operator.getByTestId('section-label-1')).toHaveValue('Verse');
   await operator.getByTestId('section-card-1').hover();
-  await operator.getByRole('button', { name: 'Move Verse 2 earlier' }).click();
-  await expect(operator.getByTestId('section-card-0')).toContainText('Verse 2');
+  await operator.getByRole('button', { name: 'Move Verse earlier' }).click();
+  await expect(operator.getByTestId('section-card-0')).toContainText(
+    'Lord God Almighty',
+  );
 
   // Repeat Verse 1: a second card, linked to the same lyrics.
   await operator.getByTestId('section-card-1').click();
@@ -302,12 +309,14 @@ test('sings a section again as a linked copy, and removes one', async () => {
   // Removing one of its two cards keeps the section…
   await operator.getByTestId('section-remove').click();
   await expect(operator.getByTestId('section-card-2')).toHaveCount(0);
-  // …but removing Verse 2's only card asks before deleting it.
+  // …but removing the new Verse's only card asks before deleting it.
   await operator.getByTestId('section-card-0').click();
   await operator.getByTestId('section-remove').click();
   await expect(operator.getByTestId('section-delete-confirm')).toBeVisible();
   await operator.getByRole('button', { name: 'Keep' }).click();
-  await expect(operator.getByTestId('section-card-0')).toContainText('Verse 2');
+  await expect(operator.getByTestId('section-card-0')).toContainText(
+    'Lord God Almighty',
+  );
 
   // "All lyrics" shows every section once.
   await operator.getByTestId('section-view-toggle').click();
@@ -321,5 +330,5 @@ test('sings a section again as a linked copy, and removes one', async () => {
   await operator.getByTestId('song-save').click();
   await expect
     .poll(() => savedOrder('Holy, Holy, Holy'))
-    .toEqual(['Verse 2', 'Verse 1', 'Verse 1']);
+    .toEqual(['Verse', 'Verse 1', 'Verse 1']);
 });
