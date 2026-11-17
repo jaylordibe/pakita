@@ -1,8 +1,8 @@
 import type { SongInput } from './ipc-contract';
 
-// A song section's name follows its kind until the person names it
-// themselves: a new section is "Verse 1", "Chorus 1", "Verse 2"…; changing a
-// section's kind renames it only while it still has such a name.
+// A new song section starts with a name from its kind and count ("Verse 1",
+// "Verse 2"…). After that the name is the person's: changing a section's
+// kind never renames it.
 
 export type SectionKind = SongInput['sections'][number]['kind'];
 
@@ -22,11 +22,6 @@ function automaticNumber(label: string, kind: SectionKind): number | null {
     label.trim(),
   );
   return match ? Number(match[1]) : null;
-}
-
-/** Whether `label` is the automatic name of a section of this kind. */
-export function isAutomaticLabel(label: string, kind: SectionKind): boolean {
-  return automaticNumber(label, kind) !== null;
 }
 
 /**

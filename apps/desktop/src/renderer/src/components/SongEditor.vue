@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from 'vue';
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  useTemplateRef,
+  watch,
+} from 'vue';
 
 import type { Song, SongInput } from '../../../shared/ipc-contract';
 import { splitIntoSlides } from '../../../shared/slides';
 import {
   automaticLabel,
   followSectionOrder,
-  isAutomaticLabel,
   type SectionKind,
 } from '../../../shared/song-sections';
 import { focusFirstEnabled, moveItem, useDragReorder } from '../drag-reorder';
@@ -98,6 +106,27 @@ async function selectSection(key: string): Promise<void> {
     ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
+// Which ends of the strip have cards scrolled out of view, so those edges
+// fade and the strip reads as scrollable.
+const strip = useTemplateRef<HTMLOListElement>('strip');
+const stripEdges = reactive({ before: false, after: false });
+function measureStrip(): void {
+  const element = strip.value;
+  if (!element) return;
+  stripEdges.before = element.scrollLeft > 1;
+  stripEdges.after =
+    element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+}
+const stripResize = new ResizeObserver(measureStrip);
+onMounted(() => {
+  if (strip.value) stripResize.observe(strip.value);
+});
+onBeforeUnmount(() => stripResize.disconnect());
+watch(
+  () => sections.length,
+  () => nextTick(measureStrip),
+);
+
 // Keep the selected card in view as sections are added and moved.
 watch(
   () => [selectedKey.value, sections.length] as const,
@@ -142,21 +171,6 @@ function addSection(): void {
       )
       ?.focus();
   });
-}
-
-/**
- * Changes a section's kind. A name still given automatically ("Verse 2")
- * follows the new kind ("Chorus 1"); a name the person typed is kept.
- */
-function changeKind(section: EditableSection, event: Event): void {
-  const kind = (event.target as HTMLSelectElement).value as SectionKind;
-  if (isAutomaticLabel(section.label, section.kind)) {
-    section.label = automaticLabel(
-      kind,
-      sections.filter((other) => other.key !== section.key),
-    );
-  }
-  section.kind = kind;
 }
 
 function removeSection(index: number): void {
@@ -327,10 +341,20 @@ async function save(): Promise<void> {
           <AppIcon name="eye" />
           All lyrics
         </button>
+        <button type="button" class="sm" @click="addSection">
+          <AppIcon name="plus" />
+          Add section
+        </button>
       </div>
 
       <ol
+        ref="strip"
         class="strip"
+        :class="{
+          'more-before': stripEdges.before,
+          'more-after': stripEdges.after,
+        }"
+        @scroll.passive="measureStrip"
         aria-label="Sections, in order"
         @dragleave="sectionReorder.leave"
       >
@@ -392,12 +416,6 @@ async function save(): Promise<void> {
             </button>
           </span>
         </li>
-        <li class="strip-add">
-          <button type="button" class="add add-card" @click="addSection">
-            <AppIcon name="plus" />
-            Add section
-          </button>
-        </li>
       </ol>
 
       <fieldset
@@ -410,11 +428,10 @@ async function save(): Promise<void> {
       >
         <div class="section-head">
           <select
-            :value="section.kind"
+            v-model="section.kind"
             class="kind"
             aria-label="Section kind"
             :data-testid="`section-kind-${index}`"
-            @change="changeKind(section, $event)"
           >
             <option v-for="kind in SECTION_KINDS" :key="kind" :value="kind">
               {{ kind }}
@@ -676,8 +693,7 @@ textarea {
   scrollbar-color: var(--border-strong) transparent;
 }
 
-.strip-item,
-.strip-add {
+.strip-item {
   position: relative;
   flex: none;
   width: 10.5rem;
@@ -777,14 +793,25 @@ textarea {
   visibility: hidden;
 }
 
-.add-card {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;
-  flex-direction: column;
-  gap: 0.35rem;
-  border-radius: var(--radius);
-  font-size: 0.8rem;
+/* Cards scrolled out of view fade at that edge. */
+.strip.more-before,
+.strip.more-after {
+  --fade: 3.5rem;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade-before, 0),
+    #000 calc(100% - var(--fade-after, 0)),
+    transparent
+  );
+}
+
+.strip.more-before {
+  --fade-before: var(--fade);
+}
+
+.strip.more-after {
+  --fade-after: var(--fade);
 }
 
 /* ---------- The section being edited ---------- */

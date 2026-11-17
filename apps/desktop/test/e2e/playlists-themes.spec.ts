@@ -221,9 +221,10 @@ test('reorders a song’s arrangement by dragging its chips', async () => {
   await operator.getByRole('button', { name: 'Add section' }).click();
   // A new section is named after its kind, counting those already there…
   await expect(operator.getByTestId('section-label-1')).toHaveValue('Verse 2');
-  // …and follows a change of kind while it keeps that name.
+  // …and changing its kind leaves the name as it is.
   await operator.getByTestId('section-kind-1').selectOption('chorus');
-  await expect(operator.getByTestId('section-label-1')).toHaveValue('Chorus 1');
+  await expect(operator.getByTestId('section-label-1')).toHaveValue('Verse 2');
+  await operator.getByTestId('section-label-1').fill('Chorus 1');
   await operator.getByTestId('section-lyrics-1').fill('My chains are gone');
   await expect(operator.getByTestId('arrangement-0-chip-1')).toContainText(
     'Chorus',

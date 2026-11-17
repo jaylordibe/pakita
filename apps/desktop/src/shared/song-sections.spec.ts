@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   automaticLabel,
   followSectionOrder,
-  isAutomaticLabel,
   kindName,
   type SectionKind,
 } from './song-sections';
@@ -54,16 +53,6 @@ describe('automaticLabel', () => {
         section('chorus', 'Chorus 1'),
       ]),
     ).toBe('Verse 3');
-  });
-});
-
-describe('isAutomaticLabel', () => {
-  it('recognises only the kind’s own automatic name', () => {
-    expect(isAutomaticLabel('Verse 2', 'verse')).toBe(true);
-    expect(isAutomaticLabel(' Verse 2 ', 'verse')).toBe(true);
-    expect(isAutomaticLabel('Verse 2', 'chorus')).toBe(false);
-    expect(isAutomaticLabel('Verse 2b', 'verse')).toBe(false);
-    expect(isAutomaticLabel('Section 4', 'verse')).toBe(false);
   });
 });
 
