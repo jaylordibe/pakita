@@ -22,6 +22,7 @@ import LyricsPaste from '../components/LyricsPaste.vue';
 import SongEditor from '../components/SongEditor.vue';
 import ThemesPanel from '../components/ThemesPanel.vue';
 import { messageOf } from '../errors';
+import { vFitSlideText } from '../fit-slide-text';
 
 const props = defineProps<{ account: AccountSummary; workspaceId: string }>();
 const emit = defineEmits<{
@@ -433,7 +434,9 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
                     <span>{{ slide.sectionLabel }}</span>
                     <span class="slide-number">{{ index + 1 }}</span>
                   </span>
-                  <span class="slide-text">{{ slide.text }}</span>
+                  <span v-fit-slide-text class="slide-text">{{
+                    slide.text
+                  }}</span>
                 </button>
               </li>
             </ol>

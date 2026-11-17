@@ -20,6 +20,7 @@ import {
   type SectionKind,
 } from '../../../shared/song-sections';
 import { focusFirstEnabled, moveItem, useDragReorder } from '../drag-reorder';
+import { vFitSlideText } from '../fit-slide-text';
 import { messageOf } from '../errors';
 import AppIcon from './AppIcon.vue';
 
@@ -227,7 +228,10 @@ function changeKind(section: EditableSection, event: Event): void {
   section.kind = kind;
 }
 
-/** A new section, sung last in the version on screen. */
+/**
+ * A new section, sung straight after the selected card; last when the
+ * selection is a section this version leaves out.
+ */
 function addSection(): void {
   const section: EditableSection = {
     key: nextKey(),
@@ -235,11 +239,12 @@ function addSection(): void {
     label: kindName('verse'),
     lyrics: '',
   };
+  const keys = active.value.sectionKeys;
+  const selected = selection.value.position;
+  const at = selected === null ? keys.length : selected + 1;
   sections.push(section);
-  active.value.sectionKeys.push(section.key);
-  void select(section.key, active.value.sectionKeys.length - 1).then(() =>
-    focusLyrics(section.key),
-  );
+  keys.splice(at, 0, section.key);
+  void select(section.key, at).then(() => focusLyrics(section.key));
 }
 
 /**
@@ -671,7 +676,7 @@ async function save(): Promise<void> {
                   <span>{{ section.label }}</span>
                   <span class="slide-number">{{ position + 1 }}</span>
                 </span>
-                <span class="slide-text">{{ text }}</span>
+                <span v-fit-slide-text class="slide-text">{{ text }}</span>
               </li>
             </ol>
             <p v-else class="preview-empty">
@@ -1143,16 +1148,6 @@ textarea {
 .preview .slide-label {
   inset: 0.45rem 0.55rem auto;
   font-size: 0.65rem;
-}
-
-.preview .slide-text {
-  font-size: 0.72rem;
-  -webkit-line-clamp: 4;
-}
-
-/* A preview shows every line a slide holds, up to six. */
-.preview-slides .slide-text {
-  -webkit-line-clamp: 6;
 }
 
 .preview-empty {

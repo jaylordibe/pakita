@@ -332,3 +332,21 @@ test('sings a section again as a linked copy, and removes one', async () => {
     .poll(() => savedOrder('Holy, Holy, Holy'))
     .toEqual(['Verse', 'Verse 1', 'Verse 1']);
 });
+
+test('adds a new section straight after the selected card', async () => {
+  await operator.getByTestId('library-song-Holy, Holy, Holy').click();
+  await operator.getByRole('button', { name: 'Edit', exact: true }).click();
+  await operator.getByTestId('section-card-0').click();
+  await operator.getByRole('button', { name: 'Add section' }).click();
+
+  await expect(operator.getByTestId('section-card-1')).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(operator.getByTestId('section-card-1')).toContainText(
+    'No lyrics yet',
+  );
+  await expect(operator.getByTestId('section-card-2')).toContainText('Verse 1');
+  await expect(operator.getByTestId('section-card-3')).toContainText('Verse 1');
+  await operator.getByRole('button', { name: 'Cancel' }).click();
+});

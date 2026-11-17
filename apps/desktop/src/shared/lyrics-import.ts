@@ -45,7 +45,10 @@ export interface LyricsImport {
 
 export interface ImportOptions {
   readonly linesPerSlide: number;
-  /** Keep credit and copyright lines as lyrics instead of setting them aside. */
+  /**
+   * Keep credit and copyright lines, and a lyrics site's "You might also
+   * like" list, as lyrics instead of setting them aside.
+   */
   readonly keepsMetadata?: boolean;
 }
 
@@ -221,6 +224,39 @@ function takeMetadata(lines: string[], notices: ImportNotice[]): string[] {
   return lines.slice(start, end);
 }
 
+// A lyrics website's "You might also like" list of other songs, copied with
+// the lyrics: on a line of its own, or stuck to the end of a lyric line.
+const SUGGESTIONS = /^(.*\S)?You might also like$/u;
+
+/**
+ * Sets aside a "You might also like" line and the suggested songs under it,
+ * up to the next blank line or heading. A lyric it was stuck to is kept.
+ */
+function takeSuggestions(
+  lines: readonly string[],
+  notices: ImportNotice[],
+): string[] {
+  const kept: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = SUGGESTIONS.exec(lines[index]!);
+    if (!match) {
+      kept.push(lines[index]!);
+      continue;
+    }
+    if (match[1]) kept.push(match[1]);
+    notices.push({ reason: 'metadata', text: 'You might also like' });
+    while (
+      index + 1 < lines.length &&
+      lines[index + 1] !== '' &&
+      parseHeader(lines[index + 1]!) === null
+    ) {
+      index += 1;
+      notices.push({ reason: 'metadata', text: lines[index]! });
+    }
+  }
+  return kept;
+}
+
 function trimBlank(lines: string[]): string[] {
   let start = 0;
   let end = lines.length;
@@ -288,7 +324,7 @@ export function importLyrics(
   const normalized = normalizeLyrics(text);
   const lines = options.keepsMetadata
     ? normalized
-    : takeMetadata(normalized, notices);
+    : takeMetadata(takeSuggestions(normalized, notices), notices);
 
   const drafts: Draft[] = [];
   const sequence: string[] = [];

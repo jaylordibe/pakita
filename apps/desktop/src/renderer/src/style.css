@@ -839,6 +839,14 @@ progress::-webkit-progress-value {
   overflow: hidden;
 }
 
+/* Sized to fit its slide, as on the projector (v-fit-slide-text). */
+.slide-text.is-fitted {
+  display: block;
+  line-height: 1.25;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
 /* A form's buttons, kept in view at the foot of the content panel. */
 .action-bar {
   position: sticky;

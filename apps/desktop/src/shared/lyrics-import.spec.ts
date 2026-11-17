@@ -243,6 +243,53 @@ describe('importLyrics', () => {
     expect(result.sections[0]!.lyrics).toBe('Real lyric\n© 2020 Someone');
   });
 
+  it("sets aside a lyrics site's suggested songs, up to the next blank line", () => {
+    const text = [
+      '[Chorus]',
+      'One way, Jesus',
+      'You might also like',
+      'Christ Is Mine Forevermore',
+      'Planetshakers',
+      '',
+      '[Bridge]',
+      'You are the Way',
+    ].join('\n');
+    const result = importLyrics(text, four);
+    expect(result.sections.map((section) => section.lyrics)).toEqual([
+      'One way, Jesus',
+      'You are the Way',
+    ]);
+    expect(result.notices.map((notice) => notice.text)).toEqual([
+      'You might also like',
+      'Christ Is Mine Forevermore',
+      'Planetshakers',
+    ]);
+  });
+
+  it('keeps a lyric the suggestions were stuck to, and stops at a heading', () => {
+    const text = [
+      '[Chorus]',
+      'That I could live forYou might also like',
+      'Some Other Song',
+      '[Bridge]',
+      'You are the Way',
+    ].join('\n');
+    const result = importLyrics(text, four);
+    expect(result.sections.map((section) => section.lyrics)).toEqual([
+      'That I could live for',
+      'You are the Way',
+    ]);
+    expect(result.notices.map((notice) => notice.text)).toEqual([
+      'You might also like',
+      'Some Other Song',
+    ]);
+  });
+
+  it('keeps a lyric that only ends with the same words', () => {
+    const result = importLyrics('All the songs you might also like', four);
+    expect(result.notices).toEqual([]);
+  });
+
   it('does not set aside a credit-like line in the middle of the song', () => {
     const result = importLyrics('First\n\nWritten by His hand\n\nLast', four);
     expect(result.notices).toEqual([]);

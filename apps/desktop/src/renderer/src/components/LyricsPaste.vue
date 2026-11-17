@@ -13,6 +13,7 @@ import {
 } from '../../../shared/lyrics-import';
 import { splitIntoSlides } from '../../../shared/slides';
 import { messageOf } from '../errors';
+import { vFitSlideText } from '../fit-slide-text';
 import AppIcon from './AppIcon.vue';
 
 // The first step of a new song: paste the lyrics, see the sections and slides
@@ -227,7 +228,7 @@ onMounted(() => textarea.value?.focus());
               type="checkbox"
               data-testid="lyrics-paste-keep-metadata"
             />
-            Keep credit and copyright lines as lyrics
+            Keep these lines as lyrics
           </label>
           <ul v-if="emptyHeadings.length">
             <li v-for="notice in emptyHeadings" :key="notice.text">
@@ -261,7 +262,7 @@ onMounted(() => textarea.value?.focus());
                     <span>{{ entry.section.label }}</span>
                     <span class="slide-number">{{ index + 1 }}</span>
                   </span>
-                  <span class="slide-text">{{ slide }}</span>
+                  <span v-fit-slide-text class="slide-text">{{ slide }}</span>
                 </li>
               </ol>
               <p v-if="entry.isTooLong" class="error">
@@ -485,11 +486,6 @@ onMounted(() => textarea.value?.focus());
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-/* A preview shows every line a slide holds, up to six. */
-.slides .slide-text {
-  -webkit-line-clamp: 6;
 }
 
 .long-lines {

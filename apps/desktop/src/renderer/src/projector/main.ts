@@ -2,6 +2,7 @@ import '../fonts.css';
 import './projector.css';
 
 import type { LiveState } from '../../../shared/ipc-contract';
+import { fitTextSize, startingTextSize } from '../../../shared/fit-text';
 import { stageStyle } from '../../../shared/theme-look';
 
 const stage = document.getElementById('stage')!;
@@ -33,17 +34,15 @@ let textScale = 1;
 
 function fitText(): void {
   caption.style.fontSize = `${Math.min(window.innerWidth / 50, window.innerHeight / 28)}px`;
-  let size =
-    Math.min(window.innerWidth / 14, window.innerHeight / 7) * textScale;
-  slide.style.fontSize = `${size}px`;
-  while (
-    size > 12 &&
-    (slide.scrollHeight + caption.offsetHeight > stage.clientHeight * 0.9 ||
-      slide.scrollWidth > stage.clientWidth * 0.9)
-  ) {
-    size *= 0.92;
+  const start =
+    startingTextSize(window.innerWidth, window.innerHeight) * textScale;
+  fitTextSize(start, 12, (size) => {
     slide.style.fontSize = `${size}px`;
-  }
+    return (
+      slide.scrollHeight + caption.offsetHeight <= stage.clientHeight * 0.9 &&
+      slide.scrollWidth <= stage.clientWidth * 0.9
+    );
+  });
 }
 
 window.addEventListener('resize', fitText);
