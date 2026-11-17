@@ -273,15 +273,34 @@ test('moving a section moves it in an arrangement that follows the sections', as
     'Verse 2',
   );
 
-  // Move Verse 2 above Verse 1 with the section's own arrow.
-  await operator
-    .getByRole('button', { name: 'Move section up' })
-    .nth(1)
-    .click();
+  // The new section is the one being edited, with its slides previewed.
+  await expect(operator.getByTestId('section-card-1')).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(operator.getByTestId('section-lyrics-0')).toBeHidden();
+  await expect(
+    operator.locator('.preview .slide').filter({ visible: true }),
+  ).toHaveText(/Lord God Almighty/);
+
+  // Move Verse 2 before Verse 1 with its card's step button.
+  await operator.getByTestId('section-card-1').hover();
+  await operator.getByRole('button', { name: 'Move Verse 2 earlier' }).click();
+  await expect(operator.getByTestId('section-card-0')).toContainText('Verse 2');
   await expect(operator.getByTestId('section-label-0')).toHaveValue('Verse 2');
   await expect(operator.getByTestId('arrangement-0-chip-0')).toContainText(
     'Verse 2',
   );
+
+  // A card picks the section to edit; "All lyrics" shows every section.
+  await operator.getByTestId('section-card-1').click();
+  await expect(operator.getByTestId('section-lyrics-1')).toHaveValue(
+    'Holy, holy, holy',
+  );
+  await expect(operator.getByTestId('section-lyrics-0')).toBeHidden();
+  await operator.getByTestId('section-view-toggle').click();
+  await expect(operator.getByTestId('section-lyrics-0')).toBeVisible();
+  await expect(operator.getByTestId('section-lyrics-1')).toBeVisible();
   await operator.getByTestId('song-save').click();
 
   const savedOrder = async () => {

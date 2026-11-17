@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 
 import type { Song, SongInput } from '../../../shared/ipc-contract';
+import { splitIntoSlides } from '../../../shared/slides';
 import {
   automaticLabel,
   followSectionOrder,
@@ -74,6 +75,40 @@ const defaultIndex = ref(
 const errorMessage = ref<string | null>(null);
 const isSaving = ref(false);
 
+// The strip of section cards picks the one section being edited; "All
+// lyrics" shows every section at once, for reading a song through.
+const selectedKey = ref(sections[0]!.key);
+const showsAllLyrics = ref(false);
+
+const slidesOf = (section: EditableSection) => splitIntoSlides(section.lyrics);
+const isIncomplete = (section: EditableSection) =>
+  !section.label.trim() || !section.lyrics.trim();
+const slideCount = (section: EditableSection) => {
+  const count = slidesOf(section).length;
+  return count === 1 ? '1 slide' : `${count} slides`;
+};
+
+/** Edits this section: in "All lyrics", brings it into view instead. */
+async function selectSection(key: string): Promise<void> {
+  selectedKey.value = key;
+  if (!showsAllLyrics.value) return;
+  await nextTick();
+  document
+    .querySelector(`[data-section-sheet="${key}"]`)
+    ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+// Keep the selected card in view as sections are added and moved.
+watch(
+  () => [selectedKey.value, sections.length] as const,
+  async () => {
+    await nextTick();
+    document
+      .querySelector(`[data-section-card="${selectedKey.value}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  },
+);
+
 const labelOf = (key: string) =>
   sections.find((section) => section.key === key)?.label ?? '?';
 
@@ -99,6 +134,14 @@ function addSection(): void {
   };
   sections.push(section);
   arrangements[defaultIndex.value]?.sectionKeys.push(section.key);
+  void selectSection(section.key).then(async () => {
+    await nextTick();
+    document
+      .querySelector<HTMLTextAreaElement>(
+        `[data-section-sheet="${section.key}"] textarea`,
+      )
+      ?.focus();
+  });
 }
 
 /**
@@ -117,8 +160,12 @@ function changeKind(section: EditableSection, event: Event): void {
 }
 
 function removeSection(index: number): void {
+  if (sections.length === 1) return;
   const [removed] = sections.splice(index, 1);
   if (!removed) return;
+  if (selectedKey.value === removed.key) {
+    selectedKey.value = (sections[index] ?? sections[index - 1])!.key;
+  }
   for (const arrangement of arrangements) {
     arrangement.sectionKeys = arrangement.sectionKeys.filter(
       (key) => key !== removed.key,
@@ -126,17 +173,19 @@ function removeSection(index: number): void {
   }
 }
 
+// Read out after every section or chip move, by drag or by button.
+const moveAnnouncement = ref('');
+
 /**
- * Moves a section one step. Arrangements that play the sections in their
- * listed order move with it, so the song is still sung in the order shown.
+ * Moves a section to a new place. Arrangements that play the sections in
+ * their listed order move with it, so the song is still sung in the order
+ * shown.
  */
-function moveSection(index: number, offset: number): void {
-  const target = index + offset;
-  if (target < 0 || target >= sections.length) return;
+function moveSection(_list: EditableSection[], from: number, to: number): void {
+  if (from === to) return;
   const before = sections.map((section) => section.key);
-  const [moved] = sections.splice(index, 1);
-  sections.splice(target, 0, moved!);
-  const after = sections.map((section) => section.key);
+  const after = moveItem(before, from, to);
+  sections.splice(0, sections.length, ...moveItem(sections, from, to));
   for (const arrangement of arrangements) {
     arrangement.sectionKeys = followSectionOrder(
       arrangement.sectionKeys,
@@ -144,10 +193,27 @@ function moveSection(index: number, offset: number): void {
       after,
     );
   }
+  moveAnnouncement.value = `Moved ${labelOf(after[to] ?? '')} to position ${to + 1} of ${sections.length}.`;
 }
 
-// Read out after every chip move, by drag or by button.
-const moveAnnouncement = ref('');
+async function moveSectionByButton(
+  position: number,
+  offset: -1 | 1,
+): Promise<void> {
+  const to = position + offset;
+  if (to < 0 || to >= sections.length) return;
+  moveSection(sections, position, to);
+  // Keep focus on the card that moved, so the next press moves it again.
+  const at = (step: string) => `[data-section-move="${to}-${step}"]`;
+  const direction = offset < 0 ? 'earlier' : 'later';
+  const opposite = offset < 0 ? 'later' : 'earlier';
+  await focusFirstEnabled(at(direction), at(opposite));
+}
+
+const sectionReorder = useDragReorder<EditableSection[]>({
+  axis: 'horizontal',
+  onMove: moveSection,
+});
 
 function moveChip(
   arrangement: EditableArrangement,
@@ -250,11 +316,97 @@ async function save(): Promise<void> {
       <div class="group-head">
         <h3>Sections</h3>
         <p class="muted">A blank line in the lyrics starts a new slide.</p>
+        <span class="grow"></span>
+        <button
+          type="button"
+          class="ghost sm"
+          :aria-pressed="showsAllLyrics"
+          data-testid="section-view-toggle"
+          @click="showsAllLyrics = !showsAllLyrics"
+        >
+          <AppIcon name="eye" />
+          All lyrics
+        </button>
       </div>
+
+      <ol
+        class="strip"
+        aria-label="Sections, in order"
+        @dragleave="sectionReorder.leave"
+      >
+        <li
+          v-for="(section, index) in sections"
+          :key="section.key"
+          class="strip-item"
+          :class="{
+            dragged: sectionReorder.isDragged(sections, index),
+            [`drop-${sectionReorder.markerAt(sections, index)}`]:
+              sectionReorder.markerAt(sections, index),
+          }"
+          draggable="true"
+          @dragstart="sectionReorder.start(sections, index, $event)"
+          @dragend="sectionReorder.end"
+          @dragover="sectionReorder.over(sections, index, $event)"
+          @drop="sectionReorder.drop(sections, $event)"
+        >
+          <button
+            type="button"
+            class="slide section-card"
+            :class="{ incomplete: isIncomplete(section) }"
+            :aria-current="section.key === selectedKey ? 'true' : undefined"
+            :data-section-card="section.key"
+            :data-testid="`section-card-${index}`"
+            title="Edit this section · drag to reorder"
+            @click="selectSection(section.key)"
+          >
+            <span class="slide-label">
+              <span class="card-name">{{ section.label || 'Unnamed' }}</span>
+              <span class="slide-number">{{ slideCount(section) }}</span>
+            </span>
+            <span class="slide-text">{{
+              slidesOf(section)[0] ?? 'No lyrics yet'
+            }}</span>
+          </button>
+          <span class="card-moves">
+            <button
+              type="button"
+              class="chip-button"
+              :aria-label="`Move ${section.label || 'section'} earlier`"
+              title="Earlier"
+              :data-section-move="`${index}-earlier`"
+              :disabled="index === 0"
+              @click="moveSectionByButton(index, -1)"
+            >
+              <AppIcon name="chevron-left" />
+            </button>
+            <button
+              type="button"
+              class="chip-button"
+              :aria-label="`Move ${section.label || 'section'} later`"
+              title="Later"
+              :data-section-move="`${index}-later`"
+              :disabled="index === sections.length - 1"
+              @click="moveSectionByButton(index, 1)"
+            >
+              <AppIcon name="chevron-right" />
+            </button>
+          </span>
+        </li>
+        <li class="strip-add">
+          <button type="button" class="add add-card" @click="addSection">
+            <AppIcon name="plus" />
+            Add section
+          </button>
+        </li>
+      </ol>
+
       <fieldset
         v-for="(section, index) in sections"
+        v-show="showsAllLyrics || section.key === selectedKey"
         :key="section.key"
         class="sheet section"
+        :class="{ 'in-all': showsAllLyrics }"
+        :data-section-sheet="section.key"
       >
         <div class="section-head">
           <select
@@ -277,46 +429,46 @@ async function save(): Promise<void> {
           />
           <button
             type="button"
-            class="ghost icon-only"
-            aria-label="Move section up"
-            title="Move up"
-            :disabled="index === 0"
-            @click="moveSection(index, -1)"
-          >
-            <AppIcon name="arrow-up" />
-          </button>
-          <button
-            type="button"
-            class="ghost icon-only"
-            aria-label="Move section down"
-            title="Move down"
-            :disabled="index === sections.length - 1"
-            @click="moveSection(index, 1)"
-          >
-            <AppIcon name="arrow-down" />
-          </button>
-          <button
-            type="button"
             class="ghost danger icon-only"
             aria-label="Remove section"
             title="Remove"
+            :disabled="sections.length === 1"
             @click="removeSection(index)"
           >
             <AppIcon name="trash" />
           </button>
         </div>
-        <textarea
-          v-model="section.lyrics"
-          :data-testid="`section-lyrics-${index}`"
-          aria-label="Lyrics"
-          rows="5"
-          maxlength="10000"
-        ></textarea>
+        <div class="section-body">
+          <textarea
+            v-model="section.lyrics"
+            :data-testid="`section-lyrics-${index}`"
+            aria-label="Lyrics"
+            rows="5"
+            maxlength="10000"
+          ></textarea>
+          <div v-if="!showsAllLyrics" class="preview">
+            <p class="preview-head">
+              Preview <span>{{ slideCount(section) }}</span>
+            </p>
+            <ol v-if="slidesOf(section).length" class="preview-slides">
+              <li
+                v-for="(text, position) in slidesOf(section)"
+                :key="position"
+                class="slide"
+              >
+                <span class="slide-label">
+                  <span>{{ section.label }}</span>
+                  <span class="slide-number">{{ position + 1 }}</span>
+                </span>
+                <span class="slide-text">{{ text }}</span>
+              </li>
+            </ol>
+            <p v-else class="preview-empty">
+              Type the lyrics to see this section's slides.
+            </p>
+          </div>
+        </div>
       </fieldset>
-      <button type="button" class="add" @click="addSection">
-        <AppIcon name="plus" />
-        Add section
-      </button>
     </section>
 
     <section class="group">
@@ -501,6 +653,223 @@ async function save(): Promise<void> {
 textarea {
   width: 100%;
   min-height: 7.5rem;
+}
+
+/* ---------- The section strip ---------- */
+
+/* "All lyrics" while it is on: a selection, so it takes the accent. */
+.group-head button[aria-pressed='true'] {
+  border-color: rgb(139 108 255 / 0.35);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.strip {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0 0 0.15rem;
+  padding: 0.2rem 0.2rem 0.6rem;
+  list-style: none;
+  overflow-x: auto;
+  scroll-padding-inline: 0.2rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.strip-item,
+.strip-add {
+  position: relative;
+  flex: none;
+  width: 10.5rem;
+}
+
+.section-card {
+  min-height: 0;
+  padding: 1.75rem 0.75rem 0.7rem;
+  cursor: pointer;
+}
+
+.section-card .slide-label {
+  inset: 0.5rem 0.6rem auto;
+  gap: 0.5rem;
+}
+
+.card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-card .slide-number {
+  flex: none;
+}
+
+.section-card .slide-text {
+  font-size: 0.78rem;
+  -webkit-line-clamp: 3;
+}
+
+.section-card[aria-current='true'] {
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 6px 18px -8px rgb(122 77 255 / 0.55);
+}
+
+.section-card[aria-current='true'] .slide-label {
+  color: var(--text);
+}
+
+/* A section that would block saving says so on its card. */
+.section-card.incomplete .slide-text {
+  color: var(--warning);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.strip-item.dragged {
+  opacity: 0.45;
+}
+
+.strip-item.drop-before::before,
+.strip-item.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 0.3rem;
+  bottom: 0.3rem;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.strip-item.drop-before::before {
+  left: calc(-0.3rem - 1px);
+}
+
+.strip-item.drop-after::after {
+  right: calc(-0.3rem - 1px);
+}
+
+/* The step buttons sit on the card's lower corners, shown on hover or focus;
+   they are the keyboard path for reordering. */
+.card-moves {
+  position: absolute;
+  inset: auto 0.3rem 0.3rem;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out);
+}
+
+.strip-item:hover .card-moves,
+.strip-item:focus-within .card-moves {
+  opacity: 1;
+}
+
+.card-moves .chip-button {
+  pointer-events: auto;
+  background: rgb(23 22 46 / 0.9);
+}
+
+.card-moves .chip-button:disabled {
+  visibility: hidden;
+}
+
+.add-card {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+}
+
+/* ---------- The section being edited ---------- */
+
+.section-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 12.5rem;
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.section:not(.in-all) textarea {
+  min-height: 15rem;
+}
+
+.section.in-all .section-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.preview {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.preview-head {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.preview-head span {
+  font-weight: 500;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-slides {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 15rem;
+  margin: 0;
+  padding: 0 0.2rem 0 0;
+  list-style: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.preview .slide {
+  padding: 1.6rem 0.7rem 0.7rem;
+}
+
+.preview .slide-label {
+  inset: 0.45rem 0.55rem auto;
+  font-size: 0.65rem;
+}
+
+.preview .slide-text {
+  font-size: 0.72rem;
+  -webkit-line-clamp: 4;
+}
+
+.preview-empty {
+  margin: 0;
+  padding: 1rem 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+@media (max-width: 62rem) {
+  .section-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .preview-slides {
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+    max-height: none;
+  }
 }
 
 .add {
