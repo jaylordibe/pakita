@@ -28,6 +28,7 @@ const pakita: PakitaApi = {
     getUpdate: () => invoke(IpcChannel.appGetUpdate),
     openUpdate: () => invoke(IpcChannel.appOpenUpdate),
     copyText: (text) => invoke(IpcChannel.appCopyText, text),
+    readClipboardText: () => invoke(IpcChannel.appReadClipboardText),
     onUpdateAvailable: (listener) =>
       subscribe(IpcEvent.updateAvailable, listener),
   },

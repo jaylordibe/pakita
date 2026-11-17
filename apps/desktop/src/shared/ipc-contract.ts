@@ -16,6 +16,7 @@ export const IpcChannel = {
   appGetUpdate: 'app:get-update',
   appOpenUpdate: 'app:open-update',
   appCopyText: 'app:copy-text',
+  appReadClipboardText: 'app:read-clipboard-text',
   databaseGetHealth: 'database:get-health',
   serverConnect: 'server:connect',
   accountSignIn: 'account:sign-in',
@@ -476,6 +477,11 @@ export interface PakitaApi {
      * on). Through the main process: the page itself has no clipboard access.
      */
     copyText(text: string): Promise<void>;
+    /**
+     * The text on the system clipboard, read when the operator presses
+     * "Paste from clipboard". Refused when longer than `MAX_PASTE_LENGTH`.
+     */
+    readClipboardText(): Promise<string>;
     onUpdateAvailable(listener: (update: AvailableUpdate) => void): () => void;
   };
   readonly database: {

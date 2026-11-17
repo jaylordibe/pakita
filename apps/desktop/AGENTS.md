@@ -74,9 +74,17 @@ test/fixtures/ shared test data (a tiny USFM translation)
 - **No window loads remote content.** Every window navigates only within the
   app's own origins (`installWebContentsGuards`); the church server is reached
   from the main process alone.
-- **The clipboard is written by the main process only** (`app:copy-text`,
-  write-only and length-capped): the renderer has no browser permissions, and
-  a one-time password or invitation code is copied through it.
+- **The clipboard is reached through the main process only**: the renderer
+  has no browser permissions. `app:copy-text` writes it (length-capped; a
+  one-time password or invitation code is copied through it), and
+  `app:read-clipboard-text` reads it as text only, capped at
+  `MAX_PASTE_LENGTH`, and is called only when the operator presses "Paste
+  from clipboard" on a new song. Nothing watches the clipboard.
+- **Pasted lyrics are read on the laptop, never changed**
+  (`src/shared/lyrics-import.ts`): the importer only decides where sections
+  start and where slides break (a blank line, as `splitIntoSlides` reads
+  it). Lines it does not import are listed for the operator, never dropped
+  silently. Nothing is saved until the operator saves in the song editor.
 - **A password an administrator chose is replaced before anything else.**
   Accounts are created (and lost passwords reset) by an administrator in the
   app, with a one-time password Pakita generates

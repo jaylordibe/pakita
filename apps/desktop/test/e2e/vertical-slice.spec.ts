@@ -61,6 +61,7 @@ test('connects, signs in and opens its only church without asking', async () => 
 
 test('creates a song, saved to the API and synchronised back', async () => {
   await operator.getByTestId('new-song').click();
+  await operator.getByTestId('song-start-blank').click();
   await operator.getByTestId('song-title').fill('Amazing Grace');
   await operator.getByTestId('song-artist').fill('John Newton');
   await operator.getByTestId('section-label-0').fill('Verse 1');

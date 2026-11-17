@@ -9,6 +9,7 @@ import type {
   SyncStatus,
   WorkspaceSummary,
 } from '../../../shared/ipc-contract';
+import type { LyricsImport } from '../../../shared/lyrics-import';
 import { buildSongSlides } from '../../../shared/slides';
 import AddToPlaylist from '../components/AddToPlaylist.vue';
 import AppIcon, { type IconName } from '../components/AppIcon.vue';
@@ -17,6 +18,7 @@ import BiblePanel from '../components/BiblePanel.vue';
 import CopyToWorkspace from '../components/CopyToWorkspace.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
 import PlaylistsPanel from '../components/PlaylistsPanel.vue';
+import LyricsPaste from '../components/LyricsPaste.vue';
 import SongEditor from '../components/SongEditor.vue';
 import ThemesPanel from '../components/ThemesPanel.vue';
 import { messageOf } from '../errors';
@@ -75,7 +77,15 @@ const search = ref('');
 const songs = ref<SongSummary[]>([]);
 const selectedSong = ref<Song | null>(null);
 const arrangementId = ref<string | null>(null);
-const editing = ref<'new' | 'existing' | null>(null);
+// A new song starts on the paste screen, then opens the editor with what was
+// read from the lyrics (or blank).
+const editing = ref<'paste' | 'new' | 'existing' | null>(null);
+const draft = ref<LyricsImport | null>(null);
+
+function startNewSong(fromPaste: LyricsImport | null): void {
+  draft.value = fromPaste;
+  editing.value = 'new';
+}
 const syncStatus = ref<SyncStatus>({
   state: 'idle',
   lastSyncedAt: null,
@@ -315,7 +325,7 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
             <button
               class="sm primary"
               data-testid="new-song"
-              @click="editing = 'new'"
+              @click="editing = 'paste'"
             >
               <AppIcon name="plus" />
               New song
@@ -352,10 +362,17 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
         </aside>
 
         <main class="panel-content">
+          <LyricsPaste
+            v-if="editing === 'paste'"
+            @continue="startNewSong"
+            @blank="startNewSong(null)"
+            @cancel="editing = null"
+          />
           <SongEditor
-            v-if="editing"
+            v-else-if="editing"
             :key="editing === 'new' ? 'new' : selectedSong?.id"
             :song="editing === 'existing' ? selectedSong : null"
+            :draft="editing === 'new' ? draft : null"
             @saved="onSaved"
             @cancel="editing = null"
           />

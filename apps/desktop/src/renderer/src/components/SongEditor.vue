@@ -11,6 +11,7 @@ import {
 } from 'vue';
 
 import type { Song, SongInput } from '../../../shared/ipc-contract';
+import type { LyricsImport } from '../../../shared/lyrics-import';
 import { splitIntoSlides } from '../../../shared/slides';
 import {
   kindName,
@@ -53,7 +54,11 @@ const SECTION_KINDS: SectionKind[] = [
   'custom',
 ];
 
-const props = defineProps<{ song: Song | null }>();
+const props = defineProps<{
+  song: Song | null;
+  /** A new song's sections and order, read from pasted lyrics. */
+  draft?: Pick<LyricsImport, 'sections' | 'sequence'> | null;
+}>();
 const emit = defineEmits<{ saved: [song: Song]; cancel: [] }>();
 
 let newKeyCount = 0;
@@ -69,20 +74,26 @@ const sections = reactive<EditableSection[]>(
     kind: section.kind,
     label: section.label,
     lyrics: section.lyrics,
-  })) ?? [
-    {
-      key: nextKey(),
-      kind: 'verse',
-      label: kindName('verse'),
-      lyrics: '',
-    },
-  ],
+  })) ??
+    props.draft?.sections.map((section) => ({ ...section })) ?? [
+      {
+        key: nextKey(),
+        kind: 'verse',
+        label: kindName('verse'),
+        lyrics: '',
+      },
+    ],
 );
 const versions = reactive<EditableVersion[]>(
   props.song?.arrangements.map((arrangement) => ({
     name: arrangement.name,
     sectionKeys: [...arrangement.sectionIds],
-  })) ?? [{ name: 'Default', sectionKeys: [sections[0]!.key] }],
+  })) ?? [
+    {
+      name: 'Default',
+      sectionKeys: props.draft ? [...props.draft.sequence] : [sections[0]!.key],
+    },
+  ],
 );
 const defaultIndex = ref(
   Math.max(
@@ -730,7 +741,7 @@ async function save(): Promise<void> {
       </div>
     </details>
 
-    <div class="actions">
+    <div class="action-bar">
       <p v-if="errorMessage" class="error grow" role="alert">
         <AppIcon name="alert" />
         <span>{{ errorMessage }}</span>
@@ -756,7 +767,7 @@ async function save(): Promise<void> {
   gap: 1.5rem;
 }
 
-.editor > :not(.actions) {
+.editor > :not(.action-bar) {
   max-width: 52rem;
 }
 
@@ -1139,6 +1150,11 @@ textarea {
   -webkit-line-clamp: 4;
 }
 
+/* A preview shows every line a slide holds, up to six. */
+.preview-slides .slide-text {
+  -webkit-line-clamp: 6;
+}
+
 .preview-empty {
   margin: 0;
   padding: 1rem 0.75rem;
@@ -1191,22 +1207,5 @@ textarea {
 .chip-button .icon {
   width: 0.85rem;
   height: 0.85rem;
-}
-
-.actions {
-  position: sticky;
-  bottom: -2rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0 -2rem -2rem;
-  padding: 1rem 2rem 1.25rem;
-  border-top: 1px solid var(--border);
-  background: rgb(11 10 24 / 0.92);
-  backdrop-filter: blur(10px);
-}
-
-.actions .error {
-  margin: 0;
 }
 </style>
