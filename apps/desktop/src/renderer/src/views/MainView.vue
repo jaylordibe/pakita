@@ -372,7 +372,7 @@ onUnmounted(() => unsubscribes.forEach((unsubscribe) => unsubscribe()));
             </div>
             <div class="toolbar">
               <label class="inline">
-                <span class="muted">Arrangement</span>
+                <span class="muted">Version</span>
                 <select
                   v-model="arrangementId"
                   aria-label="Arrangement"

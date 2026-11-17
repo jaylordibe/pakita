@@ -74,7 +74,7 @@ async function resolveSong(
   const slides = buildSongSlides(song, named?.id) ?? [];
   const note =
     item.arrangementName && !named
-      ? `Arrangement “${item.arrangementName}” no longer exists; the default is presented.`
+      ? `Version “${item.arrangementName}” no longer exists; the default is presented.`
       : null;
   return {
     kind: 'song',

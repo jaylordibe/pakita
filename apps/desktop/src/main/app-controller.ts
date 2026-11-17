@@ -1042,7 +1042,7 @@ export class AppController {
       );
     }
     if (slides.length === 0) {
-      throw new Error('That arrangement has no slides.');
+      throw new Error('That version of the song has no slides.');
     }
     this.live.start(song.title, slides, await this.resolveLook(null));
     // Straight to the chosen slide: the first is never shown on the way.
