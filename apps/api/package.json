@@ -1,6 +1,6 @@
 {
   "name": "@pakita/api",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Pakita API — the church server: NestJS + Prisma + PostgreSQL + Redis. Created from the nestjs-api template (see NOTICE).",
   "author": "Jay Ibe",
   "license": "AGPL-3.0-or-later",
