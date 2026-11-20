@@ -5,12 +5,10 @@ name: API
 # release. Every job runs its commands in apps/api (see `defaults` below); the
 # install runs at the workspace root, where the one lockfile lives.
 on:
-  # Paused during early development to save Actions minutes; uncomment before release.
-  # push:
-  #   branches:
-  #     - main
-  #     - staging
-  #     - develop
+  # Not on every push: the checks run when chosen — from the Actions tab
+  # ("Run workflow"), on a pull request, and in every release
+  # (publish-image.yml calls this workflow before it publishes).
+  workflow_dispatch:
   pull_request:
     branches:
       - main
