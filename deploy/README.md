@@ -102,7 +102,7 @@ not part of the backups.
 ## Update
 
 ```sh
-./update.sh 0.2.0
+./update.sh 0.1.1
 ```
 
 It takes a backup, downloads the release, migrates the database and starts the
