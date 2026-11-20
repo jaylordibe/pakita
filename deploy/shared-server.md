@@ -66,13 +66,13 @@ To release, on your own computer:
 Pakita lives in `/srv/pakita`, apart from the other services' folders,
 owned by the user that runs Docker. The clone only provides these scripts and
 settings; the server itself comes from the release's images. Clone the
-release you will run (the tag matching `PAKITA_VERSION`, e.g. `v0.1.0`), so
+release you will run (the tag matching `PAKITA_VERSION`, e.g. `v0.1.1`), so
 the scripts always match the server they manage:
 
 ```sh
 sudo mkdir -p /srv/pakita
 sudo chown "$USER": /srv/pakita
-git clone --depth 1 --branch v0.1.0 https://github.com/jaylordibe/pakita.git /srv/pakita
+git clone --depth 1 --branch v0.1.1 https://github.com/jaylordibe/pakita.git /srv/pakita
 cd /srv/pakita/deploy
 cp shared-proxy/compose.override.yaml compose.override.yaml
 cp .env.example .env    # install.sh also does this on its first run
