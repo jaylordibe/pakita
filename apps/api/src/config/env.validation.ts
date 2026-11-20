@@ -337,10 +337,26 @@ export const envValidationSchema = Joi.object({
     then: Joi.string().min(3).required(),
     otherwise: Joi.string().allow('').optional(),
   }),
-  // Optional even for `s3`: the SDK resolves the region from AWS_REGION, the
-  // shared config file or instance metadata. Requiring it here would break the
-  // hosts that already answer the question.
-  STORAGE_S3_REGION: Joi.string().allow('').optional(),
+  // Optional for AWS S3 itself: the SDK resolves the region from AWS_REGION,
+  // the shared config file or instance metadata. Required with
+  // STORAGE_S3_ENDPOINT: an S3-compatible server reports no region, and
+  // signing a URL without one fails at the first upload instead of at boot.
+  STORAGE_S3_REGION: Joi.string()
+    .allow('')
+    .optional()
+    .when('STORAGE_PROVIDER', {
+      is: 's3',
+      then: Joi.when('STORAGE_S3_ENDPOINT', {
+        is: Joi.string().min(1).required(),
+        // `invalid('')` overrides the base `allow('')`: empty is not a region.
+        then: Joi.string().invalid('').required().messages({
+          'any.required':
+            'STORAGE_S3_REGION is required with STORAGE_S3_ENDPOINT: an S3-compatible server reports no region (any value it accepts, e.g. us-east-1).',
+          'any.invalid':
+            'STORAGE_S3_REGION is required with STORAGE_S3_ENDPOINT: an S3-compatible server reports no region (any value it accepts, e.g. us-east-1).',
+        }),
+      }),
+    }),
   // Set for an S3-compatible backend; leave empty for AWS S3 itself.
   STORAGE_S3_ENDPOINT: Joi.string()
     .uri({ scheme: ['http', 'https'] })

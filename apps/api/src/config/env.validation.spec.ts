@@ -437,6 +437,30 @@ describe('env.validation cross-field rules', () => {
       }
     });
 
+    it('requires a region with a custom S3 endpoint, at boot', () => {
+      const base = {
+        STORAGE_PROVIDER: 's3',
+        STORAGE_S3_BUCKET: 'uploads',
+        STORAGE_S3_ENDPOINT: 'https://storage.example.org',
+      };
+      for (const region of [undefined, '']) {
+        expect(
+          validate({
+            ...base,
+            ...(region !== undefined && { STORAGE_S3_REGION: region }),
+          }).error?.message,
+        ).toContain('STORAGE_S3_REGION is required with STORAGE_S3_ENDPOINT');
+      }
+      expect(
+        validate({ ...base, STORAGE_S3_REGION: 'us-east-1' }).error,
+      ).toBeUndefined();
+      // AWS S3 itself resolves its region from the SDK's own chain.
+      expect(
+        validate({ STORAGE_PROVIDER: 's3', STORAGE_S3_BUCKET: 'uploads' })
+          .error,
+      ).toBeUndefined();
+    });
+
     it("accepts S3 at the test stack's loopback endpoint", () => {
       expect(
         validate({
@@ -444,6 +468,7 @@ describe('env.validation cross-field rules', () => {
           STORAGE_PROVIDER: 's3',
           STORAGE_S3_BUCKET: 'uploads',
           STORAGE_S3_ENDPOINT: 'http://localhost:9451',
+          STORAGE_S3_REGION: 'us-east-1',
         }).error,
       ).toBeUndefined();
     });
