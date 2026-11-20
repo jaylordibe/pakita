@@ -24,7 +24,10 @@ x-api-environment: &api-environment
   CORS_ORIGIN: https://${PAKITA_DOMAIN}
   # Caddy is the only hop in front of the API: trust exactly its address.
   TRUST_PROXY: ${PAKITA_PROXY_ADDRESS:-172.31.250.2}
-  STORAGE_PROVIDER: s3
+  # `s3`: the storage service below. `gcs`: a Google Cloud Storage bucket
+  # (README.md, "Files in Google Cloud Storage").
+  STORAGE_PROVIDER: ${PAKITA_STORAGE:-s3}
+  STORAGE_GCS_BUCKET: ${PAKITA_GCS_BUCKET:-}
   STORAGE_S3_ENDPOINT: http://storage:9000
   # Laptops upload and download videos straight to storage, through Caddy on
   # this domain; the API signs their URLs for this address.

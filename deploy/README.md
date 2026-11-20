@@ -41,6 +41,30 @@ third-party service. Everything runs on this machine.
    screen, create an account for your church's owner under **People**, then
    create the church under **Churches**, naming that owner.
 
+## Files in Google Cloud Storage
+
+On a Google Compute Engine VM, uploaded files can live in a Cloud Storage
+bucket instead of on this machine. The server holds no key file: it uses the
+VM's attached service account, which needs, once:
+
+```bash
+# The VM's service account reads, writes and deletes the bucket's objects
+gcloud storage buckets add-iam-policy-binding gs://<bucket> \
+  --member="serviceAccount:<vm-sa>@<project>.iam.gserviceaccount.com" \
+  --role=roles/storage.objectAdmin
+
+# It signs upload and download links as itself (no key file on the VM)
+gcloud services enable iamcredentials.googleapis.com --project=<project-id>
+gcloud iam service-accounts add-iam-policy-binding \
+  <vm-sa>@<project>.iam.gserviceaccount.com \
+  --member="serviceAccount:<vm-sa>@<project>.iam.gserviceaccount.com" \
+  --role=roles/iam.serviceAccountTokenCreator
+```
+
+Then set `PAKITA_STORAGE=gcs` and `PAKITA_GCS_BUCKET=<bucket>` in `.env`
+and run `install.sh` (or `update.sh`). `backup.sh` then backs up the
+database only: protect the bucket with its own soft delete or versioning.
+
 ## People and passwords
 
 There is no sign-up. Accounts are created in the desktop app with a one-time
