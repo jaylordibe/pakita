@@ -81,10 +81,11 @@ jobs:
 
       # The app tests drive a real API (test/e2e/support/test-api.ts): the
       # API's test stack and its build, configured from its committed
-      # .env.test exactly as the API's own e2e job is.
+      # .env.test exactly as the API's own e2e job is. S3 too: the background
+      # video and image tests upload to it and download from it.
       - name: Start the API's test stack
         working-directory: apps/api
-        run: docker compose --env-file .env.test up -d --wait postgres redis
+        run: docker compose --env-file .env.test up -d --wait postgres redis s3
 
       - name: Build the API
         working-directory: apps/api
