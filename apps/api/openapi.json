@@ -2194,7 +2194,8 @@
                     "enum": [
                       "profile_image",
                       "document",
-                      "background_video"
+                      "background_video",
+                      "background_image"
                     ]
                   }
                 }
@@ -7615,7 +7616,8 @@
             "enum": [
               "profile_image",
               "document",
-              "background_video"
+              "background_video",
+              "background_image"
             ],
             "type": "string"
           },
@@ -8609,9 +8611,23 @@
           "theme"
         ]
       },
+      "MediaKind": {
+        "type": "string",
+        "enum": [
+          "video",
+          "image"
+        ]
+      },
       "MediaResponseDto": {
         "type": "object",
         "properties": {
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MediaKind"
+              }
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -8630,7 +8646,7 @@
           },
           "contentType": {
             "type": "string",
-            "description": "`video/mp4` or `video/webm`."
+            "description": "`video/mp4`, `video/webm`, `image/jpeg`, `image/png` or `image/webp`."
           },
           "width": {
             "type": "number"
@@ -8639,7 +8655,9 @@
             "type": "number"
           },
           "durationMs": {
-            "type": "number"
+            "type": "number",
+            "nullable": true,
+            "description": "A video's length; null for an image."
           },
           "syncVersion": {
             "type": "number",
@@ -8655,6 +8673,7 @@
           }
         },
         "required": [
+          "kind",
           "id",
           "workspaceId",
           "name",
@@ -9331,7 +9350,7 @@
         "properties": {
           "fileId": {
             "type": "string",
-            "description": "The id `POST …/media/uploads` returned.",
+            "description": "The id `POST …/media/uploads` (video) or `POST /files` (image) returned.",
             "format": "uuid"
           },
           "name": {
@@ -9341,29 +9360,26 @@
           },
           "width": {
             "type": "number",
-            "description": "Pixels; at most 1920 on the long side and 1080 on the short side.",
+            "description": "A video's pixels; at most 1920 on the long side, 1080 on the short.",
             "minimum": 1,
             "maximum": 1920
           },
           "height": {
             "type": "number",
-            "description": "Pixels; at most 1920 on the long side and 1080 on the short side.",
+            "description": "A video's pixels; at most 1920 on the long side, 1080 on the short.",
             "minimum": 1,
             "maximum": 1920
           },
           "durationMs": {
             "type": "number",
-            "description": "Milliseconds; at most an hour.",
+            "description": "A video's length in milliseconds; at most an hour.",
             "minimum": 1,
             "maximum": 3600000
           }
         },
         "required": [
           "fileId",
-          "name",
-          "width",
-          "height",
-          "durationMs"
+          "name"
         ]
       },
       "MediaDownloadResponseDto": {

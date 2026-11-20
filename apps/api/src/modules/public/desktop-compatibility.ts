@@ -30,7 +30,9 @@ import { resolve } from 'node:path';
 //    (GET /workspaces/:id/memberships: `roleName`).
 // 9: background videos (/workspaces/:id/media, uploaded straight to
 //    storage), `backgroundMediaId` on themes, and `media` in the sync feed.
-export const API_LEVEL = 9;
+// 10: still images as backgrounds (`kind` on media, `durationMs` null for
+//    an image; uploaded with POST /files, purpose `background_image`).
+export const API_LEVEL = 10;
 export const MINIMUM_DESKTOP_VERSION = '0.0.0';
 
 // This package's version, read once from its package.json: three levels up

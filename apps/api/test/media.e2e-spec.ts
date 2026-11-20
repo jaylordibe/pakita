@@ -15,6 +15,7 @@ import {
   SeededUser,
   SeededWorkspace,
 } from './setup/rbac';
+import { buildPng } from './fixtures/files';
 import { RecordingStorageAdapter } from './setup/recording-storage';
 import { createTestApp } from './setup/test-app';
 
@@ -448,6 +449,84 @@ describe('Media (e2e)', () => {
         .delete(url(`media/${media.id}`))
         .expect(204);
       await uploadVideo(mp4(3000));
+    });
+  });
+
+  describe('images', () => {
+    async function uploadImage(body: Buffer): Promise<string> {
+      const uploaded = await request(app.getHttpServer())
+        .post('/api/files')
+        .set('Authorization', `Bearer ${owner.token}`)
+        .field('purpose', 'background_image')
+        .attach('file', body, 'cross.png')
+        .expect(201);
+      return (uploaded.body as { id: string }).id;
+    }
+
+    it('adds an image with the size and hash of what the API stored', async () => {
+      const fileId = await uploadImage(await buildPng(64, 48));
+      const media = (
+        await as(owner)
+          .post(url('media'), {
+            fileId,
+            name: 'Cross',
+            // Ignored for an image: the stored file's own size is used.
+            width: 999,
+            height: 999,
+          })
+          .expect(201)
+      ).body as MediaBody & { kind: string };
+      expect(media).toMatchObject({
+        kind: 'image',
+        contentType: 'image/png',
+        width: 64,
+        height: 48,
+        durationMs: null,
+      });
+      const stored = [...storage.objects.values()].find(
+        (object) => object.contentType === 'image/png',
+      )!;
+      expect(media.sha256).toBe(sha256Of(stored.body));
+      expect(media.sizeBytes).toBe(stored.body.length);
+
+      const theme = (
+        await as(owner)
+          .post(url('themes'), { ...THEME, backgroundMediaId: media.id })
+          .expect(201)
+      ).body as { backgroundMediaId: string };
+      expect(theme.backgroundMediaId).toBe(media.id);
+    });
+
+    it('marks an uploaded video as a video, and asks for its measurements', async () => {
+      const body = mp4();
+      const upload = await startUpload(body);
+      storage.receiveUpload(storageKeyOf(upload.url), body);
+      const refused = await as(owner)
+        .post(url('media'), { fileId: upload.fileId, name: 'Waves' })
+        .expect(400);
+      expect((refused.body as ErrorBody).errorCode).toBe('VALIDATION_FAILED');
+      const media = (await addMedia(upload.fileId).expect(201)).body as {
+        kind: string;
+      };
+      expect(media.kind).toBe('video');
+    });
+
+    it('counts images toward the quota', async () => {
+      const fileId = await uploadImage(await buildPng(400, 300));
+      const image = (
+        await as(owner).post(url('media'), { fileId, name: 'Big' }).expect(201)
+      ).body as MediaBody;
+      const refused = await as(owner)
+        .post(url('media/uploads'), {
+          fileName: 'loop.mp4',
+          sizeBytes: 4096 - image.sizeBytes + 1,
+          contentType: 'video/mp4',
+          sha256: sha256Of(mp4()),
+        })
+        .expect(409);
+      expect((refused.body as ErrorBody).errorCode).toBe(
+        'MEDIA_QUOTA_EXCEEDED',
+      );
     });
   });
 

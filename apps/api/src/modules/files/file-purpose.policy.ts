@@ -133,4 +133,15 @@ export const FILE_PURPOSE_POLICIES: Record<FilePurpose, FilePurposePolicy> = {
     cacheControl: PRIVATE_OBJECT_CACHE_CONTROL,
     accepted: acceptedTypes(MP4, WEBM),
   },
+  // A still theme background: decoded and re-encoded like every image, and
+  // scaled to fit 3840 px (a 4K projector), so its metadata is gone and its
+  // size bounded before any laptop downloads it.
+  [FilePurpose.BACKGROUND_IMAGE]: {
+    transfer: FileTransfer.MULTIPART,
+    maxBytes: 20 * MEBIBYTE,
+    imageMaxDimension: 3840,
+    storageSubdirectory: 'files/background-images',
+    cacheControl: PRIVATE_OBJECT_CACHE_CONTROL,
+    accepted: acceptedTypes(JPEG, PNG, WEBP),
+  },
 };

@@ -5,6 +5,7 @@ import type { AppAbility } from '../../common/authorization/app-ability';
 import { buildOrderBy } from '../../common/dto/meta-query.dto';
 import { PaginationMeta } from '../../common/dto/paginated-response.dto';
 import { FilePurpose } from '../../common/enums/file-purpose.enum';
+import { MediaKind } from '../../common/enums/media-kind.enum';
 import { Errors } from '../../common/errors/errors';
 import {
   FileStorageService,
@@ -85,27 +86,45 @@ export class MediaService {
   }
 
   /**
-   * Adds the uploaded video: `FilesService` checks what storage holds (size,
-   * and type from the bytes), then the file is attached and the media created
-   * in one transaction, within the quota.
+   * Adds an uploaded background. A video: `FilesService` first checks what
+   * storage holds (size, and type from the bytes), and the uploading
+   * laptop's measurements are required. An image: the API re-encoded it on
+   * upload, so its measurements are the stored file's own. Either way the
+   * file is attached and the media created in one transaction, within the
+   * quota. Which it is follows from the file's purpose, never the request.
    */
   async create(
     workspaceId: string,
     dto: CreateMediaDto,
     actorId: string,
   ): Promise<Media> {
-    if (Math.min(dto.width, dto.height) > MEDIA_MAX_SHORT_SIDE) {
-      throw Errors.badRequest(
-        `A background video may be at most 1920 × ${MEDIA_MAX_SHORT_SIDE} pixels.`,
-      );
-    }
-    // Outside the transaction: it reads storage, which must never hold a
-    // database connection.
-    await this.filesService.completeDirectUpload(
+    const purpose = await this.filesService.findOwnPurpose(
       dto.fileId,
       actorId,
-      FilePurpose.BACKGROUND_VIDEO,
+      [FilePurpose.BACKGROUND_VIDEO, FilePurpose.BACKGROUND_IMAGE],
     );
+    if (!purpose) throw Errors.resourceNotFound('File');
+    const isVideo = purpose === FilePurpose.BACKGROUND_VIDEO;
+    if (isVideo) {
+      const { width, height, durationMs } = dto;
+      if (width === undefined || height === undefined || !durationMs) {
+        throw Errors.badRequest(
+          'A video needs its width, height and durationMs.',
+        );
+      }
+      if (Math.min(width, height) > MEDIA_MAX_SHORT_SIDE) {
+        throw Errors.badRequest(
+          `A background video may be at most 1920 × ${MEDIA_MAX_SHORT_SIDE} pixels.`,
+        );
+      }
+      // Outside the transaction: it reads storage, which must never hold a
+      // database connection.
+      await this.filesService.completeDirectUpload(
+        dto.fileId,
+        actorId,
+        FilePurpose.BACKGROUND_VIDEO,
+      );
+    }
     return this.prisma.$transaction(async (transaction) => {
       const syncVersion = await this.syncVersionService.claimNextVersion(
         transaction,
@@ -115,29 +134,30 @@ export class MediaService {
       const file = await this.filesService.claimForAttachment(transaction, {
         fileId: dto.fileId,
         actorId,
-        purpose: FilePurpose.BACKGROUND_VIDEO,
+        purpose,
       });
       const sizeBytes = file.sizeBytes ?? 0;
       const usedBytes = await this.usedBytes(transaction, workspaceId);
       if (usedBytes + sizeBytes > this.workspaceQuotaBytes) {
         throw Errors.mediaQuotaExceeded(this.workspaceQuotaBytes, usedBytes);
       }
-      if (!file.sha256) {
-        // Every direct upload records its hash; a file without one is a
-        // defect, not the client's mistake.
-        throw new Error(`Direct upload ${file.id} has no SHA-256`);
+      if (!file.sha256 || (!isVideo && (!file.width || !file.height))) {
+        // Every upload records its hash, and every image its size; a file
+        // without them is a defect, not the client's mistake.
+        throw new Error(`File ${file.id} lacks its SHA-256 or dimensions`);
       }
       return transaction.media.create({
         data: {
           workspaceId,
           name: dto.name,
+          kind: isVideo ? MediaKind.VIDEO : MediaKind.IMAGE,
           fileAssetId: file.id,
           sha256: base64ToHex(file.sha256),
           sizeBytes,
           contentType: file.contentType,
-          width: dto.width,
-          height: dto.height,
-          durationMs: dto.durationMs,
+          width: isVideo ? dto.width! : file.width!,
+          height: isVideo ? dto.height! : file.height!,
+          durationMs: isVideo ? dto.durationMs! : null,
           syncVersion,
           createdBy: actorId,
           updatedBy: actorId,

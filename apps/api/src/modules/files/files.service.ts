@@ -1,4 +1,5 @@
 import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { FileAsset, Prisma } from '@prisma/client';
 import { FileAssetStatus } from '../../common/enums/file-asset-status.enum';
@@ -228,6 +229,8 @@ export class FilesService {
       data: {
         status: FileAssetStatus.READY,
         sizeBytes: processed.body.length,
+        // Of the stored bytes, so a client that downloads them can verify.
+        sha256: createHash('sha256').update(processed.body).digest('base64'),
         width: processed.width,
         height: processed.height,
         expiresAt,
@@ -406,6 +409,26 @@ export class FilesService {
       throw Errors.fileNotAttachable();
     }
     return this.prisma.fileAsset.findUniqueOrThrow({ where: { id: row.id } });
+  }
+
+  /**
+   * The purpose of the caller's own file, when it is one of `purposes`; null
+   * otherwise — someone else's file is never distinguished from no file.
+   */
+  async findOwnPurpose(
+    fileId: string,
+    actorId: string,
+    purposes: readonly FilePurpose[],
+  ): Promise<FilePurpose | null> {
+    const file = await this.prisma.fileAsset.findFirst({
+      where: {
+        id: fileId,
+        uploadedBy: actorId,
+        purpose: { in: [...purposes] },
+      },
+      select: { purpose: true },
+    });
+    return file ? (file.purpose as FilePurpose) : null;
   }
 
   /**

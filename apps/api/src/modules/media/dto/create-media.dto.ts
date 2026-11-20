@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsInt,
+  IsOptional,
   IsString,
   IsUUID,
   Max,
@@ -15,12 +16,15 @@ export const MEDIA_MAX_LONG_SIDE = 1920;
 export const MEDIA_MAX_SHORT_SIDE = 1080;
 
 /**
- * Finishes an upload: the API checks what storage holds for `fileId`, then
- * adds the video. The measurements are the uploading laptop's; every laptop
- * checks the file again when it plays it.
+ * Adds an uploaded background. A video (`POST …/media/uploads`): the API
+ * checks what storage holds for `fileId`, and `width`, `height` and
+ * `durationMs` are required — the uploading laptop's measurements, which
+ * every laptop checks again when it plays it. An image (`POST /files`,
+ * purpose `background_image`): the measurements are the API's own, and any
+ * sent are ignored. Which one it is follows from the file.
  */
 export class CreateMediaDto {
-  /** The id `POST …/media/uploads` returned. */
+  /** The id `POST …/media/uploads` (video) or `POST /files` (image) returned. */
   @IsUUID()
   fileId!: string;
 
@@ -32,21 +36,24 @@ export class CreateMediaDto {
   @MaxLength(80)
   name!: string;
 
-  /** Pixels; at most 1920 on the long side and 1080 on the short side. */
+  /** A video's pixels; at most 1920 on the long side, 1080 on the short. */
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(MEDIA_MAX_LONG_SIDE)
-  width!: number;
+  width?: number;
 
-  /** Pixels; at most 1920 on the long side and 1080 on the short side. */
+  /** A video's pixels; at most 1920 on the long side, 1080 on the short. */
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(MEDIA_MAX_LONG_SIDE)
-  height!: number;
+  height?: number;
 
-  /** Milliseconds; at most an hour. */
+  /** A video's length in milliseconds; at most an hour. */
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(60 * 60 * 1000)
-  durationMs!: number;
+  durationMs?: number;
 }

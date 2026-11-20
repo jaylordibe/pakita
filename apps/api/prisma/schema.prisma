@@ -119,9 +119,10 @@ model FileAsset {
   height         Int?
   // User content: the client's file name, reduced to a safe display form.
   fileName       String    @map("file_name")
-  // Base64 SHA-256 a direct upload declared; storage that verifies it (S3)
-  // refuses other bytes, and every client that downloads the file checks it.
-  // Null for a file uploaded through the API.
+  // Base64 SHA-256 of the stored bytes: computed by the API for a file it
+  // processed, declared by the client for a direct upload (storage that
+  // verifies it, S3, refuses other bytes). Every client that downloads the
+  // file checks it. Null only for files stored before it was recorded.
   sha256         String?
   // Set exactly while `ready` or `awaiting_upload` (CHECK in the migration):
   // the moment an unattached file stops being attachable, or a direct upload
@@ -773,10 +774,11 @@ model BibleVerse {
   @@map("bible_verses")
 }
 
-/// A background video a workspace's themes can show. Synchronised to every
-/// laptop of the workspace like songs, which then download its bytes once,
-/// by content hash, from storage. Soft-deleted so the deletion reaches
-/// laptops as a tombstone; the file is released in the same transaction.
+/// A background (a video or a still image) a workspace's themes can show.
+/// Synchronised to every laptop of the workspace like songs, which then
+/// download its bytes once, by content hash, from storage. Soft-deleted so
+/// the deletion reaches laptops as a tombstone; the file is released in the
+/// same transaction.
 model Media {
   id          String    @id @default(uuid()) @db.Uuid
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -787,20 +789,24 @@ model Media {
   deletedBy   String?   @map("deleted_by") @db.Uuid
   workspaceId String    @map("workspace_id") @db.Uuid
   name        String
-  /// The stored video. Set exactly while the media is live (CHECK in the
+  /// `MediaKind`: `video` or `image`.
+  kind        String
+  /// The stored file. Set exactly while the media is live (CHECK in the
   /// migration): a delete releases the file and clears this.
   fileAssetId String?   @unique @map("file_asset_id") @db.Uuid
   /// Lowercase hex SHA-256 of the bytes: the identity laptops store and
   /// verify the download by.
   sha256      String
   sizeBytes   Int       @map("size_bytes")
-  /// `video/mp4` or `video/webm`, identified from the stored bytes.
+  /// Identified from the stored bytes: `video/mp4`, `video/webm`,
+  /// `image/jpeg`, `image/png` or `image/webp`.
   contentType String    @map("content_type")
-  /// As the uploading laptop measured them; every laptop checks again when it
-  /// plays the file.
+  /// A video's as the uploading laptop measured them (every laptop checks
+  /// again when it plays it); an image's as the API re-encoded it.
   width       Int
   height      Int
-  durationMs  Int       @map("duration_ms")
+  /// A video's length; null for an image (CHECK in the migration).
+  durationMs  Int?      @map("duration_ms")
   /// See Song.syncVersion.
   syncVersion Int       @map("sync_version")
 
