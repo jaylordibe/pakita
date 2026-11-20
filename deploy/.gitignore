@@ -3,5 +3,6 @@
 .env.*
 !.env.example
 backups/
-# A machine's own adjustments (shared-server.md).
-compose.override.yaml
+# A machine's own adjustments (shared-server.md); the example in
+# shared-proxy/ is not one of them.
+/compose.override.yaml

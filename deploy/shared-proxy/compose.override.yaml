@@ -1,0 +1,16 @@
+# For a machine whose existing reverse proxy (nginx here) already holds ports
+# 80 and 443: copy to ../compose.override.yaml. Docker Compose reads that file
+# next to compose.yaml on its own. See ../shared-server.md.
+services:
+  # Not started: the existing proxy serves Pakita's domain instead.
+  caddy:
+    profiles: [bundled-proxy]
+  # Names the existing proxy reaches them by, on Pakita's `edge` network.
+  api:
+    networks:
+      edge:
+        aliases: [pakita-api]
+  storage:
+    networks:
+      edge:
+        aliases: [pakita-storage]
