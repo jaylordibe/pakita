@@ -37,12 +37,27 @@ What changes, and why:
 
 ## 2. Install Pakita without its Caddy
 
-Put this folder in its own place on the machine (not inside the other
-services' folders), then:
+Pakita lives in `/srv/pakita`, apart from the other services' folders,
+owned by the user that runs Docker. Clone the release you will run (the tag
+matching `PAKITA_VERSION`, e.g. `v0.1.0`), so these scripts always match
+the server they manage:
 
 ```sh
+sudo mkdir -p /srv/pakita
+sudo chown "$USER": /srv/pakita
+git clone --depth 1 --branch v0.1.0 https://github.com/jaylordibe/pakita.git /srv/pakita
+cd /srv/pakita/deploy
 cp shared-proxy/compose.override.yaml compose.override.yaml
 cp .env.example .env    # install.sh also does this on its first run
+```
+
+Every command below runs in `/srv/pakita/deploy`. To update later, check
+out the new tag there first, then run `./update.sh <version>`:
+
+```sh
+git -C /srv/pakita fetch --depth 1 origin tag v0.2.0
+git -C /srv/pakita checkout v0.2.0
+./update.sh 0.2.0
 ```
 
 `compose.override.yaml` stops Caddy from starting and names the API
@@ -103,8 +118,8 @@ docker compose exec webserver nginx -t
 curl -fsS https://pakita.yourchurch.org/api/health/liveness
 ```
 
-Then create the first administrator (`./create-admin.sh`, in Pakita's
-folder) and connect the desktop app to `https://pakita.yourchurch.org`.
+Then create the first administrator (`./create-admin.sh`, in
+`/srv/pakita/deploy`) and connect the desktop app to `https://pakita.yourchurch.org`.
 
 ## Good to know
 
