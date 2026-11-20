@@ -5,13 +5,13 @@
 **Simply present.**
 
 Pakita is a free, open-source worship presentation app for churches: song
-lyrics, Bible passages, service playlists and simple themes, presented from a
-laptop to a projector.
+lyrics (typed, or pasted from a lyrics site), Bible passages, service
+playlists and themes with a colour, gradient, image or looping video behind
+the words, presented from a laptop to a projector.
 
 Content is managed on the church's own server and synchronised to each
-laptop, so a service can be presented with no internet connection.
-
-> Pakita is in early development. It is not ready for use yet.
+laptop, background videos and images included, so a service can be
+presented with no internet connection.
 
 ## Repository
 
@@ -24,7 +24,11 @@ laptop, so a service can be presented with no internet connection.
 ## Run a server
 
 A church runs its own Pakita server with Docker Compose: see
-[`deploy/README.md`](deploy/README.md). Desktop installers are on the
+[`deploy/README.md`](deploy/README.md), or
+[`deploy/shared-server.md`](deploy/shared-server.md) on a machine whose
+existing reverse proxy (nginx) already serves other sites. Uploaded videos
+and images stay on the server, or in a Google Cloud Storage bucket. Desktop
+installers are on the
 [releases page](https://github.com/jaylordibe/pakita/releases).
 
 ## Develop locally
@@ -38,6 +42,9 @@ pnpm install
 
 # API environment: the defaults match the local stack; only JWT_SECRET
 # must be set. Run once: apps/api/.env is git-ignored and stays yours.
+# Uploading background videos and images also needs object storage: follow
+# the `s3` block in apps/api/.env.example (the dev stack's RustFS, a bucket,
+# and STORAGE_S3_REGION). With the default stub storage, uploads are refused.
 cp apps/api/.env.example apps/api/.env
 sed -i.bak "s|^JWT_SECRET=.*|JWT_SECRET=\"$(openssl rand -hex 48)\"|" apps/api/.env && rm apps/api/.env.bak
 
@@ -121,7 +128,12 @@ Then walk through a Sunday as the media team would:
 4. **Playlists**: open *Sunday Service*, check every entry is ready on this
    laptop, and **Present playlist** to run the whole service as one deck.
 5. **Themes** (manager and above): edit *Evening* and watch the preview.
-6. Stop the API and present again: everything still works offline.
+   Choose its Background: a colour, a gradient, an image or a video
+   (uploading needs object storage, above). A video larger than 1080p, or a
+   `.mov`, is converted on the laptop before it is uploaded.
+6. While presenting, switch the theme from the live bar: the slide stays put,
+   and the playlist's own theme returns at the next **Go live**.
+7. Stop the API and present again: everything still works offline.
 
 Managers and above also add songs and build playlists; staff see the same
 library but cannot change it. The owner and admins also bring people in:
