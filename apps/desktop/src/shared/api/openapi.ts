@@ -1766,7 +1766,11 @@ export interface components {
     };
     UploadedFileResponseDto: {
       /** @enum {string} */
-      purpose: 'profile_image' | 'document' | 'background_video';
+      purpose:
+        | 'profile_image'
+        | 'document'
+        | 'background_video'
+        | 'background_image';
       /**
        * @description Always `ready` in the response to `POST /files`.
        * @enum {string}
@@ -2041,18 +2045,22 @@ export interface components {
       isDeleted: boolean;
       theme: components['schemas']['ThemeResponseDto'] | null;
     };
+    /** @enum {string} */
+    MediaKind: 'video' | 'image';
     MediaResponseDto: {
+      kind: components['schemas']['MediaKind'];
       id: string;
       workspaceId: string;
       name: string;
       /** @description Lowercase hex SHA-256 of the bytes; verify the download against it. */
       sha256: string;
       sizeBytes: number;
-      /** @description `video/mp4` or `video/webm`. */
+      /** @description `video/mp4`, `video/webm`, `image/jpeg`, `image/png` or `image/webp`. */
       contentType: string;
       width: number;
       height: number;
-      durationMs: number;
+      /** @description A video's length; null for an image. */
+      durationMs: number | null;
       /** @description The workspace sync version of the video's latest change. */
       syncVersion: number;
       /** Format: date-time */
@@ -2325,16 +2333,16 @@ export interface components {
     CreateMediaDto: {
       /**
        * Format: uuid
-       * @description The id `POST …/media/uploads` returned.
+       * @description The id `POST …/media/uploads` (video) or `POST /files` (image) returned.
        */
       fileId: string;
       name: string;
-      /** @description Pixels; at most 1920 on the long side and 1080 on the short side. */
-      width: number;
-      /** @description Pixels; at most 1920 on the long side and 1080 on the short side. */
-      height: number;
-      /** @description Milliseconds; at most an hour. */
-      durationMs: number;
+      /** @description A video's pixels; at most 1920 on the long side, 1080 on the short. */
+      width?: number;
+      /** @description A video's pixels; at most 1920 on the long side, 1080 on the short. */
+      height?: number;
+      /** @description A video's length in milliseconds; at most an hour. */
+      durationMs?: number;
     };
     MediaDownloadResponseDto: {
       url: string;
@@ -4005,7 +4013,11 @@ export interface operations {
           /** Format: binary */
           file: string;
           /** @enum {string} */
-          purpose: 'profile_image' | 'document' | 'background_video';
+          purpose:
+            | 'profile_image'
+            | 'document'
+            | 'background_video'
+            | 'background_image';
         };
       };
     };

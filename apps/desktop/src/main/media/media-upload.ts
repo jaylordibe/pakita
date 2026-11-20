@@ -14,6 +14,7 @@ import { MAX_VIDEO_BYTES } from '../../shared/video-spec';
 import type {
   MediaUploadInput,
   MediaUploadProgress,
+  PickedImage,
   PickedVideo,
 } from '../../shared/ipc-contract';
 import type { Media } from '../api/api-schemas';
@@ -299,4 +300,83 @@ export async function uploadPickedVideo(
     await rm(copy, { force: true });
   }
   return media;
+}
+
+/** The largest image picked: the server's `background_image` limit. */
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+const IMAGE_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+};
+
+// An image's first bytes: JPEG `FF D8 FF`, PNG's signature, or a RIFF file
+// of type `WEBP`. The server identifies and re-encodes it again anyway.
+async function sniffImage(path: string): Promise<string | null> {
+  const file = await open(path, 'r');
+  try {
+    const { buffer, bytesRead } = await file.read(Buffer.alloc(12), 0, 12, 0);
+    const start = buffer.subarray(0, bytesRead);
+    if (start.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) {
+      return 'image/jpeg';
+    }
+    if (start.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) {
+      return 'image/png';
+    }
+    if (
+      start.subarray(0, 4).toString('latin1') === 'RIFF' &&
+      start.subarray(8, 12).toString('latin1') === 'WEBP'
+    ) {
+      return 'image/webp';
+    }
+    return null;
+  } finally {
+    await file.close();
+  }
+}
+
+interface PickedImageFile {
+  readonly path: string;
+  readonly fileName: string;
+  readonly sizeBytes: number;
+  readonly contentType: string;
+}
+
+/** Images the operator picked in the system dialog, by a random token. */
+export class PickedImages {
+  private readonly files = new Map<string, PickedImageFile>();
+
+  async add(path: string): Promise<PickedImage> {
+    const stats = await stat(path);
+    if (!stats.isFile() || stats.size === 0) {
+      throw new Error('Choose an image file.');
+    }
+    if (stats.size > MAX_IMAGE_BYTES) {
+      throw new Error('A background image can be at most 20 MB.');
+    }
+    const declared = IMAGE_TYPE_BY_EXTENSION[extname(path).toLowerCase()];
+    const contentType = await sniffImage(path);
+    if (!declared || contentType !== declared) {
+      throw new Error('Choose a JPEG, PNG or WebP image.');
+    }
+    const token = randomUUID();
+    const fileName = basename(path);
+    this.files.set(token, {
+      path,
+      fileName,
+      sizeBytes: stats.size,
+      contentType,
+    });
+    return { token, fileName, sizeBytes: stats.size };
+  }
+
+  get(token: string): PickedImageFile | null {
+    return this.files.get(token) ?? null;
+  }
+
+  forget(token: string): void {
+    this.files.delete(token);
+  }
 }

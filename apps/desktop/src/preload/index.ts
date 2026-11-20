@@ -129,6 +129,9 @@ const pakita: PakitaApi = {
     list: () => invoke(IpcChannel.mediaList),
     pick: () => invoke(IpcChannel.mediaPick),
     upload: (input) => invoke(IpcChannel.mediaUpload, input),
+    pickImage: () => invoke(IpcChannel.mediaPickImage),
+    uploadImage: (token, name) =>
+      invoke(IpcChannel.mediaUploadImage, { token, name }),
     rename: (mediaId, name) =>
       invoke(IpcChannel.mediaRename, { mediaId, name }),
     delete: (mediaId) => invoke(IpcChannel.mediaDelete, mediaId),

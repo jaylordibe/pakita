@@ -7,25 +7,39 @@ import { pipeline } from 'node:stream/promises';
 
 import type { FetchFunction } from '../api/api-client';
 
-// A laptop's copy of its church's background videos: one file per video,
-// named by its SHA-256, written to `.partial/` while it downloads and moved
-// into place only once its size and hash match. So a file in the folder is a
-// verified video, and its presence is what "downloaded" means.
+// A laptop's copy of its church's backgrounds (videos and still images): one
+// file per background, named by its SHA-256, written to `.partial/` while it
+// downloads and moved into place only once its size and hash match. So a file
+// in the folder is verified, and its presence is what "downloaded" means.
 
-/** The extension each playable type is stored under. */
-export const VIDEO_EXTENSIONS = {
+/** The extension each type this build shows is stored under. */
+export const MEDIA_EXTENSIONS = {
   'video/mp4': 'mp4',
   'video/webm': 'webm',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
 } as const satisfies Record<string, string>;
-export type VideoType = keyof typeof VIDEO_EXTENSIONS;
+export type MediaType = keyof typeof MEDIA_EXTENSIONS;
+export type VideoType = 'video/mp4' | 'video/webm';
 
-export const isVideoType = (contentType: string): contentType is VideoType =>
-  Object.hasOwn(VIDEO_EXTENSIONS, contentType);
+export const isMediaType = (contentType: string): contentType is MediaType =>
+  Object.hasOwn(MEDIA_EXTENSIONS, contentType);
 
-/** `<sha256>.<mp4|webm>`: the only names the folder serves. */
-export const VIDEO_FILE_NAME = /^([0-9a-f]{64})\.(mp4|webm)$/;
-/** `<sha256>.webp`: a still frame of a video, for the operator's lists. */
-export const POSTER_FILE_NAME = /^([0-9a-f]{64})\.webp$/;
+/**
+ * `<sha256>.<ext>`: the only names the folder serves — a background, or
+ * (`.webp` named by a video's hash) a still frame of a video.
+ */
+export const MEDIA_FILE_NAME = /^([0-9a-f]{64})\.(mp4|webm|jpg|png|webp)$/;
+
+/** The type a served file is sent as, from its extension. */
+export const TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
 
 /** Left free on the disk after a download, so the laptop keeps working. */
 const DISK_RESERVE_BYTES = 2 * 1024 * 1024 * 1024;
@@ -33,7 +47,7 @@ const DISK_RESERVE_BYTES = 2 * 1024 * 1024 * 1024;
 export interface VideoIdentity {
   readonly sha256: string;
   readonly sizeBytes: number;
-  readonly contentType: VideoType;
+  readonly contentType: MediaType;
 }
 
 /** A download that did not produce the file it promised; not saved. */
@@ -60,7 +74,7 @@ export class MediaFolder {
   constructor(readonly directory: string) {}
 
   fileNameOf(video: Pick<VideoIdentity, 'sha256' | 'contentType'>): string {
-    return `${video.sha256}.${VIDEO_EXTENSIONS[video.contentType]}`;
+    return `${video.sha256}.${MEDIA_EXTENSIONS[video.contentType]}`;
   }
 
   pathOf(fileName: string): string {
@@ -169,7 +183,7 @@ export class MediaFolder {
    */
   async removeAllExcept(keptHashes: ReadonlySet<string>): Promise<void> {
     const isKept = (name: string) => {
-      const match = VIDEO_FILE_NAME.exec(name) ?? POSTER_FILE_NAME.exec(name);
+      const match = MEDIA_FILE_NAME.exec(name);
       return match !== null && keptHashes.has(match[1]!);
     };
     for (const folder of [this.directory, join(this.directory, '.partial')]) {

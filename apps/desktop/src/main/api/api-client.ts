@@ -38,6 +38,8 @@ export interface ApiRequest<Result> {
   /** Validates the response body; omitted for a body-less response. */
   readonly schema?: z.ZodType<Result>;
   readonly body?: unknown;
+  /** A multipart body (a file upload), instead of `body`'s JSON. */
+  readonly formData?: FormData;
   readonly accessToken?: string;
   readonly headers?: Readonly<Record<string, string>>;
   /** Overrides the default timeout, for a large download. */
@@ -74,8 +76,12 @@ export class ApiClient {
       response = await this.fetchFunction(`${this.origin}${request.path}`, {
         method: request.method,
         headers,
+        // A multipart body sets its own Content-Type, with its boundary.
         body:
-          request.body === undefined ? undefined : JSON.stringify(request.body),
+          request.formData ??
+          (request.body === undefined
+            ? undefined
+            : JSON.stringify(request.body)),
         signal: AbortSignal.timeout(
           request.timeoutMilliseconds ?? REQUEST_TIMEOUT_MILLISECONDS,
         ),

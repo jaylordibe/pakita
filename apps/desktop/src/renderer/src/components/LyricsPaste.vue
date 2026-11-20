@@ -376,53 +376,6 @@ onMounted(() => textarea.value?.focus());
   color: var(--text-muted);
 }
 
-.segmented {
-  display: inline-flex;
-  justify-self: start;
-  padding: 0.2rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--field);
-}
-
-.segmented label {
-  position: relative;
-  display: grid;
-  place-items: center;
-  min-width: 2.6rem;
-  min-height: calc(var(--control-height) - 0.4rem);
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background-color 160ms var(--ease-out),
-    color 160ms var(--ease-out);
-}
-
-.segmented label:hover {
-  color: var(--text);
-}
-
-.segmented label.chosen {
-  background: var(--accent-soft);
-  color: var(--text);
-}
-
-.segmented input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.segmented label:has(input:focus-visible) {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
 .preview {
   display: grid;
   gap: 0.85rem;

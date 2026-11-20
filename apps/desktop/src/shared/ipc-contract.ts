@@ -72,6 +72,8 @@ export const IpcChannel = {
   themesDelete: 'themes:delete',
   mediaList: 'media:list',
   mediaPick: 'media:pick',
+  mediaPickImage: 'media:pick-image',
+  mediaUploadImage: 'media:upload-image',
   mediaUpload: 'media:upload',
   mediaRename: 'media:rename',
   mediaDelete: 'media:delete',
@@ -407,21 +409,33 @@ export interface MediaFileState {
   readonly message: string | null;
 }
 
-/** A background video, with what this laptop holds of it. */
+/** A theme background (a video or a still image), with what this laptop holds of it. */
 export interface MediaItem {
   readonly id: string;
   readonly name: string;
+  readonly kind: 'video' | 'image';
   readonly sha256: string;
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly width: number;
   readonly height: number;
-  readonly durationMs: number;
+  /** A video's length; null for an image. */
+  readonly durationMs: number | null;
   readonly file: MediaFileState;
-  /** `pakita-media://…` once the verified video is on this laptop. */
-  readonly videoUrl: string | null;
-  /** A still frame this laptop drew from the video, once it has one. */
+  /** `pakita-media://…` once the verified file is on this laptop. */
+  readonly url: string | null;
+  /**
+   * What lists show: the image itself, or a still frame this laptop drew
+   * from the video, once it has one.
+   */
   readonly posterUrl: string | null;
+}
+
+/** A still image the operator chose on disk, not yet uploaded. */
+export interface PickedImage {
+  readonly token: string;
+  readonly fileName: string;
+  readonly sizeBytes: number;
 }
 
 /** A video the operator chose on disk, not yet uploaded. */
@@ -685,6 +699,10 @@ export interface PakitaApi {
     pick(): Promise<PickedVideo | null>;
     /** Uploads a picked video straight to storage and adds it. */
     upload(input: MediaUploadInput): Promise<MediaItem>;
+    /** Opens the system file dialog for an image; null when cancelled. */
+    pickImage(): Promise<PickedImage | null>;
+    /** Uploads a picked image (the server re-encodes it) and adds it. */
+    uploadImage(token: string, name: string): Promise<MediaItem>;
     /**
      * A file for the normalised version of a picked video, written in
      * positioned chunks (see renderer/video-normalize), then picked itself.

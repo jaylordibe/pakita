@@ -9,6 +9,7 @@ import {
 } from 'electron';
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { z } from 'zod';
 
@@ -42,6 +43,7 @@ import {
   type MediaItem,
   type MediaUploadInput,
   type PassageRequest,
+  type PickedImage,
   type PickedVideo,
   type PlaylistInput,
   type PlaylistSummary,
@@ -64,6 +66,7 @@ import {
 } from '../shared/slides';
 import {
   DEFAULT_THEME_LOOK,
+  type LocalBackground,
   lookOf,
   type ThemeLook,
 } from '../shared/theme-look';
@@ -81,6 +84,7 @@ import {
   mediaDownloadSchema,
   mediaSchema,
   mediaUploadSchema,
+  uploadedFileSchema,
   membershipPageSchema,
   membershipSchema,
   playlistSchema,
@@ -112,12 +116,18 @@ import { readSuggestedDetails } from './bible/ebible-details';
 import { checkCompatibility } from './compatibility';
 import { DatabaseClient } from './database/database-client';
 import {
+  isMediaType,
+  MEDIA_EXTENSIONS,
+  MEDIA_FILE_NAME,
   MediaFolder,
-  POSTER_FILE_NAME,
-  VIDEO_FILE_NAME,
+  TYPE_BY_EXTENSION,
 } from './media/media-folder';
 import { MediaSync } from './media/media-sync';
-import { PickedFiles, uploadPickedVideo } from './media/media-upload';
+import {
+  PickedFiles,
+  PickedImages,
+  uploadPickedVideo,
+} from './media/media-upload';
 import { putFile } from './media/put-file';
 import { LiveSession } from './presentation/live-session';
 import {
@@ -198,6 +208,7 @@ export class AppController {
   private mediaFolder: MediaFolder | null = null;
   private mediaSync: MediaSync | null = null;
   private readonly pickedFiles: PickedFiles;
+  private readonly pickedImages = new PickedImages();
   /** Settles once the remembered session (and its token) is loaded. */
   private sessionReady: Promise<void> = Promise.resolve();
 
@@ -988,12 +999,12 @@ export class AppController {
     return Promise.all(
       (await this.loadMedia()).map(async (media) => {
         const isHeld =
-          (media.contentType === 'video/mp4' ||
-            media.contentType === 'video/webm') &&
+          isMediaType(media.contentType) &&
           (await folder.has({
             sha256: media.sha256,
             contentType: media.contentType,
           }));
+        const url = isHeld ? this.mediaUrlOf(media) : null;
         const file: MediaFileState = isHeld
           ? {
               mediaId: media.id,
@@ -1012,6 +1023,7 @@ export class AppController {
         return {
           id: media.id,
           name: media.name,
+          kind: media.kind,
           sha256: media.sha256,
           contentType: media.contentType,
           sizeBytes: media.sizeBytes,
@@ -1019,10 +1031,13 @@ export class AppController {
           height: media.height,
           durationMs: media.durationMs,
           file,
-          videoUrl: isHeld ? this.mediaUrlOf(media) : null,
-          posterUrl: (await folder.hasPoster(media.sha256))
-            ? `pakita-media://files/${media.sha256}.webp`
-            : null,
+          url,
+          posterUrl:
+            media.kind === 'image'
+              ? url
+              : (await folder.hasPoster(media.sha256))
+                ? `pakita-media://files/${media.sha256}.webp`
+                : null,
         };
       }),
     );
@@ -1112,6 +1127,61 @@ export class AppController {
     return this.pickedFiles.discardOutput(outputToken);
   }
 
+  /** The system file dialog, for an image to upload. */
+  async pickImage(): Promise<PickedImage | null> {
+    const window = this.options.getOperatorWindow();
+    const options: Electron.OpenDialogOptions = {
+      title: 'Choose a background image',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+    };
+    const chosen = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options);
+    const path = chosen.filePaths[0];
+    if (chosen.canceled || !path) return null;
+    return this.pickedImages.add(path);
+  }
+
+  /**
+   * Uploads a picked image through the API, which re-encodes it (dropping
+   * its metadata), and adds it. The laptop then downloads the stored image
+   * like any other: what it shows is what every laptop shows.
+   */
+  async uploadImage(token: string, name: string): Promise<MediaItem> {
+    await this.sessionReady;
+    const picked = this.pickedImages.get(token);
+    if (!picked) throw new Error('Choose the image again.');
+    const workspaceId = this.requireWorkspace();
+    const session = this.requireSession();
+    const form = new FormData();
+    form.set('purpose', 'background_image');
+    form.set(
+      'file',
+      new Blob([await readFile(picked.path)], { type: picked.contentType }),
+      picked.fileName,
+    );
+    const uploaded = await session.request({
+      method: 'POST',
+      path: '/api/files',
+      schema: uploadedFileSchema,
+      formData: form,
+    });
+    const media = await session.request({
+      method: 'POST',
+      path: `/api/workspaces/${workspaceId}/media`,
+      schema: mediaSchema,
+      body: { fileId: uploaded.id, name },
+    });
+    this.pickedImages.forget(token);
+    await this.syncNow();
+    const listed = (await this.listMedia()).find(
+      (item) => item.id === media.id,
+    );
+    if (!listed) throw new Error('The image was added; synchronise to see it.');
+    return listed;
+  }
+
   async renameMedia(mediaId: string, name: string): Promise<void> {
     await this.writeOnline('PATCH', `media/${mediaId}`, mediaSchema, { name });
   }
@@ -1138,20 +1208,13 @@ export class AppController {
   resolveMediaFile(url: URL): { path: string; contentType: string } | null {
     const name = url.pathname.replace(/^\//, '');
     if (url.hostname === 'files' && this.mediaFolder) {
-      const video = VIDEO_FILE_NAME.exec(name);
-      if (video) {
-        return {
-          path: this.mediaFolder.pathOf(name),
-          contentType: video[2] === 'mp4' ? 'video/mp4' : 'video/webm',
-        };
-      }
-      if (POSTER_FILE_NAME.test(name)) {
-        return {
-          path: this.mediaFolder.pathOf(name),
-          contentType: 'image/webp',
-        };
-      }
-      return null;
+      const file = MEDIA_FILE_NAME.exec(name);
+      return file
+        ? {
+            path: this.mediaFolder.pathOf(name),
+            contentType: TYPE_BY_EXTENSION[file[2]!]!,
+          }
+        : null;
     }
     if (url.hostname === 'picked') {
       const picked = this.pickedFiles.get(name);
@@ -1163,7 +1226,9 @@ export class AppController {
   }
 
   private mediaUrlOf(media: Pick<Media, 'sha256' | 'contentType'>): string {
-    const extension = media.contentType === 'video/webm' ? 'webm' : 'mp4';
+    const extension = isMediaType(media.contentType)
+      ? MEDIA_EXTENSIONS[media.contentType]
+      : 'bin';
     return `pakita-media://files/${media.sha256}.${extension}`;
   }
 
@@ -1249,7 +1314,7 @@ export class AppController {
       const parsed = themeSchema.safeParse(stored);
       if (!parsed.success) continue;
       const mediaId = parsed.data.backgroundMediaId;
-      if (!mediaId || (await this.localVideoUrlOf(mediaId))) return null;
+      if (!mediaId || (await this.localBackgroundOf(mediaId))) return null;
       const state = this.mediaSync
         ?.getStates()
         .find((candidate) => candidate.mediaId === mediaId);
@@ -1258,7 +1323,12 @@ export class AppController {
         state?.state === 'downloading' && state.sizeBytes > 0
           ? ` (${Math.floor((state.receivedBytes / state.sizeBytes) * 100)}%)`
           : '';
-      return `The theme’s background video is still downloading${percent}. Until it arrives, the theme’s colour shows instead.`;
+      const kind =
+        (await this.loadMedia()).find((media) => media.id === mediaId)?.kind ===
+        'image'
+          ? 'image'
+          : 'video';
+      return `The theme’s background ${kind} is still downloading${percent}. Until it arrives, the theme’s colour shows instead.`;
     }
     return null;
   }
@@ -1459,7 +1529,7 @@ export class AppController {
     this.live.changeLook(
       lookOf(
         parsed.data,
-        await this.localVideoUrlOf(parsed.data.backgroundMediaId),
+        await this.localBackgroundOf(parsed.data.backgroundMediaId),
       ),
       parsed.data.id,
     );
@@ -1650,7 +1720,7 @@ export class AppController {
         return {
           look: lookOf(
             parsed.data,
-            await this.localVideoUrlOf(parsed.data.backgroundMediaId),
+            await this.localBackgroundOf(parsed.data.backgroundMediaId),
           ),
           themeId: parsed.data.id,
         };
@@ -1660,28 +1730,23 @@ export class AppController {
   }
 
   /**
-   * The local URL of a theme's background video, only when this laptop holds
-   * its verified file now; otherwise the theme's own background shows.
+   * A theme's background media as this laptop holds it now (verified), or
+   * null — then the theme's own colour or gradient shows.
    */
-  private async localVideoUrlOf(
+  private async localBackgroundOf(
     mediaId: string | null,
-  ): Promise<string | null> {
+  ): Promise<LocalBackground | null> {
     const folder = this.mediaFolder;
     if (!mediaId || !folder) return null;
     const media = (await this.loadMedia()).find(
       (candidate) => candidate.id === mediaId,
     );
-    if (
-      !media ||
-      (media.contentType !== 'video/mp4' && media.contentType !== 'video/webm')
-    ) {
-      return null;
-    }
+    if (!media || !isMediaType(media.contentType)) return null;
     const isHeld = await folder.has({
       sha256: media.sha256,
       contentType: media.contentType,
     });
-    return isHeld ? this.mediaUrlOf(media) : null;
+    return isHeld ? { kind: media.kind, url: this.mediaUrlOf(media) } : null;
   }
 
   private async loadPassage(

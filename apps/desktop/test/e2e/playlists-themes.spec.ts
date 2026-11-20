@@ -67,7 +67,8 @@ test('creates the church’s default theme, previewed as it will look', async ()
   await operator.getByTestId('tab-themes').click();
   await operator.getByTestId('theme-new').click();
   await operator.getByTestId('theme-name').fill('Evening');
-  await operator.getByTestId('theme-background').selectOption('ocean');
+  await operator.getByTestId('theme-background-gradient').check();
+  await operator.getByTestId('theme-gradient').selectOption('ocean');
   await operator.getByTestId('theme-font').selectOption('serif');
   await operator.getByTestId('theme-default').check();
   await expect(operator.getByTestId('theme-preview')).toHaveCSS(

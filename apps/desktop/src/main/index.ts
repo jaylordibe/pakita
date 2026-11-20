@@ -455,6 +455,12 @@ async function start(): Promise<void> {
   );
   handle(IpcChannel.mediaList, noPayload, () => controller.listMedia());
   handle(IpcChannel.mediaPick, noPayload, () => controller.pickMedia());
+  handle(IpcChannel.mediaPickImage, noPayload, () => controller.pickImage());
+  handle(
+    IpcChannel.mediaUploadImage,
+    z.object({ token: uuid, name: z.string().trim().min(1).max(80) }).strict(),
+    ({ token, name }) => controller.uploadImage(token, name),
+  );
   handle(
     IpcChannel.mediaUpload,
     z

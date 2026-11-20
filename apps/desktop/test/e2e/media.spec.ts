@@ -85,6 +85,7 @@ test('uploads a video from one laptop and makes it the default background', asyn
   await operator.getByTestId('theme-new').click();
   await operator.getByTestId('theme-name').fill('Moving');
   await operator.getByTestId('theme-default').check();
+  await operator.getByTestId('theme-background-video').check();
   await operator.getByTestId('media-upload').click();
   const tile = operator.getByTestId('media-background-loop');
   await expect(tile).toContainText('On this laptop', { timeout: 30_000 });
@@ -204,4 +205,63 @@ test('converts a video larger than 1080p on the laptop before uploading it', asy
   expect(media.data.find((video) => video.name === 'large-loop')).toEqual(
     expect.objectContaining({ width: 1920, height: 1080 }),
   );
+});
+
+test('shows a still image as the background, uploaded through the API', async () => {
+  const [first, second] = applications;
+  const operator = await first!.firstWindow();
+  const png = await operator.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 360;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = '#204060';
+    context.fillRect(0, 0, 640, 360);
+    return canvas.toDataURL('image/png').split(',')[1]!;
+  });
+  const file = join(profiles[0]!, 'cross.png');
+  writeFileSync(file, Buffer.from(png, 'base64'));
+  await first!.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = (async () => ({
+      canceled: false,
+      filePaths: [path],
+    })) as typeof dialog.showOpenDialog;
+  }, file);
+
+  await operator.getByTestId('tab-themes').click();
+  await operator.getByTestId('theme-new').click();
+  await operator.getByTestId('theme-name').fill('Still');
+  await operator.getByTestId('theme-default').check();
+  await operator.getByTestId('theme-background-image').check();
+  await operator.getByTestId('media-upload-image').click();
+  const tile = operator.getByTestId('media-cross');
+  await expect(tile).toContainText('On this laptop', { timeout: 30_000 });
+  await expect(tile).toHaveAttribute('aria-pressed', 'true');
+  await expect(operator.locator('.preview .poster')).toBeVisible();
+  await operator.getByTestId('theme-save').click();
+  await expect(operator.getByTestId('theme-Still')).toContainText('(default)');
+
+  // The other laptop presents with it. It is still presenting from the test
+  // above, and nothing downloads during a presentation: stop it first.
+  const presenter = await second!.firstWindow();
+  await presenter.getByTestId('live-stop').click();
+  await presenter.getByTestId('sync-now').click();
+  await presenter.getByTestId('tab-themes').click();
+  await presenter.getByTestId('theme-Still').click();
+  await expect(presenter.getByTestId('media-cross')).toContainText(
+    'On this laptop',
+    { timeout: 30_000 },
+  );
+  await presenter.getByTestId('tab-songs').click();
+  await presenter.getByTestId('library-song-Amazing Grace').click();
+  await presenter.getByTestId('go-live').click();
+  const projector = await findProjector(second!);
+  const image = projector.locator('#background-image');
+  await expect(image).toHaveClass(/is-shown/);
+  await expect(image).toHaveAttribute(
+    'src',
+    /^pakita-media:\/\/files\/[0-9a-f]{64}\.png$/,
+  );
+  await expect(projector.locator('.background-video.is-shown')).toHaveCount(1);
+  await presenter.getByTestId('live-stop').click();
 });

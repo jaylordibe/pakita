@@ -2,8 +2,9 @@ import type { MediaFileState } from '../../shared/ipc-contract';
 import type { FetchFunction } from '../api/api-client';
 import type { Media } from '../api/api-schemas';
 import {
-  isVideoType,
+  isMediaType,
   MediaDiskFullError,
+  type MediaType,
   MediaIntegrityError,
   type MediaFolder,
 } from './media-folder';
@@ -79,7 +80,7 @@ export class MediaSync {
   private async runOnce(): Promise<void> {
     const { folder } = this.dependencies;
     const media = (await this.dependencies.listMedia()).filter((video) =>
-      isVideoType(video.contentType),
+      isMediaType(video.contentType),
     );
     await folder.removeAllExcept(
       new Set(await this.dependencies.listAllHashes()),
@@ -155,7 +156,7 @@ export class MediaSync {
     return {
       sha256: video.sha256,
       sizeBytes: video.sizeBytes,
-      contentType: video.contentType as 'video/mp4' | 'video/webm',
+      contentType: video.contentType as MediaType,
     };
   }
 

@@ -18,11 +18,19 @@ export interface ThemeLook {
   readonly textScale: number;
   readonly textAlign: Theme['textAlign'];
   /**
-   * The theme's background video on this laptop (`pakita-media://…`), drawn
-   * under the text over `background`; null when the theme has none or the
-   * laptop did not hold it yet when the look was resolved.
+   * The theme's background on this laptop (`pakita-media://…`), drawn under
+   * the text over `background`: a looping video or a still image, at most
+   * one set. Null when the theme has none, or the laptop did not hold it yet
+   * when the look was resolved — `background` then shows alone.
    */
   readonly backgroundVideoUrl: string | null;
+  readonly backgroundImageUrl: string | null;
+}
+
+/** A theme's background media as this laptop holds it. */
+export interface LocalBackground {
+  readonly kind: 'video' | 'image';
+  readonly url: string;
 }
 
 /** White text on black: used when the workspace has no default theme. */
@@ -34,6 +42,7 @@ export const DEFAULT_THEME_LOOK: ThemeLook = Object.freeze({
   textScale: 100,
   textAlign: 'center',
   backgroundVideoUrl: null,
+  backgroundImageUrl: null,
 });
 
 // Every value the API allows, mapped exhaustively: a value added to the API
@@ -71,10 +80,11 @@ export const FONT_LABELS: Record<ThemeFont, string> = {
 
 export function lookOf(
   theme: Theme,
-  backgroundVideoUrl: string | null = null,
+  local: LocalBackground | null = null,
 ): ThemeLook {
   return Object.freeze({
-    backgroundVideoUrl,
+    backgroundVideoUrl: local?.kind === 'video' ? local.url : null,
+    backgroundImageUrl: local?.kind === 'image' ? local.url : null,
     background: theme.background,
     backgroundColor: theme.backgroundColor,
     textColor: theme.textColor,
@@ -109,4 +119,9 @@ export function stageStyle(look: ThemeLook): {
  */
 export function posterUrlOf(videoUrl: string | null): string | null {
   return videoUrl?.replace(/\.(mp4|webm)$/, '.webp') ?? null;
+}
+
+/** What a preview shows under the text: the image, or the video's frame. */
+export function stillOf(look: ThemeLook): string | null {
+  return look.backgroundImageUrl ?? posterUrlOf(look.backgroundVideoUrl);
 }

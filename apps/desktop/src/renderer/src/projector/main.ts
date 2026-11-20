@@ -13,6 +13,28 @@ const layers = [
   document.getElementById('background-b') as HTMLVideoElement,
 ];
 
+const image = document.getElementById('background-image') as HTMLImageElement;
+let imageUrl: string | null = null;
+
+/**
+ * Shows the theme's background image, fading in once it has loaded; a file
+ * that fails to load leaves the theme's own background.
+ */
+function showImage(url: string | null): void {
+  if (url === imageUrl) return;
+  imageUrl = url;
+  image.classList.remove('is-shown');
+  if (!url) {
+    image.removeAttribute('src');
+    return;
+  }
+  image.onload = () => {
+    if (imageUrl === url) image.classList.add('is-shown');
+  };
+  image.onerror = () => image.classList.remove('is-shown');
+  image.src = url;
+}
+
 /** The video showing (or fading in), and which layer holds it. */
 let videoUrl: string | null = null;
 let front = 0;
@@ -69,6 +91,7 @@ function render(state: LiveState): void {
   stage.style.fontFamily = style.fontFamily;
   stage.style.textAlign = style.textAlign;
   showVideo(state.isLive ? state.look.backgroundVideoUrl : null, isDark);
+  showImage(state.isLive ? state.look.backgroundImageUrl : null);
   textScale = state.look.textScale / 100;
   slide.textContent = isDark ? '' : current.text;
   caption.textContent = isDark ? '' : (current.caption ?? '');

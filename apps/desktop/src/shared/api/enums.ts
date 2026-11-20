@@ -89,6 +89,11 @@ export const bibleBookCodeValues = [
   'PS2',
 ] as const satisfies ReadonlyArray<components['schemas']['BibleBookCode']>;
 
+export const mediaKindValues = [
+  'video',
+  'image',
+] as const satisfies ReadonlyArray<components['schemas']['MediaKind']>;
+
 export const playlistItemKindValues = [
   'song',
   'passage',

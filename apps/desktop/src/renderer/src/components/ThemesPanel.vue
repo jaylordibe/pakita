@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 
 import {
   themeBackgroundValues,
@@ -41,14 +41,66 @@ const blank = (): ThemeInput & { backgroundMediaId: string | null } => ({
 });
 const form = reactive(blank());
 const mediaItems = ref<MediaItem[]>([]);
-// The preview shows the chosen video's still frame, once this laptop has it.
+
+// One kind of background at a time, and only its settings shown. An image
+// or a video keeps a colour too: what a laptop shows until it holds the file.
+type BackgroundType = 'colour' | 'gradient' | 'image' | 'video';
+const BACKGROUND_TYPES: ReadonlyArray<{
+  value: BackgroundType;
+  label: string;
+}> = [
+  { value: 'colour', label: 'Colour' },
+  { value: 'gradient', label: 'Gradient' },
+  { value: 'image', label: 'Image' },
+  { value: 'video', label: 'Video' },
+];
+const GRADIENTS = themeBackgroundValues.filter(
+  (background) => background !== 'solid',
+);
+const backgroundType = ref<BackgroundType>('colour');
+
+/** The type a stored theme shows, once its media's kind is known. */
+function typeOf(): BackgroundType {
+  if (form.backgroundMediaId) {
+    return (
+      mediaItems.value.find((item) => item.id === form.backgroundMediaId)
+        ?.kind ?? backgroundType.value
+    );
+  }
+  return form.background === 'solid' ? 'colour' : 'gradient';
+}
+// The library arrives after the theme: settle an opened theme's type then.
+watch(mediaItems, () => {
+  if (form.backgroundMediaId) backgroundType.value = typeOf();
+});
+
+function chooseType(type: BackgroundType): void {
+  if (type === backgroundType.value) return;
+  backgroundType.value = type;
+  const chosen = mediaItems.value.find(
+    (item) => item.id === form.backgroundMediaId,
+  );
+  if (chosen && chosen.kind !== type) form.backgroundMediaId = null;
+  if (type === 'colour' || type === 'image' || type === 'video') {
+    form.background = 'solid';
+  } else if (form.background === 'solid') {
+    form.background = GRADIENTS[0]!;
+  }
+  if (type === 'colour' || type === 'gradient') form.backgroundMediaId = null;
+}
+
+// The preview shows the chosen image, or the video's still frame, once this
+// laptop has it.
 const chosenMedia = computed(
   () =>
     mediaItems.value.find((item) => item.id === form.backgroundMediaId) ?? null,
 );
 const look = computed(() => ({
   ...form,
-  backgroundVideoUrl: chosenMedia.value?.videoUrl ?? null,
+  backgroundVideoUrl:
+    chosenMedia.value?.kind === 'video' ? chosenMedia.value.url : null,
+  backgroundImageUrl:
+    chosenMedia.value?.kind === 'image' ? chosenMedia.value.url : null,
 }));
 
 async function loadThemes(): Promise<void> {
@@ -57,6 +109,7 @@ async function loadThemes(): Promise<void> {
 
 function startNew(): void {
   Object.assign(form, blank());
+  backgroundType.value = 'colour';
   themeId.value = null;
   isEditing.value = true;
   errorMessage.value = null;
@@ -64,8 +117,12 @@ function startNew(): void {
 
 async function open(id: string): Promise<void> {
   errorMessage.value = null;
-  const theme = await window.pakita.themes.get(id);
+  const [theme, items] = await Promise.all([
+    window.pakita.themes.get(id),
+    window.pakita.media.list(),
+  ]);
   if (!theme) return;
+  mediaItems.value = items;
   Object.assign(form, {
     name: theme.name,
     background: theme.background,
@@ -77,15 +134,28 @@ async function open(id: string): Promise<void> {
     backgroundMediaId: theme.backgroundMediaId,
     isDefault: theme.isDefault,
   });
+  backgroundType.value = typeOf();
   themeId.value = id;
   isEditing.value = true;
 }
 
 async function save(): Promise<void> {
   errorMessage.value = null;
+  const isMedia =
+    backgroundType.value === 'image' || backgroundType.value === 'video';
+  if (isMedia && !form.backgroundMediaId) {
+    errorMessage.value = `Choose ${
+      backgroundType.value === 'image' ? 'an image' : 'a video'
+    }, or another kind of background.`;
+    return;
+  }
   isSaving.value = true;
   try {
-    const input = { ...form, name: form.name.trim() };
+    const input = {
+      ...form,
+      name: form.name.trim(),
+      backgroundMediaId: isMedia ? form.backgroundMediaId : null,
+    };
     const saved = themeId.value
       ? await window.pakita.themes.update(themeId.value, input)
       : await window.pakita.themes.create(input);
@@ -202,21 +272,59 @@ onUnmounted(() => unsubscribe?.());
                 data-testid="theme-name"
               />
             </label>
-            <label :class="{ wide: form.background !== 'solid' }">
-              Background
-              <select v-model="form.background" data-testid="theme-background">
-                <option
-                  v-for="background in themeBackgroundValues"
-                  :key="background"
-                  :value="background"
+            <fieldset class="wide background-type">
+              <legend>Background</legend>
+              <div class="segmented" data-testid="theme-background-type">
+                <label
+                  v-for="type in BACKGROUND_TYPES"
+                  :key="type.value"
+                  :class="{ chosen: backgroundType === type.value }"
                 >
-                  {{ BACKGROUND_LABELS[background] }}
+                  <input
+                    type="radio"
+                    name="background-type"
+                    :value="type.value"
+                    :checked="backgroundType === type.value"
+                    :data-testid="`theme-background-${type.value}`"
+                    @change="chooseType(type.value)"
+                  />
+                  {{ type.label }}
+                </label>
+              </div>
+            </fieldset>
+            <label v-if="backgroundType === 'gradient'" class="wide">
+              Gradient
+              <select v-model="form.background" data-testid="theme-gradient">
+                <option
+                  v-for="gradient in GRADIENTS"
+                  :key="gradient"
+                  :value="gradient"
+                >
+                  {{ BACKGROUND_LABELS[gradient] }}
                 </option>
               </select>
             </label>
-            <label v-if="form.background === 'solid'">
-              Background colour
-              <input v-model="form.backgroundColor" type="color" />
+            <div
+              v-if="backgroundType === 'image' || backgroundType === 'video'"
+              class="wide"
+            >
+              <MediaPicker
+                v-model="form.backgroundMediaId"
+                :kind="backgroundType"
+                @changed="mediaItems = $event"
+              />
+            </div>
+            <label v-if="backgroundType !== 'gradient'" class="wide">
+              {{
+                backgroundType === 'colour'
+                  ? 'Background colour'
+                  : 'Colour shown until this laptop has the ' + backgroundType
+              }}
+              <input
+                v-model="form.backgroundColor"
+                type="color"
+                data-testid="theme-colour"
+              />
             </label>
             <label>
               Font
@@ -257,12 +365,6 @@ onUnmounted(() => unsubscribe?.());
                 step="5"
               />
             </label>
-            <div class="wide">
-              <MediaPicker
-                v-model="form.backgroundMediaId"
-                @changed="mediaItems = $event"
-              />
-            </div>
             <label class="inline wide check">
               <input
                 v-model="form.isDefault"
@@ -358,5 +460,20 @@ onUnmounted(() => unsubscribe?.());
 
 .error {
   margin-top: 1rem;
+}
+.background-type {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.background-type legend {
+  padding: 0;
+  margin-bottom: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
 }
 </style>

@@ -7,6 +7,7 @@ import {
   themeBackgroundValues,
   themeFontValues,
   themeTextAlignValues,
+  mediaKindValues,
 } from '../../shared/api/enums';
 import type { components } from '../../shared/api/openapi';
 
@@ -288,19 +289,17 @@ export const themeSchema: z.ZodType<Schemas['ThemeResponseDto']> = z.object({
   updatedAt: z.string(),
 });
 
-/** The formats this build plays; another is never downloaded. */
-export const PLAYABLE_VIDEO_TYPES = ['video/mp4', 'video/webm'] as const;
-
 export const mediaSchema: z.ZodType<Schemas['MediaResponseDto']> = z.object({
   id: z.uuid(),
   workspaceId: z.string(),
   name: z.string().max(80),
+  kind: z.enum(mediaKindValues),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   sizeBytes: z.number().int().positive(),
   contentType: z.string(),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
-  durationMs: z.number().int().positive(),
+  durationMs: z.number().int().positive().nullable(),
   syncVersion: z.number().int().positive(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -314,6 +313,11 @@ export const mediaUploadSchema: z.ZodType<Schemas['MediaUploadResponseDto']> =
     headers: z.record(z.string(), z.string()),
     urlExpiresAt: z.string(),
   });
+
+/** What `POST /files` returns that the desktop uses: the file's id. */
+export const uploadedFileSchema: z.ZodType<
+  Pick<Schemas['UploadedFileResponseDto'], 'id'>
+> = z.object({ id: z.uuid() });
 
 export const mediaDownloadSchema: z.ZodType<
   Schemas['MediaDownloadResponseDto']

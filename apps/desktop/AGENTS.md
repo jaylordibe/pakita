@@ -88,9 +88,10 @@ test/fixtures/ shared test data (a tiny USFM translation)
   start and where slides break (a blank line, as `splitIntoSlides` reads
   it). Lines it does not import are listed for the operator, never dropped
   silently. Nothing is saved until the operator saves in the song editor.
-- **Background videos never reach a window by path.** Local videos are
+- **Backgrounds never reach a window by path.** Local videos and images are
   served as `pakita-media://` (`src/main/media/media-protocol.ts`, real `206`
-  ranges): `files/<sha256>.<mp4|webm|webp>` from the account's media folder,
+  ranges): `files/<sha256>.<mp4|webm|jpg|png|webp>` from the account's media
+  folder,
   or `picked/<token>` for a file the operator chose in the system dialog
   (`PickedFiles`); nothing else resolves, and CORS answers the app's own
   origins only. A download is kept only once its size and SHA-256 match
@@ -100,7 +101,9 @@ test/fixtures/ shared test data (a tiny USFM translation)
   (`video-normalize.worker.ts`, WebCodecs via Mediabunny) before upload;
   the server never decodes video. Uploads go straight to storage with the
   signed URL through Node's HTTP client (`put-file.ts`: Electron's `net`
-  refuses the signed `Content-Length`).
+  refuses the signed `Content-Length`). Images upload through `POST /files`
+  (`background_image`), which re-encodes them; laptops then download the
+  stored image like a video.
 - **A password an administrator chose is replaced before anything else.**
   Accounts are created (and lost passwords reset) by an administrator in the
   app, with a one-time password Pakita generates

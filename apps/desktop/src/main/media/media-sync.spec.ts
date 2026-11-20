@@ -15,12 +15,13 @@ function video(id: string, body: Buffer, contentType = 'video/mp4'): Media {
     id,
     workspaceId: 'workspace',
     name: id,
+    kind: contentType.startsWith('image/') ? 'image' : 'video',
     sha256: createHash('sha256').update(body).digest('hex'),
     sizeBytes: body.length,
     contentType,
     width: 1920,
     height: 1080,
-    durationMs: 1000,
+    durationMs: contentType.startsWith('image/') ? null : 1000,
     syncVersion: 1,
     createdAt: '',
     updatedAt: '',
@@ -126,5 +127,16 @@ describe('MediaSync', () => {
       false,
     );
     expect(engine.getStates().map((state) => state.mediaId)).toEqual(['one']);
+  });
+
+  it('downloads still images as it does videos', async () => {
+    bodies.set('still', bytesOf('a still image'));
+    media = [video('still', bodies.get('still')!, 'image/png')];
+    const engine = sync();
+    await engine.run();
+    expect(stateOf(engine, 'still')).toBe('ready');
+    expect(
+      await folder.has({ sha256: media[0]!.sha256, contentType: 'image/png' }),
+    ).toBe(true);
   });
 });

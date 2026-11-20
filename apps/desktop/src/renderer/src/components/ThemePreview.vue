@@ -2,8 +2,8 @@
 import { computed, ref, watch } from 'vue';
 
 import {
-  posterUrlOf,
   stageStyle,
+  stillOf,
   type ThemeLook,
 } from '../../../shared/theme-look';
 
@@ -25,9 +25,7 @@ const props = defineProps<{
 }>();
 
 const posterUrl = computed(() =>
-  props.posterUrl === undefined
-    ? posterUrlOf(props.look.backgroundVideoUrl)
-    : props.posterUrl,
+  props.posterUrl === undefined ? stillOf(props.look) : props.posterUrl,
 );
 // A still frame not drawn yet (or unreadable) leaves the theme's background.
 const isPosterShown = ref(true);

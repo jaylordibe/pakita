@@ -10,14 +10,19 @@ import { messageOf } from '../errors';
 import { inspectVideo, normalizeVideo } from '../video-normalize';
 import AppIcon from './AppIcon.vue';
 
-// The theme's background video: none, one of the church's videos, or a new
-// one uploaded from this laptop. Videos never play here: each shows a still
-// frame this laptop draws once from its downloaded copy.
+// The theme's background image or video: one of the church's, or a new one
+// uploaded from this laptop. Videos never play here: each shows a still frame
+// this laptop draws once from its downloaded copy.
 
+const props = defineProps<{ kind: 'image' | 'video' }>();
 const selected = defineModel<string | null>({ required: true });
 const emit = defineEmits<{ changed: [items: MediaItem[]] }>();
 
 const items = ref<MediaItem[]>([]);
+const shownItems = computed(() =>
+  items.value.filter((item) => item.kind === props.kind),
+);
+const isUploadingImage = ref(false);
 const errorMessage = ref<string | null>(null);
 const upload = ref<{
   picked: PickedVideo;
@@ -26,8 +31,15 @@ const upload = ref<{
   progress: MediaUploadProgress | null;
 } | null>(null);
 
+// Several things reload the list (a synchronisation, a finished download, an
+// upload), and their answers can arrive out of order: only the latest one
+// started is shown, so an older, staler answer never overwrites it.
+let latestLoad = 0;
 async function load(): Promise<void> {
-  items.value = await window.pakita.media.list();
+  const thisLoad = ++latestLoad;
+  const listed = await window.pakita.media.list();
+  if (thisLoad !== latestLoad) return;
+  items.value = listed;
   emit('changed', items.value);
   void drawMissingPosters();
 }
@@ -135,6 +147,27 @@ async function uploadVideo(): Promise<void> {
   }
 }
 
+async function uploadImage(): Promise<void> {
+  errorMessage.value = null;
+  try {
+    const picked = await window.pakita.media.pickImage();
+    if (!picked) return;
+    isUploadingImage.value = true;
+    const name =
+      picked.fileName
+        .replace(/\.[^.]+$/, '')
+        .slice(0, 80)
+        .trim() || 'Image';
+    const added = await window.pakita.media.uploadImage(picked.token, name);
+    selected.value = added.id;
+    await load();
+  } catch (error) {
+    errorMessage.value = messageOf(error);
+  } finally {
+    isUploadingImage.value = false;
+  }
+}
+
 async function remove(item: MediaItem): Promise<void> {
   errorMessage.value = null;
   try {
@@ -154,12 +187,12 @@ async function drawMissingPosters(): Promise<void> {
   isDrawing = true;
   try {
     for (const item of items.value) {
-      if (!item.videoUrl || item.posterUrl) continue;
-      const webp = await drawPoster(item.videoUrl).catch(() => null);
+      if (item.kind !== 'video' || !item.url || item.posterUrl) continue;
+      const webp = await drawPoster(item.url).catch(() => null);
       if (!webp) continue;
       await window.pakita.media.savePoster(item.sha256, webp);
-      items.value = await window.pakita.media.list();
-      emit('changed', items.value);
+      // Guarded like every reload; it does not draw again (isDrawing).
+      await load();
     }
   } finally {
     isDrawing = false;
@@ -247,25 +280,18 @@ onUnmounted(() => unsubscribers.forEach((unsubscribe) => unsubscribe()));
 
 <template>
   <fieldset class="media-picker">
-    <legend>Background video</legend>
+    <legend class="visually-hidden">
+      {{ props.kind === 'image' ? 'Background image' : 'Background video' }}
+    </legend>
     <p class="faint">
-      Loops under the text. A laptop without it yet shows the background above
-      until it has downloaded.
+      {{
+        props.kind === 'image'
+          ? 'Fills the screen under the text.'
+          : 'Loops under the text, muted.'
+      }}
     </p>
     <ul class="tiles">
-      <li>
-        <button
-          type="button"
-          class="tile"
-          :aria-pressed="selected === null"
-          data-testid="media-none"
-          @click="selected = null"
-        >
-          <span class="frame empty-frame"><AppIcon name="x" /></span>
-          <span class="tile-name">None</span>
-        </button>
-      </li>
-      <li v-for="item in items" :key="item.id" class="tile-wrap">
+      <li v-for="item in shownItems" :key="item.id" class="tile-wrap">
         <button
           type="button"
           class="tile"
@@ -295,6 +321,7 @@ onUnmounted(() => unsubscribers.forEach((unsubscribe) => unsubscribe()));
       </li>
       <li>
         <button
+          v-if="props.kind === 'video'"
           type="button"
           class="tile upload"
           :disabled="upload !== null"
@@ -308,6 +335,20 @@ onUnmounted(() => unsubscribers.forEach((unsubscribe) => unsubscribe()));
           <span class="tile-state">
             MP4, MOV or WebM. Larger than 1080p is converted.
           </span>
+        </button>
+        <button
+          v-else
+          type="button"
+          class="tile upload"
+          :disabled="isUploadingImage"
+          data-testid="media-upload-image"
+          @click="uploadImage"
+        >
+          <span class="frame empty-frame"><AppIcon name="upload" /></span>
+          <span class="tile-name">
+            {{ isUploadingImage ? 'Uploading…' : 'Upload an image' }}
+          </span>
+          <span class="tile-state">JPEG, PNG or WebP, up to 20 MB.</span>
         </button>
       </li>
     </ul>
