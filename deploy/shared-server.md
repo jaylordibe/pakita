@@ -106,8 +106,22 @@ It does not check ports 80 and 443 here: your nginx holds them.
 
 ## 3. A certificate for Pakita's domain
 
-Obtain it the way your nginx's other sites get theirs (certbot, Cloudflare
-origin certificate, …), so it renews with them.
+**Through Cloudflare's proxy** (the orange cloud), use **Full (strict)** for
+Pakita's hostname, so the hop from Cloudflare to this machine is encrypted
+too: Pakita carries sign-in passwords and session tokens. Cloudflare's
+Flexible mode sends that hop in clear text, and would also loop, because
+`pakita.conf` redirects plain HTTP to HTTPS. The setting applies to Pakita's
+hostname alone; the domain's other sites keep theirs.
+
+1. **SSL/TLS → Origin Server → Create Certificate**, for
+   `pakita.yourdomain.com` only. Save the certificate and its private key on
+   this machine where nginx reads certificates (the key readable by its
+   owner only). It is free and lasts up to 15 years.
+2. **Rules → Configuration Rules → Create rule**: when the hostname equals
+   `pakita.yourdomain.com`, set **SSL** to **Full (strict)**.
+
+**Without Cloudflare**, obtain a certificate the way this nginx's other
+sites get theirs (certbot, …), so it renews with them.
 
 ## 4. Connect your nginx to Pakita
 
@@ -138,6 +152,18 @@ two certificate lines at the certificate from step 3. With
 `PAKITA_STORAGE=gcs`, delete its `location /pakita/` block: laptops then
 reach the bucket directly.
 
+Beside it, write Cloudflare's address ranges, which `pakita.conf` reads to
+find each visitor's own address (`.inc`, not `.conf`: nginx loads every
+`.conf` there for all sites, and only Pakita's should use this list). Run it
+again now and then: Cloudflare announces changes to the list.
+
+```sh
+for range in $(curl -fsS https://www.cloudflare.com/ips-v4) \
+             $(curl -fsS https://www.cloudflare.com/ips-v6); do
+  echo "set_real_ip_from $range;"
+done > conf/sites-available/cloudflare-ips.inc
+```
+
 Then recreate `webserver` (its other sites pause for the few seconds it
 takes to restart), and check:
 
@@ -155,15 +181,11 @@ Then create the first administrator (`./create-admin.sh`, in
 - **Order matters.** `pakita_edge` exists once Pakita is installed. Your
   nginx project cannot start while it is missing, so if you ever remove
   Pakita, remove the `pakita` network from `webserver` first.
-- **If the domain goes through Cloudflare's proxy**, the visitor address
-  reaches the API as Cloudflare's. Only if the origin is reachable through
-  Cloudflare alone (`apps/api/docs/deployment/README.md`), add this under
-  `api:` in `compose.override.yaml`, beside its `networks:`:
-
-  ```yaml
-      environment:
-        TRUST_CLOUDFLARE_HEADERS: 'true'
-  ```
+- **Visitor addresses behind Cloudflare** are resolved by nginx
+  (`cloudflare-ips.inc`), not by the API: leave the API's
+  `TRUST_CLOUDFLARE_HEADERS` off. This machine also answers requests that do
+  not come through Cloudflare, and the API would believe a forged
+  `CF-Connecting-IP` from those.
 - **nginx starts without Pakita.** `pakita.conf` looks the API up per
   request, so a stopped Pakita answers its own domain with 502 and never
   stops nginx from serving the other sites.
