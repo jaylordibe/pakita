@@ -28,7 +28,16 @@ third-party service. Everything runs on this machine.
 Another reverse proxy on this machine already holds ports 80 and 443?
 Follow [`shared-server.md`](shared-server.md) instead.
 
-1. Copy this folder to the server (or clone the repository there).
+1. Clone the release you will run (the tag matching `PAKITA_VERSION`) on
+   the server. The clone only provides these scripts and settings, so they
+   always match the server they manage; the server itself comes from the
+   release's images.
+
+   ```sh
+   git clone --depth 1 --branch v0.1.1 https://github.com/jaylordibe/pakita.git
+   cd pakita/deploy
+   ```
+
 2. Run `./install.sh`. The first run creates `.env` from `.env.example`,
    generates the database, Redis, storage and sign-in secrets, and lists what
    is still missing.
@@ -151,12 +160,17 @@ not part of the backups.
 
 ## Update
 
+Check out the new release's tag first, so the scripts match it, then update:
+
 ```sh
+git -C .. fetch --depth 1 origin tag v0.1.1
+git -C .. checkout v0.1.1
 ./update.sh 0.1.1
 ```
 
-It takes a backup, downloads the release, migrates the database and starts the
-new version. Read the release notes first: a release may require newer desktop
+`update.sh` takes a backup, downloads the release, migrates the database and
+starts the new version; going back is `./update.sh <old version>` after
+checking out its tag. Read the release notes first: a release may require newer desktop
 apps, and says so.
 
 ## Back up and restore
@@ -195,8 +209,18 @@ They are not code-signed yet, so the first launch shows a warning:
 - **Windows** SmartScreen says "Windows protected your PC": choose **More
   info → Run anyway**.
 
-The app tells the operator when a newer release is available; it never
-updates itself during a service.
+The app never updates itself. When a newer release is out, it shows a banner
+whose **Download** opens the release page; install the new version over the
+old one, and the laptop keeps its library and sign-in:
+
+- **macOS**: open the `.dmg` and drag Pakita into Applications, choosing
+  **Replace**.
+- **Windows**: run the new `.exe`.
+- **Linux**: `sudo apt install ./Pakita-<version>-linux-amd64.deb`, or replace
+  the AppImage file.
+
+A release that needs more than this (signing in again, say) says so in its
+notes.
 
 ## Troubleshooting
 

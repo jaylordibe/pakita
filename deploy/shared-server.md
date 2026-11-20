@@ -65,10 +65,8 @@ To release, on your own computer:
 ## 2. Install Pakita without its Caddy
 
 Pakita lives in `/srv/pakita`, apart from the other services' folders,
-owned by the user that runs Docker. The clone only provides these scripts and
-settings; the server itself comes from the release's images. Clone the
-release you will run (the tag matching `PAKITA_VERSION`, e.g. `v0.1.1`), so
-the scripts always match the server they manage:
+owned by the user that runs Docker. Clone the release you will run (the tag
+matching `PAKITA_VERSION`, e.g. `v0.1.1`; `README.md`, "Install", says why):
 
 ```sh
 sudo mkdir -p /srv/pakita
@@ -79,16 +77,8 @@ cp shared-proxy/compose.override.yaml compose.override.yaml
 cp .env.example .env    # install.sh also does this on its first run
 ```
 
-Every command below runs in `/srv/pakita/deploy`. To update to a release
-later, check out its tag there first, then run `./update.sh <version>`: it
-takes a backup, downloads the new images, migrates the database and waits
-until the API is healthy.
-
-```sh
-git -C /srv/pakita fetch --depth 1 origin tag v0.1.1
-git -C /srv/pakita checkout v0.1.1
-./update.sh 0.1.1
-```
+Every command below runs in `/srv/pakita/deploy`. Updating later is
+`README.md`, "Update".
 
 `compose.override.yaml` stops Caddy from starting and names the API
 `pakita-api` (and storage `pakita-storage`) for your nginx. Docker Compose
