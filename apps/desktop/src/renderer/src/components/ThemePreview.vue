@@ -64,7 +64,7 @@ const style = computed(() => {
       <p v-if="!props.isDark">
         {{
           props.text ??
-          'Amazing grace, how sweet the sound\nThat saved a wretch like me'
+          'Your lyrics appear here,\nin this font, size and colour'
         }}
       </p>
       <p v-if="props.caption && !props.isDark" class="caption">
