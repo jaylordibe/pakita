@@ -8,6 +8,7 @@ body {
 }
 
 .stage {
+  position: relative;
   display: grid;
   place-items: center;
   height: 100%;
@@ -16,6 +17,8 @@ body {
 }
 
 .slide {
+  position: relative;
+  z-index: 1;
   margin: 0;
   /* Colour, font and alignment come from the theme (stageStyle). */
   font-weight: 600;
@@ -27,6 +30,7 @@ body {
 
 .caption {
   position: absolute;
+  z-index: 1;
   bottom: 4vh;
   left: 5vw;
   right: 5vw;
@@ -41,5 +45,26 @@ body {
 
 .stage.is-dark .slide,
 .stage.is-dark .caption {
+  visibility: hidden;
+}
+
+/* Over the theme's colour or gradient, under the text. A layer shows only
+   once it plays, so a missing or broken file leaves the theme's background. */
+.background-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 400ms ease;
+  pointer-events: none;
+}
+
+.background-video.is-shown {
+  opacity: 1;
+}
+
+.stage.is-dark .background-video {
   visibility: hidden;
 }

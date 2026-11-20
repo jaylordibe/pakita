@@ -17,6 +17,12 @@ export interface ThemeLook {
   /** Percent of the standard text size. */
   readonly textScale: number;
   readonly textAlign: Theme['textAlign'];
+  /**
+   * The theme's background video on this laptop (`pakita-media://…`), drawn
+   * under the text over `background`; null when the theme has none or the
+   * laptop did not hold it yet when the look was resolved.
+   */
+  readonly backgroundVideoUrl: string | null;
 }
 
 /** White text on black: used when the workspace has no default theme. */
@@ -27,6 +33,7 @@ export const DEFAULT_THEME_LOOK: ThemeLook = Object.freeze({
   font: 'sans',
   textScale: 100,
   textAlign: 'center',
+  backgroundVideoUrl: null,
 });
 
 // Every value the API allows, mapped exhaustively: a value added to the API
@@ -62,8 +69,12 @@ export const FONT_LABELS: Record<ThemeFont, string> = {
   condensed: 'Condensed (Oswald)',
 };
 
-export function lookOf(theme: Theme): ThemeLook {
+export function lookOf(
+  theme: Theme,
+  backgroundVideoUrl: string | null = null,
+): ThemeLook {
   return Object.freeze({
+    backgroundVideoUrl,
     background: theme.background,
     backgroundColor: theme.backgroundColor,
     textColor: theme.textColor,
@@ -89,4 +100,13 @@ export function stageStyle(look: ThemeLook): {
     fontFamily: FONT_STACKS[look.font],
     textAlign: look.textAlign,
   };
+}
+
+/**
+ * The still frame of a local background video, which the operator window
+ * draws once per laptop (`<sha256>.webp` beside `<sha256>.mp4|webm`). Previews
+ * show it instead of playing the video; it may not exist yet.
+ */
+export function posterUrlOf(videoUrl: string | null): string | null {
+  return videoUrl?.replace(/\.(mp4|webm)$/, '.webp') ?? null;
 }

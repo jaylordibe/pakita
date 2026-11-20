@@ -8,6 +8,52 @@ import { stageStyle } from '../../../shared/theme-look';
 const stage = document.getElementById('stage')!;
 const slide = document.getElementById('slide')!;
 const caption = document.getElementById('caption')!;
+const layers = [
+  document.getElementById('background-a') as HTMLVideoElement,
+  document.getElementById('background-b') as HTMLVideoElement,
+];
+
+/** The video showing (or fading in), and which layer holds it. */
+let videoUrl: string | null = null;
+let front = 0;
+const FADE_MILLISECONDS = 400;
+
+/**
+ * Shows the theme's background video. The same video carries on across
+ * slides: only a different one (or none) changes a layer, fading the new one
+ * in over the old. A layer appears only once it is playing, so a file that
+ * fails to load leaves the theme's own background, never black.
+ */
+function showVideo(url: string | null, isDark: boolean): void {
+  if (url !== videoUrl) {
+    videoUrl = url;
+    const previous = layers[front]!;
+    const next = layers[1 - front]!;
+    front = 1 - front;
+    previous.classList.remove('is-shown');
+    setTimeout(() => {
+      // Still the layer behind once its fade-out has finished: release it.
+      if (layers[front] !== previous) {
+        previous.pause();
+        previous.removeAttribute('src');
+        previous.load();
+      }
+    }, FADE_MILLISECONDS);
+    next.classList.remove('is-shown');
+    if (url) {
+      next.src = url;
+      next.onplaying = () => {
+        if (layers[front] === next) next.classList.add('is-shown');
+      };
+      next.onerror = () => next.classList.remove('is-shown');
+    }
+  }
+  const current = layers[front]!;
+  if (!videoUrl) return;
+  // Blackout pauses it; coming back resumes where it was.
+  if (isDark) current.pause();
+  else void current.play().catch(() => current.classList.remove('is-shown'));
+}
 
 /**
  * Draws the current slide. Text only (`textContent`), never HTML: lyrics and
@@ -22,6 +68,7 @@ function render(state: LiveState): void {
   stage.style.color = style.color;
   stage.style.fontFamily = style.fontFamily;
   stage.style.textAlign = style.textAlign;
+  showVideo(state.isLive ? state.look.backgroundVideoUrl : null, isDark);
   textScale = state.look.textScale / 100;
   slide.textContent = isDark ? '' : current.text;
   caption.textContent = isDark ? '' : (current.caption ?? '');

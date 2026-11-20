@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { z } from 'zod';
 
 import type {
+  syncedMediaChangeSchema,
   syncedPlaylistChangeSchema,
   syncedSongChangeSchema,
   syncedThemeChangeSchema,
@@ -9,6 +10,7 @@ import type {
 
 type SyncedSongChange = z.infer<typeof syncedSongChangeSchema>;
 type SyncedThemeChange = z.infer<typeof syncedThemeChangeSchema>;
+type SyncedMediaChange = z.infer<typeof syncedMediaChangeSchema>;
 type SyncedPlaylistChange = z.infer<typeof syncedPlaylistChangeSchema>;
 
 export interface SyncPage {
@@ -16,6 +18,7 @@ export interface SyncPage {
   readonly nextCursor: number;
   readonly songs: readonly SyncedSongChange[];
   readonly themes: readonly SyncedThemeChange[];
+  readonly media: readonly SyncedMediaChange[];
   readonly playlists: readonly SyncedPlaylistChange[];
 }
 
@@ -45,7 +48,8 @@ export interface PlaylistSummary {
   readonly serviceDate: string | null;
 }
 
-type ContentKind = 'song' | 'theme' | 'playlist';
+type ContentKind = 'song' | 'theme' | 'media' | 'playlist';
+type ContentTable = 'songs' | 'themes' | 'media' | 'playlists';
 
 /** Lower-cased title and artist, for a simple case-insensitive search. */
 const searchTextOf = (title: string, artist: string | null) =>
@@ -54,7 +58,8 @@ const searchTextOf = (title: string, artist: string | null) =>
 const escapeLike = (term: string) => term.replace(/[\\%_]/g, '\\$&');
 
 /**
- * The laptop's copy of a workspace's content — songs, themes and playlists.
+ * The laptop's copy of a workspace's content — songs, themes, background
+ * videos and playlists.
  * Runs in the database worker thread; every write is one transaction, so an
  * interrupted synchronisation leaves the last complete page — and its cursor
  * — behind, never half a page.
@@ -127,6 +132,17 @@ export class ContentStore {
       WHERE themes.workspace_id = excluded.workspace_id
         AND (@isResyncing = 1 OR excluded.sync_version > themes.sync_version)
     `);
+    const upsertMedia = this.database.prepare(`
+      INSERT INTO media (id, workspace_id, sync_version, name, sha256, payload)
+      VALUES (@id, @workspaceId, @syncVersion, @name, @sha256, @payload)
+      ON CONFLICT (id) DO UPDATE SET
+        sync_version = excluded.sync_version,
+        name = excluded.name,
+        sha256 = excluded.sha256,
+        payload = excluded.payload
+      WHERE media.workspace_id = excluded.workspace_id
+        AND (@isResyncing = 1 OR excluded.sync_version > media.sync_version)
+    `);
     const upsertPlaylist = this.database.prepare(`
       INSERT INTO playlists (id, workspace_id, sync_version, name, service_date, payload)
       VALUES (@id, @workspaceId, @syncVersion, @name, @serviceDate, @payload)
@@ -138,7 +154,7 @@ export class ContentStore {
       WHERE playlists.workspace_id = excluded.workspace_id
         AND (@isResyncing = 1 OR excluded.sync_version > playlists.sync_version)
     `);
-    const removeFrom = (table: 'songs' | 'themes' | 'playlists') =>
+    const removeFrom = (table: ContentTable) =>
       this.database.prepare(
         `DELETE FROM ${table} WHERE id = @id AND workspace_id = @workspaceId
            AND (@isResyncing = 1 OR sync_version < @syncVersion)`,
@@ -146,6 +162,7 @@ export class ContentStore {
     const remove = {
       song: removeFrom('songs'),
       theme: removeFrom('themes'),
+      media: removeFrom('media'),
       playlist: removeFrom('playlists'),
     };
     const markSeen = this.database.prepare(
@@ -209,6 +226,16 @@ export class ContentStore {
           }),
         );
       }
+      for (const change of page.media) {
+        apply('media', change, change.media, () =>
+          upsertMedia.run({
+            ...common(change),
+            name: change.media!.name,
+            sha256: change.media!.sha256,
+            payload: JSON.stringify(change.media),
+          }),
+        );
+      }
       for (const change of page.playlists) {
         apply('playlist', change, change.playlist, () =>
           upsertPlaylist.run({
@@ -237,6 +264,7 @@ export class ContentStore {
       for (const [table, kind] of [
         ['songs', 'song'],
         ['themes', 'theme'],
+        ['media', 'media'],
         ['playlists', 'playlist'],
       ] as const) {
         this.database
@@ -313,6 +341,31 @@ export class ContentStore {
     return row ? (JSON.parse(row.payload) as unknown) : null;
   }
 
+  /** The workspace's videos as the server sent them (validate before use). */
+  listMedia(workspaceId: string): unknown[] {
+    const rows = this.database
+      .prepare(
+        `SELECT payload FROM media WHERE workspace_id = ?
+         ORDER BY name COLLATE NOCASE LIMIT 1000`,
+      )
+      .all(workspaceId) as Array<{ payload: string }>;
+    return rows.map((row) => JSON.parse(row.payload) as unknown);
+  }
+
+  /**
+   * The SHA-256 of every video any workspace on this laptop holds: a file in
+   * the media folder named by none of them is no longer needed.
+   */
+  listMediaHashes(): string[] {
+    return (
+      this.database
+        .prepare('SELECT DISTINCT sha256 FROM media')
+        .all() as Array<{
+        sha256: string;
+      }>
+    ).map((row) => row.sha256);
+  }
+
   /** Newest service first; undated playlists last. */
   listPlaylists(workspaceId: string): PlaylistSummary[] {
     return this.database
@@ -331,7 +384,7 @@ export class ContentStore {
   }
 
   private payloadOf(
-    table: 'songs' | 'themes' | 'playlists',
+    table: ContentTable,
     workspaceId: string,
     id: string,
   ): unknown {

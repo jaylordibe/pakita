@@ -88,6 +88,19 @@ test/fixtures/ shared test data (a tiny USFM translation)
   start and where slides break (a blank line, as `splitIntoSlides` reads
   it). Lines it does not import are listed for the operator, never dropped
   silently. Nothing is saved until the operator saves in the song editor.
+- **Background videos never reach a window by path.** Local videos are
+  served as `pakita-media://` (`src/main/media/media-protocol.ts`, real `206`
+  ranges): `files/<sha256>.<mp4|webm|webp>` from the account's media folder,
+  or `picked/<token>` for a file the operator chose in the system dialog
+  (`PickedFiles`); nothing else resolves, and CORS answers the app's own
+  origins only. A download is kept only once its size and SHA-256 match
+  (`MediaFolder`), and never runs during a presentation. A picked video
+  outside `src/shared/video-spec.ts` (over 1080p or 60 fps, too high a
+  bitrate, not H.264/VP9, or a .mov) is converted on the laptop in a worker
+  (`video-normalize.worker.ts`, WebCodecs via Mediabunny) before upload;
+  the server never decodes video. Uploads go straight to storage with the
+  signed URL through Node's HTTP client (`put-file.ts`: Electron's `net`
+  refuses the signed `Content-Length`).
 - **A password an administrator chose is replaced before anything else.**
   Accounts are created (and lost passwords reset) by an administrator in the
   app, with a one-time password Pakita generates

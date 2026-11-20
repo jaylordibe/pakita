@@ -51,6 +51,7 @@ function fakeServer(epoch: string, changes: ReturnType<typeof song>[]) {
       hasMore: after.length > limit,
       songs: page,
       themes: [],
+      media: [],
       playlists: [],
     };
   };
@@ -246,6 +247,7 @@ describe('SyncEngine', () => {
       nextCursor: 120,
       songs: [song('stray', 500, 'Stray')],
       themes: [],
+      media: [],
       playlists: [],
     });
     // A sync is paging when the rebuild is asked for.

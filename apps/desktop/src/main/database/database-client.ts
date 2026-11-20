@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { Worker } from 'node:worker_threads';
 
 import type { DatabaseHealth } from '../../shared/ipc-contract';
@@ -21,6 +22,7 @@ import {
   BibleSearchResult,
   BibleTranslationsResult,
   DatabaseHealthResult,
+  MediaHashesResult,
   PlaylistSummaryResult,
   ThemeSummaryResult,
   type DatabaseWorkerRequestInput,
@@ -92,6 +94,7 @@ export class DatabaseClient {
       nextCursor: page.nextCursor,
       songs: [...page.songs],
       themes: [...page.themes],
+      media: [...page.media],
       playlists: [...page.playlists],
     });
   }
@@ -138,6 +141,20 @@ export class DatabaseClient {
   /** The default theme as the server sent it (validate before use), or null. */
   async getDefaultTheme(workspaceId: string): Promise<unknown> {
     return this.request({ type: 'getDefaultTheme', workspaceId });
+  }
+
+  /** The workspace's videos as the server sent them (validate before use). */
+  async listMedia(workspaceId: string): Promise<unknown[]> {
+    return z
+      .array(z.unknown())
+      .parse(await this.request({ type: 'listMedia', workspaceId }));
+  }
+
+  /** Every workspace's video hashes on this laptop. */
+  async listMediaHashes(): Promise<string[]> {
+    return MediaHashesResult.parse(
+      await this.request({ type: 'listMediaHashes' }),
+    );
   }
 
   async listPlaylists(workspaceId: string): Promise<PlaylistSummary[]> {

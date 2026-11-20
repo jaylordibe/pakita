@@ -38,6 +38,16 @@ export const syncedThemeChangeSchema = z.object({
     .nullable(),
 });
 
+export const syncedMediaChangeSchema = z.object({
+  id: z.string().min(1),
+  syncVersion: z.number().int().positive(),
+  isDeleted: z.boolean(),
+  media: z
+    .object({ name: z.string(), sha256: z.string().regex(/^[0-9a-f]{64}$/) })
+    .passthrough()
+    .nullable(),
+});
+
 export const syncedPlaylistChangeSchema = z.object({
   id: z.string().min(1),
   syncVersion: z.number().int().positive(),
@@ -60,6 +70,7 @@ export const DatabaseWorkerRequest = z.discriminatedUnion('type', [
     nextCursor: z.number().int().nonnegative(),
     songs: z.array(syncedSongChangeSchema),
     themes: z.array(syncedThemeChangeSchema),
+    media: z.array(syncedMediaChangeSchema),
     playlists: z.array(syncedPlaylistChangeSchema),
   }),
   z.object({
@@ -90,6 +101,8 @@ export const DatabaseWorkerRequest = z.discriminatedUnion('type', [
     themeId: z.string().min(1),
   }),
   z.object({ requestId, type: z.literal('getDefaultTheme'), workspaceId }),
+  z.object({ requestId, type: z.literal('listMedia'), workspaceId }),
+  z.object({ requestId, type: z.literal('listMediaHashes') }),
   z.object({ requestId, type: z.literal('listPlaylists'), workspaceId }),
   z.object({
     requestId,
@@ -199,6 +212,9 @@ export const BibleSearchResult = z.array(
 export const ThemeSummaryResult = z.array(
   z.object({ id: z.string(), name: z.string(), isDefault: z.boolean() }),
 );
+
+/** Every workspace's video hashes: what the media folder may keep. */
+export const MediaHashesResult = z.array(z.string().regex(/^[0-9a-f]{64}$/));
 
 export const PlaylistSummaryResult = z.array(
   z.object({

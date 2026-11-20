@@ -280,10 +280,46 @@ export const themeSchema: z.ZodType<Schemas['ThemeResponseDto']> = z.object({
   font: z.enum(themeFontValues).catch('sans'),
   textScale: z.number().int().min(50).max(200).catch(100),
   textAlign: z.enum(themeTextAlignValues).catch('center'),
+  // A theme stored before videos existed has none.
+  backgroundMediaId: z.uuid().nullable().catch(null),
   isDefault: z.boolean(),
   syncVersion: z.number().int().positive(),
   createdAt: z.string(),
   updatedAt: z.string(),
+});
+
+/** The formats this build plays; another is never downloaded. */
+export const PLAYABLE_VIDEO_TYPES = ['video/mp4', 'video/webm'] as const;
+
+export const mediaSchema: z.ZodType<Schemas['MediaResponseDto']> = z.object({
+  id: z.uuid(),
+  workspaceId: z.string(),
+  name: z.string().max(80),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  sizeBytes: z.number().int().positive(),
+  contentType: z.string(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  durationMs: z.number().int().positive(),
+  syncVersion: z.number().int().positive(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Media = z.infer<typeof mediaSchema>;
+
+export const mediaUploadSchema: z.ZodType<Schemas['MediaUploadResponseDto']> =
+  z.object({
+    fileId: z.uuid(),
+    url: z.url({ protocol: /^https?$/ }),
+    headers: z.record(z.string(), z.string()),
+    urlExpiresAt: z.string(),
+  });
+
+export const mediaDownloadSchema: z.ZodType<
+  Schemas['MediaDownloadResponseDto']
+> = z.object({
+  url: z.url({ protocol: /^https?$/ }),
+  expiresAt: z.string(),
 });
 
 const position = z.number().int().min(1).max(200);
@@ -349,6 +385,7 @@ export const syncChangesSchema: z.ZodType<Schemas['SyncChangesResponseDto']> =
     hasMore: z.boolean(),
     songs: z.array(change('song', songSchema)),
     themes: z.array(change('theme', themeSchema)),
+    media: z.array(change('media', mediaSchema)),
     playlists: z.array(change('playlist', playlistSchema)),
   });
 export type SyncChanges = z.infer<typeof syncChangesSchema>;

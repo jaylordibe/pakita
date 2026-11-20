@@ -6,6 +6,7 @@ import {
   themeFontValues,
 } from '../../../shared/api/enums';
 import type {
+  MediaItem,
   SyncStatus,
   ThemeInput,
   ThemeSummary,
@@ -17,6 +18,7 @@ import {
 } from '../../../shared/theme-look';
 import { messageOf } from '../errors';
 import AppIcon from './AppIcon.vue';
+import MediaPicker from './MediaPicker.vue';
 import ThemePreview from './ThemePreview.vue';
 
 const themes = ref<ThemeSummary[]>([]);
@@ -26,13 +28,28 @@ const isEditing = ref(false);
 const isSaving = ref(false);
 const errorMessage = ref<string | null>(null);
 
-const blank = (): ThemeInput => ({
+const blank = (): ThemeInput & { backgroundMediaId: string | null } => ({
   name: '',
-  ...DEFAULT_THEME_LOOK,
+  background: DEFAULT_THEME_LOOK.background,
+  backgroundColor: DEFAULT_THEME_LOOK.backgroundColor,
+  textColor: DEFAULT_THEME_LOOK.textColor,
+  font: DEFAULT_THEME_LOOK.font,
+  textScale: DEFAULT_THEME_LOOK.textScale,
+  textAlign: DEFAULT_THEME_LOOK.textAlign,
+  backgroundMediaId: null,
   isDefault: false,
 });
-const form = reactive<ThemeInput>(blank());
-const look = computed(() => ({ ...form }));
+const form = reactive(blank());
+const mediaItems = ref<MediaItem[]>([]);
+// The preview shows the chosen video's still frame, once this laptop has it.
+const chosenMedia = computed(
+  () =>
+    mediaItems.value.find((item) => item.id === form.backgroundMediaId) ?? null,
+);
+const look = computed(() => ({
+  ...form,
+  backgroundVideoUrl: chosenMedia.value?.videoUrl ?? null,
+}));
 
 async function loadThemes(): Promise<void> {
   themes.value = await window.pakita.themes.list();
@@ -57,6 +74,7 @@ async function open(id: string): Promise<void> {
     font: theme.font,
     textScale: theme.textScale,
     textAlign: theme.textAlign,
+    backgroundMediaId: theme.backgroundMediaId,
     isDefault: theme.isDefault,
   });
   themeId.value = id;
@@ -165,7 +183,10 @@ onUnmounted(() => unsubscribe?.());
 
         <div class="layout">
           <div class="stage">
-            <ThemePreview :look="look" />
+            <ThemePreview
+              :look="look"
+              :poster-url="chosenMedia?.posterUrl ?? null"
+            />
             <p class="faint">As it appears on the projector.</p>
           </div>
 
@@ -234,6 +255,12 @@ onUnmounted(() => unsubscribe?.());
                 step="5"
               />
             </label>
+            <div class="wide">
+              <MediaPicker
+                v-model="form.backgroundMediaId"
+                @changed="mediaItems = $event"
+              />
+            </div>
             <label class="inline wide check">
               <input
                 v-model="form.isDefault"

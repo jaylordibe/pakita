@@ -354,6 +354,14 @@ onUnmounted(() => unsubscribe?.());
             laptop
           </p>
         </div>
+        <p
+          v-if="playlist.backgroundNote"
+          class="muted background-note"
+          data-testid="playlist-background-note"
+        >
+          <AppIcon name="info" />
+          <span>{{ playlist.backgroundNote }}</span>
+        </p>
         <ol class="entries" @dragleave="reorder.leave">
           <li
             v-for="(entry, index) in playlist.entries"
@@ -692,5 +700,12 @@ onUnmounted(() => unsubscribe?.());
   border-radius: var(--radius-lg);
   text-align: center;
   color: var(--text-muted);
+}
+.background-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
 }
 </style>

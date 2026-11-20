@@ -40,6 +40,17 @@ export const apiConstraints = {
     token: { minLength: 1, maxLength: 512 },
     deviceOsVersion: { minLength: 1, maxLength: 50 },
   },
+  CreateMediaDto: {
+    name: { minLength: 1, maxLength: 80 },
+    width: { minimum: 1, maximum: 1920 },
+    height: { minimum: 1, maximum: 1920 },
+    durationMs: { minimum: 1, maximum: 3600000 },
+  },
+  CreateMediaUploadDto: {
+    fileName: { minLength: 1, maxLength: 255 },
+    sizeBytes: { minimum: 1, maximum: 1073741824 },
+    sha256: { pattern: '^[0-9a-f]{64}$' },
+  },
   CreatePlaylistDto: {
     name: { minLength: 1, maxLength: 120 },
     serviceDate: { maxLength: 10 },
@@ -141,6 +152,7 @@ export const apiConstraints = {
     token: { minLength: 1, maxLength: 512 },
     deviceOsVersion: { minLength: 1, maxLength: 50 },
   },
+  UpdateMediaDto: { name: { minLength: 1, maxLength: 80 } },
   UpdatePasswordDto: {
     newPassword: {
       minLength: 8,

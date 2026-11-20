@@ -68,6 +68,10 @@ function handle(request: DatabaseWorkerRequest): unknown {
       return content.getTheme(request.workspaceId, request.themeId);
     case 'getDefaultTheme':
       return content.getDefaultTheme(request.workspaceId);
+    case 'listMedia':
+      return content.listMedia(request.workspaceId);
+    case 'listMediaHashes':
+      return content.listMediaHashes();
     case 'listPlaylists':
       return content.listPlaylists(request.workspaceId);
     case 'getPlaylist':

@@ -38,7 +38,11 @@ import {
   type NewChurchInput,
   type NewMemberAccountInput,
   type LiveState,
+  type MediaFileState,
+  type MediaItem,
+  type MediaUploadInput,
   type PassageRequest,
+  type PickedVideo,
   type PlaylistInput,
   type PlaylistSummary,
   type PlaylistView,
@@ -73,6 +77,10 @@ import {
   invitationPageSchema,
   type invitationSchema,
   issuedInvitationSchema,
+  type Media,
+  mediaDownloadSchema,
+  mediaSchema,
+  mediaUploadSchema,
   membershipPageSchema,
   membershipSchema,
   playlistSchema,
@@ -103,6 +111,14 @@ import {
 import { readSuggestedDetails } from './bible/ebible-details';
 import { checkCompatibility } from './compatibility';
 import { DatabaseClient } from './database/database-client';
+import {
+  MediaFolder,
+  POSTER_FILE_NAME,
+  VIDEO_FILE_NAME,
+} from './media/media-folder';
+import { MediaSync } from './media/media-sync';
+import { PickedFiles, uploadPickedVideo } from './media/media-upload';
+import { putFile } from './media/put-file';
 import { LiveSession } from './presentation/live-session';
 import {
   buildDeck,
@@ -178,11 +194,20 @@ export class AppController {
   private databaseReopenTimer: NodeJS.Timeout | null = null;
   /** Bible downloads that failed verification (see bible-sync). */
   private readonly rejectedBibleContent = new Set<string>();
+  /** This account's downloaded videos (see MediaFolder). */
+  private mediaFolder: MediaFolder | null = null;
+  private mediaSync: MediaSync | null = null;
+  private readonly pickedFiles: PickedFiles;
   /** Settles once the remembered session (and its token) is loaded. */
   private sessionReady: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: AppControllerOptions) {
     this.settings = new AppSettingsStore(options.userDataDirectory);
+    // Normalised copies of picked videos, kept only while they upload; a
+    // previous run's leftovers go now.
+    const conversions = join(app.getPath('temp'), 'pakita-videos');
+    rmSync(conversions, { recursive: true, force: true });
+    this.pickedFiles = new PickedFiles(conversions);
     this.credentials = new CredentialStore(
       options.userDataDirectory,
       safeStorage,
@@ -326,6 +351,7 @@ export class AppController {
       await this.database?.close();
       this.database = null;
       this.syncEngine = null;
+      this.stopMedia();
       rmSync(this.accountDirectory(previous), { recursive: true, force: true });
       this.settings.update({ workspaceId: null });
     }
@@ -340,6 +366,8 @@ export class AppController {
       // synchronising before stops until the new password is chosen.
       this.stopBackgroundSync();
       this.syncEngine = null;
+      this.mediaSync?.stop();
+      this.mediaSync = null;
     } else {
       this.startSync();
     }
@@ -521,6 +549,7 @@ export class AppController {
     await this.database?.close();
     this.database = null;
     this.syncEngine = null;
+    this.stopMedia();
     if (account) {
       rmSync(this.accountDirectory(account), { recursive: true, force: true });
     }
@@ -708,7 +737,11 @@ export class AppController {
     if (!this.syncEngine || !workspaceId) {
       return this.getSyncStatus();
     }
-    return this.syncEngine.syncWorkspace(workspaceId);
+    const status = await this.syncEngine.syncWorkspace(workspaceId);
+    // Videos download after the rows that name them, in the background:
+    // a large one never holds up the next synchronisation.
+    if (status.state === 'idle') void this.mediaSync?.run();
+    return status;
   }
 
   /**
@@ -722,6 +755,7 @@ export class AppController {
     const workspaceId = this.requireWorkspace();
     if (!this.syncEngine) return this.getSyncStatus();
     this.rejectedBibleContent.clear();
+    this.mediaSync?.forgetRejections();
     return this.syncEngine.rebuildWorkspace(workspaceId);
   }
 
@@ -939,6 +973,239 @@ export class AppController {
     await this.writeOnline('DELETE', `themes/${themeId}`);
   }
 
+  // ── Background videos ─────────────────────────────────────────────────
+
+  /** The workspace's videos, with what this laptop holds of each. */
+  async listMedia(): Promise<MediaItem[]> {
+    const folder = this.mediaFolder;
+    if (!folder) return [];
+    const states = new Map(
+      (this.mediaSync?.getStates() ?? []).map((state) => [
+        state.mediaId,
+        state,
+      ]),
+    );
+    return Promise.all(
+      (await this.loadMedia()).map(async (media) => {
+        const isHeld =
+          (media.contentType === 'video/mp4' ||
+            media.contentType === 'video/webm') &&
+          (await folder.has({
+            sha256: media.sha256,
+            contentType: media.contentType,
+          }));
+        const file: MediaFileState = isHeld
+          ? {
+              mediaId: media.id,
+              state: 'ready',
+              receivedBytes: media.sizeBytes,
+              sizeBytes: media.sizeBytes,
+              message: null,
+            }
+          : (states.get(media.id) ?? {
+              mediaId: media.id,
+              state: 'waiting',
+              receivedBytes: 0,
+              sizeBytes: media.sizeBytes,
+              message: null,
+            });
+        return {
+          id: media.id,
+          name: media.name,
+          sha256: media.sha256,
+          contentType: media.contentType,
+          sizeBytes: media.sizeBytes,
+          width: media.width,
+          height: media.height,
+          durationMs: media.durationMs,
+          file,
+          videoUrl: isHeld ? this.mediaUrlOf(media) : null,
+          posterUrl: (await folder.hasPoster(media.sha256))
+            ? `pakita-media://files/${media.sha256}.webp`
+            : null,
+        };
+      }),
+    );
+  }
+
+  /** The system file dialog, for a video to upload. */
+  async pickMedia(): Promise<PickedVideo | null> {
+    const window = this.options.getOperatorWindow();
+    const options: Electron.OpenDialogOptions = {
+      title: 'Choose a background video',
+      properties: ['openFile'],
+      filters: [{ name: 'Videos', extensions: ['mp4', 'm4v', 'mov', 'webm'] }],
+    };
+    const chosen = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options);
+    const path = chosen.filePaths[0];
+    if (chosen.canceled || !path) return null;
+    return this.pickedFiles.add(path);
+  }
+
+  /** Uploads a picked video straight to the church's storage and adds it. */
+  async uploadMedia(input: MediaUploadInput): Promise<MediaItem> {
+    await this.sessionReady;
+    const picked = this.pickedFiles.get(input.token);
+    const folder = this.mediaFolder;
+    if (!picked || !folder) {
+      throw new Error('Choose the video again.');
+    }
+    const workspaceId = this.requireWorkspace();
+    const session = this.requireSession();
+    const base = `/api/workspaces/${workspaceId}/media`;
+    const media = await uploadPickedVideo(picked, input, {
+      folder,
+      startUpload: (body) =>
+        session.request({
+          method: 'POST',
+          path: `${base}/uploads`,
+          schema: mediaUploadSchema,
+          body,
+        }),
+      putFile,
+      createMedia: (body) =>
+        session.request({
+          method: 'POST',
+          path: base,
+          schema: mediaSchema,
+          body,
+        }),
+      onProgress: (progress) =>
+        this.send(IpcEvent.mediaUploadProgress, progress),
+    });
+    await this.pickedFiles.forget(input.token);
+    await this.syncNow();
+    const listed = (await this.listMedia()).find(
+      (item) => item.id === media.id,
+    );
+    if (!listed) throw new Error('The video was added; synchronise to see it.');
+    return listed;
+  }
+
+  beginNormalizedVideo(): Promise<string> {
+    return this.pickedFiles.beginOutput();
+  }
+
+  writeNormalizedVideo(
+    outputToken: string,
+    position: number,
+    data: Uint8Array,
+  ): Promise<void> {
+    return this.pickedFiles.writeOutput(outputToken, position, data);
+  }
+
+  finishNormalizedVideo(
+    outputToken: string,
+    sourceFileName: string,
+    contentType: 'video/mp4' | 'video/webm',
+  ): Promise<PickedVideo> {
+    return this.pickedFiles.finishOutput(
+      outputToken,
+      sourceFileName,
+      contentType,
+    );
+  }
+
+  discardNormalizedVideo(outputToken: string): Promise<void> {
+    return this.pickedFiles.discardOutput(outputToken);
+  }
+
+  async renameMedia(mediaId: string, name: string): Promise<void> {
+    await this.writeOnline('PATCH', `media/${mediaId}`, mediaSchema, { name });
+  }
+
+  async deleteMedia(mediaId: string): Promise<void> {
+    await this.writeOnline('DELETE', `media/${mediaId}`);
+  }
+
+  /** Keeps a still frame the operator window drew from a downloaded video. */
+  async saveMediaPoster(sha256: string, webp: Uint8Array): Promise<void> {
+    const folder = this.mediaFolder;
+    const isKnown = (await this.loadMedia()).some(
+      (media) => media.sha256 === sha256,
+    );
+    if (!folder || !isKnown) return;
+    await folder.savePoster(sha256, webp);
+  }
+
+  /**
+   * The local file a `pakita-media://` URL names: a verified video or still
+   * frame in this account's media folder (`files/<sha256>.<ext>`), or a
+   * video the operator just picked (`picked/<token>`). Nothing else.
+   */
+  resolveMediaFile(url: URL): { path: string; contentType: string } | null {
+    const name = url.pathname.replace(/^\//, '');
+    if (url.hostname === 'files' && this.mediaFolder) {
+      const video = VIDEO_FILE_NAME.exec(name);
+      if (video) {
+        return {
+          path: this.mediaFolder.pathOf(name),
+          contentType: video[2] === 'mp4' ? 'video/mp4' : 'video/webm',
+        };
+      }
+      if (POSTER_FILE_NAME.test(name)) {
+        return {
+          path: this.mediaFolder.pathOf(name),
+          contentType: 'image/webp',
+        };
+      }
+      return null;
+    }
+    if (url.hostname === 'picked') {
+      const picked = this.pickedFiles.get(name);
+      return picked
+        ? { path: picked.path, contentType: picked.contentType }
+        : null;
+    }
+    return null;
+  }
+
+  private mediaUrlOf(media: Pick<Media, 'sha256' | 'contentType'>): string {
+    const extension = media.contentType === 'video/webm' ? 'webm' : 'mp4';
+    return `pakita-media://files/${media.sha256}.${extension}`;
+  }
+
+  /** The current workspace's videos, as stored (each validated). */
+  private async loadMedia(): Promise<Media[]> {
+    const { workspaceId } = this.settings.get();
+    if (!this.database || !workspaceId) return [];
+    return (await this.database.listMedia(workspaceId)).flatMap((stored) => {
+      const parsed = mediaSchema.safeParse(stored);
+      return parsed.success ? [parsed.data] : [];
+    });
+  }
+
+  private startMedia(database: DatabaseClient, session: Session): void {
+    const folder = this.mediaFolder;
+    this.mediaSync?.stop();
+    if (!folder) return;
+    this.mediaSync = new MediaSync({
+      folder,
+      listMedia: () => this.loadMedia(),
+      listAllHashes: () => database.listMediaHashes(),
+      downloadUrl: async (mediaId) => {
+        const workspaceId = this.requireWorkspace();
+        const download = await session.request({
+          method: 'GET',
+          path: `/api/workspaces/${workspaceId}/media/${mediaId}/download`,
+          schema: mediaDownloadSchema,
+        });
+        return download.url;
+      },
+      fetchFunction: (input, init) => net.fetch(input, init),
+      isLive: () => this.live.isLive,
+      onChange: (states) => this.send(IpcEvent.mediaFiles, states),
+    });
+  }
+
+  private stopMedia(): void {
+    this.mediaSync?.stop();
+    this.mediaSync = null;
+    this.mediaFolder = null;
+  }
+
   async listPlaylists(): Promise<PlaylistSummary[]> {
     const { workspaceId } = this.settings.get();
     if (!this.database || !workspaceId) return [];
@@ -965,7 +1232,35 @@ export class AppController {
         slideCount: entry.slideCount,
         input: entry.input,
       })),
+      backgroundNote: await this.backgroundNoteFor(playlist.themeId),
     };
+  }
+
+  /** Why a service would show its theme without the theme's video. */
+  private async backgroundNoteFor(
+    themeId: string | null,
+  ): Promise<string | null> {
+    const { workspaceId } = this.settings.get();
+    if (!this.database || !workspaceId) return null;
+    for (const stored of [
+      themeId ? await this.database.getTheme(workspaceId, themeId) : null,
+      await this.database.getDefaultTheme(workspaceId),
+    ]) {
+      const parsed = themeSchema.safeParse(stored);
+      if (!parsed.success) continue;
+      const mediaId = parsed.data.backgroundMediaId;
+      if (!mediaId || (await this.localVideoUrlOf(mediaId))) return null;
+      const state = this.mediaSync
+        ?.getStates()
+        .find((candidate) => candidate.mediaId === mediaId);
+      if (state?.state === 'failed' && state.message) return state.message;
+      const percent =
+        state?.state === 'downloading' && state.sizeBytes > 0
+          ? ` (${Math.floor((state.receivedBytes / state.sizeBytes) * 100)}%)`
+          : '';
+      return `The theme’s background video is still downloading${percent}. Until it arrives, the theme’s colour shows instead.`;
+    }
+    return null;
   }
 
   async createPlaylist(input: PlaylistInput): Promise<PlaylistView | null> {
@@ -1146,7 +1441,10 @@ export class AppController {
   stopLive(): LiveState {
     this.live.stop();
     this.projector.close();
-    return this.broadcastLiveState();
+    const state = this.broadcastLiveState();
+    // Videos waited while presenting; carry on.
+    void this.mediaSync?.run();
+    return state;
   }
 
   liveState(): LiveState {
@@ -1186,6 +1484,7 @@ export class AppController {
       () => this.reopenDatabase(client, account),
     );
     this.database = client;
+    this.mediaFolder = new MediaFolder(join(directory, 'media'));
   }
 
   /**
@@ -1265,6 +1564,7 @@ export class AppController {
       },
       (status) => this.send(IpcEvent.syncStatus, status),
     );
+    this.startMedia(database, session);
     if (this.settings.get().workspaceId) {
       this.startBackgroundSync();
       void this.syncNow();
@@ -1311,9 +1611,39 @@ export class AppController {
       await this.database.getDefaultTheme(workspaceId),
     ]) {
       const parsed = themeSchema.safeParse(stored);
-      if (parsed.success) return lookOf(parsed.data);
+      if (parsed.success) {
+        return lookOf(
+          parsed.data,
+          await this.localVideoUrlOf(parsed.data.backgroundMediaId),
+        );
+      }
     }
     return DEFAULT_THEME_LOOK;
+  }
+
+  /**
+   * The local URL of a theme's background video, only when this laptop holds
+   * its verified file now; otherwise the theme's own background shows.
+   */
+  private async localVideoUrlOf(
+    mediaId: string | null,
+  ): Promise<string | null> {
+    const folder = this.mediaFolder;
+    if (!mediaId || !folder) return null;
+    const media = (await this.loadMedia()).find(
+      (candidate) => candidate.id === mediaId,
+    );
+    if (
+      !media ||
+      (media.contentType !== 'video/mp4' && media.contentType !== 'video/webm')
+    ) {
+      return null;
+    }
+    const isHeld = await folder.has({
+      sha256: media.sha256,
+      contentType: media.contentType,
+    });
+    return isHeld ? this.mediaUrlOf(media) : null;
   }
 
   private async loadPassage(
@@ -1440,6 +1770,8 @@ export class AppController {
   }
 
   private broadcastLiveState(): LiveState {
+    // Nothing downloads during a presentation (its partial file resumes).
+    if (this.live.isLive) this.mediaSync?.stop();
     const state = this.liveState();
     this.send(IpcEvent.liveState, state);
     this.projector.send(state);

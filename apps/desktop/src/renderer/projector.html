@@ -5,12 +5,32 @@
     <!-- The projector loads nothing but its own bundle; see index.html. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: pakita-media:; media-src pakita-media:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
     />
     <title>Pakita — projector</title>
   </head>
   <body>
     <main id="stage" class="stage" aria-live="off">
+      <!-- The background video: two layers, so one can fade into the other.
+           Muted and looping; never restarted by a slide change. -->
+      <video
+        id="background-a"
+        class="background-video"
+        muted
+        loop
+        playsinline
+        disablepictureinpicture
+        aria-hidden="true"
+      ></video>
+      <video
+        id="background-b"
+        class="background-video"
+        muted
+        loop
+        playsinline
+        disablepictureinpicture
+        aria-hidden="true"
+      ></video>
       <p id="slide" class="slide"></p>
       <p id="caption" class="caption"></p>
     </main>

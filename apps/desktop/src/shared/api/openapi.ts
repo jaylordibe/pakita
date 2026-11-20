@@ -1087,6 +1087,83 @@ export interface paths {
     patch: operations['ThemesController_update'];
     trace?: never;
   };
+  '/api/workspaces/{workspaceId}/media/uploads': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Starts uploading a video: returns where to `PUT` its bytes, straight to
+     *     storage. 409 `MEDIA_QUOTA_EXCEEDED` when the workspace's videos cannot
+     *     hold it; 413 over 1 GiB; 429 `FILE_QUOTA_EXCEEDED` with too many uploads
+     *     not yet added.
+     */
+    post: operations['MediaController_createUpload'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/workspaces/{workspaceId}/media': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['MediaController_findPaginated'];
+    put?: never;
+    /**
+     * Adds an uploaded video. 409 `FILE_NOT_UPLOADED` while storage does not
+     *     hold its bytes yet (send them, then retry); 415 when the bytes are not an
+     *     MP4 or WebM video.
+     */
+    post: operations['MediaController_create'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/workspaces/{workspaceId}/media/{mediaId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['MediaController_findById'];
+    put?: never;
+    post?: never;
+    /** 409 `MEDIA_IN_USE` while a theme shows the video. */
+    delete: operations['MediaController_remove'];
+    options?: never;
+    head?: never;
+    patch: operations['MediaController_update'];
+    trace?: never;
+  };
+  '/api/workspaces/{workspaceId}/media/{mediaId}/download': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A short-lived URL for the video's bytes, to download them. */
+    get: operations['MediaController_createDownloadUrl'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/workspaces/{workspaceId}/playlists': {
     parameters: {
       query?: never;
@@ -1689,17 +1766,22 @@ export interface components {
     };
     UploadedFileResponseDto: {
       /** @enum {string} */
-      purpose: 'profile_image' | 'document';
+      purpose: 'profile_image' | 'document' | 'background_video';
       /**
        * @description Always `ready` in the response to `POST /files`.
        * @enum {string}
        */
-      status: 'processing' | 'ready' | 'attached' | 'deleting';
+      status:
+        | 'processing'
+        | 'awaiting_upload'
+        | 'ready'
+        | 'attached'
+        | 'deleting';
       /**
        * @description `image`: re-encoded by the server, metadata removed. `document`: stored as uploaded.
        * @enum {string}
        */
-      kind: 'image' | 'document';
+      kind: 'image' | 'document' | 'video';
       /** @description Send this id to attach the file (e.g. `fileId` on `PUT /users/me/profile-image`). */
       id: string;
       /** @description The type the server identified from the file's content. */
@@ -1940,6 +2022,8 @@ export interface components {
       workspaceId: string;
       name: string;
       backgroundColor: string;
+      /** @description A background video (`Media`) looping under the text, or null. */
+      backgroundMediaId: string | null;
       textColor: string;
       textScale: number;
       isDefault: boolean;
@@ -1956,6 +2040,35 @@ export interface components {
       /** @description A deletion: remove the theme locally. `theme` is then null. */
       isDeleted: boolean;
       theme: components['schemas']['ThemeResponseDto'] | null;
+    };
+    MediaResponseDto: {
+      id: string;
+      workspaceId: string;
+      name: string;
+      /** @description Lowercase hex SHA-256 of the bytes; verify the download against it. */
+      sha256: string;
+      sizeBytes: number;
+      /** @description `video/mp4` or `video/webm`. */
+      contentType: string;
+      width: number;
+      height: number;
+      durationMs: number;
+      /** @description The workspace sync version of the video's latest change. */
+      syncVersion: number;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    SyncedMediaDto: {
+      id: string;
+      syncVersion: number;
+      /**
+       * @description A deletion: remove the video, and its downloaded file, locally. `media`
+       *     is then null.
+       */
+      isDeleted: boolean;
+      media: components['schemas']['MediaResponseDto'] | null;
     };
     /** @enum {string} */
     PlaylistItemKind: 'song' | 'passage';
@@ -2088,6 +2201,11 @@ export interface components {
       hasMore: boolean;
       songs: components['schemas']['SyncedSongDto'][];
       themes: components['schemas']['SyncedThemeDto'][];
+      /**
+       * @description Background videos. A theme names one by `backgroundMediaId`; the bytes
+       *     are downloaded separately (`GET …/media/:id/download`).
+       */
+      media: components['schemas']['SyncedMediaDto'][];
       playlists: components['schemas']['SyncedPlaylistDto'][];
     };
     SongSectionInputDto: {
@@ -2136,6 +2254,13 @@ export interface components {
       font: components['schemas']['ThemeFont'];
       textAlign: components['schemas']['ThemeTextAlign'];
       /**
+       * Format: uuid
+       * @description A background video of this workspace, looping under the text. `null`
+       *     (or omitted) shows `background` alone, which is also what a laptop shows
+       *     while it does not hold the video yet.
+       */
+      backgroundMediaId?: string | null;
+      /**
        * @description Makes this the workspace's default theme (and the previous one not).
        * @default false
        */
@@ -2153,6 +2278,13 @@ export interface components {
       font?: components['schemas']['ThemeFont'];
       textAlign?: components['schemas']['ThemeTextAlign'];
       /**
+       * Format: uuid
+       * @description A background video of this workspace, looping under the text. `null`
+       *     (or omitted) shows `background` alone, which is also what a laptop shows
+       *     while it does not hold the video yet.
+       */
+      backgroundMediaId?: string | null;
+      /**
        * @description Makes this the workspace's default theme (and the previous one not).
        * @default false
        */
@@ -2164,6 +2296,53 @@ export interface components {
       textColor?: string;
       /** @description Text size as a percentage of the standard size. */
       textScale?: number;
+    };
+    CreateMediaUploadDto: {
+      /** @enum {string} */
+      contentType: 'video/mp4' | 'video/webm';
+      /** @description The file's name on the laptop; stored in a safe display form. */
+      fileName: string;
+      /** @description Exact size in bytes; storage refuses a body of any other size. */
+      sizeBytes: number;
+      /**
+       * @description Lowercase hex SHA-256 of the bytes. Storage that verifies it refuses
+       *     other bytes, and every laptop that downloads the video checks it.
+       */
+      sha256: string;
+    };
+    MediaUploadResponseDto: {
+      fileId: string;
+      url: string;
+      headers: {
+        [key: string]: string;
+      };
+      /**
+       * Format: date-time
+       * @description After this the URL no longer accepts the bytes; start a new upload.
+       */
+      urlExpiresAt: string;
+    };
+    CreateMediaDto: {
+      /**
+       * Format: uuid
+       * @description The id `POST …/media/uploads` returned.
+       */
+      fileId: string;
+      name: string;
+      /** @description Pixels; at most 1920 on the long side and 1080 on the short side. */
+      width: number;
+      /** @description Pixels; at most 1920 on the long side and 1080 on the short side. */
+      height: number;
+      /** @description Milliseconds; at most an hour. */
+      durationMs: number;
+    };
+    MediaDownloadResponseDto: {
+      url: string;
+      /** Format: date-time */
+      expiresAt: string;
+    };
+    UpdateMediaDto: {
+      name: string;
     };
     PlaylistItemInputDto: {
       kind: components['schemas']['PlaylistItemKind'];
@@ -3826,7 +4005,7 @@ export interface operations {
           /** Format: binary */
           file: string;
           /** @enum {string} */
-          purpose: 'profile_image' | 'document';
+          purpose: 'profile_image' | 'document' | 'background_video';
         };
       };
     };
@@ -5750,6 +5929,276 @@ export interface operations {
         content?: never;
       };
       /** @description Authenticated, but no permission grants `update` on `Theme` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  MediaController_createUpload: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateMediaUploadDto'];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MediaUploadResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `create` on `Media` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  MediaController_findPaginated: {
+    parameters: {
+      query?: {
+        page?: number;
+        /** @description Values above 100 are clamped to 100. */
+        perPage?: number;
+        search?: string;
+        sortBy?: string;
+        sortOrder?: 'asc' | 'desc';
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['MediaResponseDto'][];
+            meta: components['schemas']['PaginationMeta'];
+          };
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `Media` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  MediaController_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateMediaDto'];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MediaResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `create` on `Media` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  MediaController_findById: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        mediaId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MediaResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `Media` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  MediaController_remove: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        mediaId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `delete` on `Media` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  MediaController_update: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        mediaId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateMediaDto'];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MediaResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `update` on `Media` */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  MediaController_createDownloadUrl: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        mediaId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MediaDownloadResponseDto'];
+        };
+      };
+      /** @description Missing, invalid, expired, or revoked access token */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authenticated, but no permission grants `read` on `Media` */
       403: {
         headers: {
           [name: string]: unknown;

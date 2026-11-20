@@ -25,6 +25,7 @@ import { registerIpcHandler } from './ipc-registry';
 import {
   installWebContentsGuards,
   registerAppSchemePrivileges,
+  serveMediaScheme,
   serveRendererFromAppScheme,
 } from './security';
 import {
@@ -156,6 +157,7 @@ const themeInputSchema = z
     font: z.enum(themeFontValues),
     textScale: z.number().int().min(50).max(200),
     textAlign: z.enum(themeTextAlignValues),
+    backgroundMediaId: uuid.nullable(),
     isDefault: z.boolean(),
   })
   .strict();
@@ -203,6 +205,7 @@ async function start(): Promise<void> {
     loadProjectorPage: (window) => window.loadURL(pageUrl('projector')),
     getOperatorWindow: () => operatorWindow,
   });
+  serveMediaScheme((url) => controller.resolveMediaFile(url), trustedOrigins);
   controller.initialize();
   controller.startUpdateChecks();
 
@@ -449,6 +452,96 @@ async function start(): Promise<void> {
   handle(IpcChannel.themesGet, uuid, (themeId) => controller.getTheme(themeId));
   handle(IpcChannel.themesCreate, themeInputSchema, (input) =>
     controller.createTheme(input),
+  );
+  handle(IpcChannel.mediaList, noPayload, () => controller.listMedia());
+  handle(IpcChannel.mediaPick, noPayload, () => controller.pickMedia());
+  handle(
+    IpcChannel.mediaUpload,
+    z
+      .object({
+        token: uuid,
+        name: z.string().trim().min(1).max(80),
+        width: z.number().int().min(1).max(1920),
+        height: z.number().int().min(1).max(1920),
+        durationMs: z
+          .number()
+          .int()
+          .min(1)
+          .max(60 * 60 * 1000),
+      })
+      .strict(),
+    (input) => controller.uploadMedia(input),
+  );
+  handle(
+    IpcChannel.mediaRename,
+    z
+      .object({ mediaId: uuid, name: z.string().trim().min(1).max(80) })
+      .strict(),
+    ({ mediaId, name }) => controller.renameMedia(mediaId, name),
+  );
+  handle(IpcChannel.mediaDelete, uuid, (mediaId) =>
+    controller.deleteMedia(mediaId),
+  );
+  // A normalised copy of a picked video, written by the operator window in
+  // positioned chunks (renderer/video-normalize): at most 1 GB in all.
+  handle(IpcChannel.mediaBeginNormalized, noPayload, () =>
+    controller.beginNormalizedVideo(),
+  );
+  handle(
+    IpcChannel.mediaWriteNormalized,
+    z
+      .object({
+        outputToken: uuid,
+        position: z
+          .number()
+          .int()
+          .min(0)
+          .max(1024 * 1024 * 1024),
+        data: z
+          .instanceof(Uint8Array)
+          .refine((bytes) => bytes.byteLength <= 64 * 1024 * 1024),
+      })
+      .strict(),
+    ({ outputToken, position, data }) =>
+      controller.writeNormalizedVideo(outputToken, position, data),
+  );
+  handle(
+    IpcChannel.mediaFinishNormalized,
+    z
+      .object({
+        outputToken: uuid,
+        sourceFileName: z.string().min(1).max(255),
+        contentType: z.enum(['video/mp4', 'video/webm']),
+      })
+      .strict(),
+    ({ outputToken, sourceFileName, contentType }) =>
+      controller.finishNormalizedVideo(
+        outputToken,
+        sourceFileName,
+        contentType,
+      ),
+  );
+  handle(IpcChannel.mediaDiscardNormalized, uuid, (outputToken) =>
+    controller.discardNormalizedVideo(outputToken),
+  );
+  // A still frame of at most 256 KB: a small WebP the operator window drew.
+  handle(
+    IpcChannel.mediaSavePoster,
+    z
+      .object({
+        sha256: z.string().regex(/^[0-9a-f]{64}$/),
+        webp: z
+          .instanceof(Uint8Array)
+          .refine(
+            (bytes) =>
+              bytes.byteLength > 12 &&
+              bytes.byteLength <= 256 * 1024 &&
+              Buffer.from(bytes.subarray(8, 12)).toString('latin1') === 'WEBP',
+            'Not a small WebP image',
+          ),
+      })
+      .strict(),
+    ({ sha256, webp }) => controller.saveMediaPoster(sha256, webp),
   );
   handle(
     IpcChannel.themesUpdate,

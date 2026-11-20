@@ -70,6 +70,16 @@ export const IpcChannel = {
   themesCreate: 'themes:create',
   themesUpdate: 'themes:update',
   themesDelete: 'themes:delete',
+  mediaList: 'media:list',
+  mediaPick: 'media:pick',
+  mediaUpload: 'media:upload',
+  mediaRename: 'media:rename',
+  mediaDelete: 'media:delete',
+  mediaSavePoster: 'media:save-poster',
+  mediaBeginNormalized: 'media:begin-normalized',
+  mediaWriteNormalized: 'media:write-normalized',
+  mediaFinishNormalized: 'media:finish-normalized',
+  mediaDiscardNormalized: 'media:discard-normalized',
   playlistsList: 'playlists:list',
   playlistsGet: 'playlists:get',
   playlistsCreate: 'playlists:create',
@@ -95,6 +105,8 @@ export const IpcEvent = {
   displaysChanged: 'displays:changed',
   bibleImportProgress: 'bible:import-progress',
   updateAvailable: 'app:update-available',
+  mediaFiles: 'media:files',
+  mediaUploadProgress: 'media:upload-progress',
 } as const;
 
 export interface DatabaseHealth {
@@ -384,6 +396,60 @@ export interface BibleImportProgress {
 export type Theme = components['schemas']['ThemeResponseDto'];
 export type ThemeInput = components['schemas']['CreateThemeDto'];
 
+/** Where one of the workspace's videos stands on this laptop. */
+export interface MediaFileState {
+  readonly mediaId: string;
+  readonly state: 'ready' | 'downloading' | 'waiting' | 'failed';
+  readonly receivedBytes: number;
+  readonly sizeBytes: number;
+  /** Why it failed, for the operator; null otherwise. */
+  readonly message: string | null;
+}
+
+/** A background video, with what this laptop holds of it. */
+export interface MediaItem {
+  readonly id: string;
+  readonly name: string;
+  readonly sha256: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly width: number;
+  readonly height: number;
+  readonly durationMs: number;
+  readonly file: MediaFileState;
+  /** `pakita-media://…` once the verified video is on this laptop. */
+  readonly videoUrl: string | null;
+  /** A still frame this laptop drew from the video, once it has one. */
+  readonly posterUrl: string | null;
+}
+
+/** A video the operator chose on disk, not yet uploaded. */
+export interface PickedVideo {
+  /** Names the file in later calls; the page never sees its path. */
+  readonly token: string;
+  readonly fileName: string;
+  readonly sizeBytes: number;
+  readonly contentType: string;
+  /** Plays the picked file, to measure it before it is uploaded. */
+  readonly url: string;
+}
+
+/** What the operator window measured of a picked video. */
+export interface MediaUploadInput {
+  readonly token: string;
+  readonly name: string;
+  readonly width: number;
+  readonly height: number;
+  readonly durationMs: number;
+}
+
+export interface MediaUploadProgress {
+  readonly token: string;
+  readonly stage: 'checking' | 'uploading' | 'saving';
+  readonly sentBytes: number;
+  readonly totalBytes: number;
+}
+
 export interface ThemeSummary {
   readonly id: string;
   readonly name: string;
@@ -436,6 +502,12 @@ export interface PlaylistView {
   readonly themeId: string | null;
   readonly syncVersion: number;
   readonly entries: readonly PlaylistEntry[];
+  /**
+   * Set while the theme this service shows has a background video this
+   * laptop does not hold yet: it presents with the theme's own background
+   * until the video arrives. Null otherwise.
+   */
+  readonly backgroundNote: string | null;
 }
 
 /** A newer published release of Pakita. */
@@ -599,6 +671,41 @@ export interface PakitaApi {
     create(input: ThemeInput): Promise<Theme>;
     update(themeId: string, input: ThemeInput): Promise<Theme>;
     delete(themeId: string): Promise<void>;
+  };
+  readonly media: {
+    /** The workspace's videos, with what this laptop holds of each. */
+    list(): Promise<MediaItem[]>;
+    /** Opens the system file dialog; null when the operator cancels. */
+    pick(): Promise<PickedVideo | null>;
+    /** Uploads a picked video straight to storage and adds it. */
+    upload(input: MediaUploadInput): Promise<MediaItem>;
+    /**
+     * A file for the normalised version of a picked video, written in
+     * positioned chunks (see renderer/video-normalize), then picked itself.
+     */
+    beginNormalized(): Promise<string>;
+    writeNormalized(
+      outputToken: string,
+      position: number,
+      data: Uint8Array,
+    ): Promise<void>;
+    finishNormalized(
+      outputToken: string,
+      sourceFileName: string,
+      contentType: 'video/mp4' | 'video/webm',
+    ): Promise<PickedVideo>;
+    discardNormalized(outputToken: string): Promise<void>;
+    rename(mediaId: string, name: string): Promise<void>;
+    /** Refused (MEDIA_IN_USE) while a theme shows the video. */
+    delete(mediaId: string): Promise<void>;
+    /** Keeps a still frame (WebP) drawn from a downloaded video. */
+    savePoster(sha256: string, webp: Uint8Array): Promise<void>;
+    onFilesChanged(
+      listener: (states: readonly MediaFileState[]) => void,
+    ): () => void;
+    onUploadProgress(
+      listener: (progress: MediaUploadProgress) => void,
+    ): () => void;
   };
   readonly playlists: {
     list(): Promise<PlaylistSummary[]>;

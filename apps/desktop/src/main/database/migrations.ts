@@ -111,6 +111,24 @@ export const MIGRATIONS: readonly string[] = [
   -- holds is skipped by its version, so only the missing content arrives.
   UPDATE workspace_sync_states SET cursor = 0;
   `,
+  // 5 — synchronised background videos, stored like themes. Only the rows
+  // live here: a video's bytes are a file named by its SHA-256 in the media
+  // folder, put there only once verified (see media-files), so that file's
+  // presence is what "downloaded" means.
+  `
+  CREATE TABLE media (
+    id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL,
+    sync_version INTEGER NOT NULL CHECK (sync_version > 0),
+    name TEXT NOT NULL,
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+    payload TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX media_workspace_name ON media (workspace_id, name COLLATE NOCASE);
+  -- An older app may already have synchronised past videos it could not
+  -- store: read the history once more (what the laptop holds is skipped).
+  UPDATE workspace_sync_states SET cursor = 0;
+  `,
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;

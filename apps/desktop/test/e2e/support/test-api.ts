@@ -80,6 +80,30 @@ function loadTestEnvironment(databaseName: string, port: number) {
   return environment;
 }
 
+/** Creates the storage bucket once, with the API's own S3 SDK. */
+function createBucket(environment: Record<string, string>): void {
+  const script = `
+    const { S3Client, CreateBucketCommand } = require('@aws-sdk/client-s3');
+    new S3Client({
+      region: process.env.STORAGE_S3_REGION,
+      endpoint: process.env.STORAGE_S3_ENDPOINT,
+      forcePathStyle: true,
+    })
+      .send(new CreateBucketCommand({ Bucket: process.env.STORAGE_S3_BUCKET }))
+      .catch((error) => {
+        if (error.name !== 'BucketAlreadyOwnedByYou' && error.name !== 'BucketAlreadyExists') throw error;
+      });
+  `;
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: API_DIRECTORY,
+    env: { ...process.env, ...environment },
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(`Creating the test bucket failed: ${result.stderr}`);
+  }
+}
+
 async function freePort(): Promise<number> {
   return new Promise((resolvePort, reject) => {
     const server = createServer();
@@ -122,13 +146,31 @@ function runInApi(command: string, args: string[], environment: object): void {
   }
 }
 
-export async function startTestApi(): Promise<TestApi> {
+export interface TestApiOptions {
+  /**
+   * `s3`: store files in the test stack's own S3-compatible container (its
+   * loopback endpoint in `.env.test`), so a laptop can upload and download
+   * them for real. Otherwise the API's stub, which stores nothing.
+   */
+  readonly storage?: 'stub' | 's3';
+}
+
+export async function startTestApi(
+  options: TestApiOptions = {},
+): Promise<TestApi> {
   const port = await freePort();
   const databaseName = `pakita_desktop_e2e_${process.pid}`;
   const environment: Record<string, string> = loadTestEnvironment(
     databaseName,
     port,
   );
+  if (options.storage === 's3') {
+    environment.STORAGE_PROVIDER = 's3';
+    environment.STORAGE_S3_BUCKET = 'pakita-desktop-e2e';
+    // `.env.test`'s byte-sized quota is for the API's own media spec.
+    environment.MEDIA_WORKSPACE_QUOTA_BYTES = String(1024 * 1024 * 1024);
+    createBucket(environment);
+  }
   const origin = `http://127.0.0.1:${port}`;
 
   await withAdminClient(environment.DATABASE_URL!, async (client) => {

@@ -29,13 +29,14 @@ describe('ContentStore', () => {
     epoch: string,
     nextCursor: number,
     songs: SyncPage['songs'],
-    extras: Partial<Pick<SyncPage, 'themes' | 'playlists'>> = {},
+    extras: Partial<Pick<SyncPage, 'themes' | 'media' | 'playlists'>> = {},
   ) =>
     store.applySyncPage(workspaceId, {
       epoch,
       nextCursor,
       songs,
       themes: [],
+      media: [],
       playlists: [],
       ...extras,
     });
@@ -260,5 +261,63 @@ describe('ContentStore', () => {
     expect(database.prepare('SELECT * FROM resync_seen').all()).toEqual([
       { workspace_id: 'workspace', kind: 'song', id: 'song-1' },
     ]);
+  });
+
+  describe('background videos', () => {
+    const hash = (digit: string) => digit.repeat(64);
+    const media = (
+      id: string,
+      syncVersion: number,
+      name: string,
+      sha256: string,
+      isDeleted = false,
+    ) => ({
+      id,
+      syncVersion,
+      isDeleted,
+      media: isDeleted ? null : { id, name, sha256, contentType: 'video/mp4' },
+    });
+
+    it('keeps videos by name, and every workspace’s hashes once', () => {
+      apply('workspace', 'epoch', 2, [], {
+        media: [
+          media('m1', 1, 'Waves', hash('a')),
+          media('m2', 2, 'Clouds', hash('b')),
+        ],
+      });
+      apply('other', 'epoch', 1, [], {
+        media: [media('m3', 1, 'Waves too', hash('a'))],
+      });
+      expect(store.listMedia('workspace')).toEqual([
+        expect.objectContaining({ id: 'm2', name: 'Clouds' }),
+        expect.objectContaining({ id: 'm1', name: 'Waves' }),
+      ]);
+      expect(store.listMediaHashes().sort()).toEqual([hash('a'), hash('b')]);
+    });
+
+    it('removes a deleted video, and one the new history lacks', () => {
+      apply('workspace', 'old', 2, [], {
+        media: [
+          media('kept', 1, 'Kept', hash('a')),
+          media('gone', 2, 'Gone', hash('b')),
+        ],
+      });
+      apply('workspace', 'old', 3, [], {
+        media: [media('gone', 3, 'Gone', hash('b'), true)],
+      });
+      expect(store.listMediaHashes()).toEqual([hash('a')]);
+
+      apply('workspace', 'old', 4, [], {
+        media: [media('later', 4, 'Later', hash('c'))],
+      });
+      store.beginResync('workspace', 'new');
+      apply('workspace', 'new', 1, [], {
+        media: [media('kept', 1, 'Kept', hash('a'))],
+      });
+      store.finishResync('workspace');
+      expect(store.listMedia('workspace')).toEqual([
+        expect.objectContaining({ id: 'kept' }),
+      ]);
+    });
   });
 });

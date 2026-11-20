@@ -125,6 +125,30 @@ const pakita: PakitaApi = {
       invoke(IpcChannel.themesUpdate, { themeId, input }),
     delete: (themeId) => invoke(IpcChannel.themesDelete, themeId),
   },
+  media: {
+    list: () => invoke(IpcChannel.mediaList),
+    pick: () => invoke(IpcChannel.mediaPick),
+    upload: (input) => invoke(IpcChannel.mediaUpload, input),
+    rename: (mediaId, name) =>
+      invoke(IpcChannel.mediaRename, { mediaId, name }),
+    delete: (mediaId) => invoke(IpcChannel.mediaDelete, mediaId),
+    savePoster: (sha256, webp) =>
+      invoke(IpcChannel.mediaSavePoster, { sha256, webp }),
+    beginNormalized: () => invoke(IpcChannel.mediaBeginNormalized),
+    writeNormalized: (outputToken, position, data) =>
+      invoke(IpcChannel.mediaWriteNormalized, { outputToken, position, data }),
+    finishNormalized: (outputToken, sourceFileName, contentType) =>
+      invoke(IpcChannel.mediaFinishNormalized, {
+        outputToken,
+        sourceFileName,
+        contentType,
+      }),
+    discardNormalized: (outputToken) =>
+      invoke(IpcChannel.mediaDiscardNormalized, outputToken),
+    onFilesChanged: (listener) => subscribe(IpcEvent.mediaFiles, listener),
+    onUploadProgress: (listener) =>
+      subscribe(IpcEvent.mediaUploadProgress, listener),
+  },
   playlists: {
     list: () => invoke(IpcChannel.playlistsList),
     get: (playlistId) => invoke(IpcChannel.playlistsGet, playlistId),
