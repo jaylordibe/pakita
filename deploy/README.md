@@ -48,21 +48,71 @@ Follow [`shared-server.md`](shared-server.md) instead.
 
 On a Google Compute Engine VM, uploaded files can live in a Cloud Storage
 bucket instead of on this machine. The server holds no key file: it uses the
-VM's attached service account, which needs, once:
+VM's attached service account. That account needs three things, once, set
+either with `gcloud` or in the Google Cloud console.
+
+Its address (`<vm-sa>@<project>.iam.gserviceaccount.com`) is on the VM's
+page: **Compute Engine → VM instances → your VM → API and identity
+management → Service account**.
+
+**1. Read, write and delete the bucket's objects.**
 
 ```bash
-# The VM's service account reads, writes and deletes the bucket's objects
 gcloud storage buckets add-iam-policy-binding gs://<bucket> \
   --member="serviceAccount:<vm-sa>@<project>.iam.gserviceaccount.com" \
   --role=roles/storage.objectAdmin
+```
 
-# It signs upload and download links as itself (no key file on the VM)
+Console: **Cloud Storage → Buckets → your bucket → Permissions → Grant
+access**. New principals: the service account's address. Role: **Storage
+Object Admin**. Save.
+
+**2. Sign upload and download links as itself.** Google signs them through
+the IAM Credentials API, so the account may sign as itself and nothing else.
+
+```bash
 gcloud services enable iamcredentials.googleapis.com --project=<project-id>
 gcloud iam service-accounts add-iam-policy-binding \
   <vm-sa>@<project>.iam.gserviceaccount.com \
   --member="serviceAccount:<vm-sa>@<project>.iam.gserviceaccount.com" \
   --role=roles/iam.serviceAccountTokenCreator
 ```
+
+Console:
+
+- **APIs & Services → Library**, search **IAM Service Account Credentials
+  API**, **Enable**.
+- **IAM & Admin → Service Accounts → the VM's service account → Principals
+  with access → Grant access**. New principals: the same service account's
+  address. Role: **Service Account Token Creator**. Save. Grant it here, on
+  the account, not on the project's IAM page: there it would let the account
+  sign as every service account in the project.
+
+**3. Reach the IAM API from the VM.** The VM's token reaches it only with the
+`cloud-platform` access scope. A VM created with "Allow default access" lacks
+it, and every upload then fails with "insufficient authentication scopes",
+even with the roles above. Check on the VM:
+
+```bash
+curl -s -H "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/scopes
+```
+
+If `https://www.googleapis.com/auth/cloud-platform` is missing, change it
+(Google's recommendation: the roles above, not the scope, limit what the
+account may do). The VM must be stopped, which pauses everything it serves:
+
+```bash
+gcloud compute instances stop <vm> --zone=<zone>
+gcloud compute instances set-service-account <vm> --zone=<zone> \
+  --service-account=<vm-sa>@<project>.iam.gserviceaccount.com \
+  --scopes=cloud-platform
+gcloud compute instances start <vm> --zone=<zone>
+```
+
+Console: **Compute Engine → VM instances → your VM → Stop**, then **Edit →
+Security and access → Access scopes → Allow full access to all Cloud APIs**.
+Save, then **Start**.
 
 Then set `PAKITA_STORAGE=gcs` and `PAKITA_GCS_BUCKET=<bucket>` in `.env`
 and run `install.sh` (or `update.sh`). `backup.sh` then backs up the
@@ -133,9 +183,18 @@ Download them from the project's
 [releases page](https://github.com/jaylordibe/pakita/releases) only. Each
 release lists SHA-256 checksums (`SHA256SUMS`) and carries a build provenance
 attestation (`gh attestation verify <installer> --repo jaylordibe/pakita`).
-They are not code-signed yet, so the first launch shows a warning: on macOS,
-right-click the app and choose **Open**; on Windows, choose **More info → Run
-anyway**.
+They are not code-signed yet, so the first launch shows a warning:
+
+- **macOS** says "Apple could not verify "Pakita" is free of malware". Click
+  **Done** (not Move to Trash), then **System Settings → Privacy & Security**,
+  scroll to the message about Pakita and click **Open Anyway**. Or, in
+  Terminal: `xattr -dr com.apple.quarantine /Applications/Pakita.app`.
+  Pakita then asks for the Mac's login password to use its keychain item,
+  where it keeps the sign-in: enter it and choose **Always Allow**. Each new
+  version asks once more.
+- **Windows** SmartScreen says "Windows protected your PC": choose **More
+  info → Run anyway**.
+
 The app tells the operator when a newer release is available; it never
 updates itself during a service.
 

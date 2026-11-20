@@ -41,6 +41,7 @@ To release, on your own computer:
    `.github/workflows/publish-image.yml` tests it, then publishes
    `ghcr.io/jaylordibe/pakita:0.1.0` and `ghcr.io/jaylordibe/pakita-migrate:0.1.0`.
    It refuses a tag that is not on `main` or does not match the versions.
+
 3. After the very first release, open both packages on GitHub (your profile
    → Packages) and check they are **public**. A server pulls without logging
    in, so a private package fails at `docker compose pull`.
@@ -113,31 +114,51 @@ Flexible mode sends that hop in clear text, and would also loop, because
 `pakita.conf` redirects plain HTTP to HTTPS. The setting applies to Pakita's
 hostname alone; the domain's other sites keep theirs.
 
-1. **SSL/TLS → Origin Server → Create Certificate**, for
-   `pakita.yourdomain.com` only. Save the certificate and its private key on
-   this machine where nginx reads certificates (the key readable by its
-   owner only). It is free and lasts up to 15 years.
-2. **Rules → Configuration Rules → Create rule**: when the hostname equals
+1. **DNS → Records**: an `A` record for the hostname, pointing at this
+   machine, **Proxied** (orange cloud).
+2. **SSL/TLS → Origin Server → Create Certificate**, for
+   `pakita.yourdomain.com` only. It is free and lasts up to 15 years. Copy
+   the certificate and its private key (shown only once) into a folder
+   nginx's project keeps, beside its `docker-compose.yml`:
+
+   ```sh
+   mkdir -p certs/pakita.yourdomain.com
+   nano certs/pakita.yourdomain.com/fullchain.pem   # the certificate
+   nano certs/pakita.yourdomain.com/privkey.pem     # the private key
+   chmod 600 certs/pakita.yourdomain.com/privkey.pem
+   ```
+
+   `webserver` mounts that folder where `pakita.conf` reads it (step 4).
+
+3. **Rules → Configuration Rules → Create rule**: when the hostname equals
    `pakita.yourdomain.com`, set **SSL** to **Full (strict)**.
+4. **Open port 443** to this machine. Full (strict) reaches it on 443,
+   where a domain on Flexible only ever needed 80. On Google Compute Engine:
+   edit the VM and tick **Allow HTTPS traffic** (the `default-allow-https`
+   firewall rule).
 
 **Without Cloudflare**, obtain a certificate the way this nginx's other
 sites get theirs (certbot, …), so it renews with them.
 
 ## 4. Connect your nginx to Pakita
 
-In your nginx's `docker-compose.yml`, give `webserver` Pakita's `edge`
-network at the fixed address, and declare that network as external. A
-service's networks must be written as a map to give one an address:
+In your nginx's `docker-compose.yml`, give `webserver` the certificate
+folder from step 3 and Pakita's `edge` network at the fixed address, and
+declare that network as external. A service's networks must be written as a
+map to give one an address:
 
 ```yaml
 services:
   webserver:
     # …as before…
+    volumes:
+      # …as before…
+      - ./certs:/etc/nginx/certs:ro
     networks:
       cicd-network:
       taymna:
       pakita:
-        ipv4_address: 172.31.250.2   # PAKITA_PROXY_ADDRESS
+        ipv4_address: 172.31.250.2 # PAKITA_PROXY_ADDRESS
 
 networks:
   # …as before…
