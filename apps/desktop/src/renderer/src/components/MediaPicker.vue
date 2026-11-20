@@ -23,6 +23,8 @@ const shownItems = computed(() =>
   items.value.filter((item) => item.kind === props.kind),
 );
 const isUploadingImage = ref(false);
+// Background downloads wait for a presentation to end; the tiles say so.
+const isLive = ref(false);
 const errorMessage = ref<string | null>(null);
 const upload = ref<{
   picked: PickedVideo;
@@ -59,7 +61,9 @@ function stateOf(item: MediaItem): string {
     case 'failed':
       return file.message ?? 'Could not download';
     case 'waiting':
-      return 'Waiting to download';
+      return isLive.value
+        ? 'Downloads when the presentation stops'
+        : 'Waiting to download';
   }
 }
 
@@ -272,7 +276,11 @@ onMounted(async () => {
     window.pakita.sync.onStatus((status) => {
       if (status.state === 'idle') void load();
     }),
+    window.pakita.live.onState((state) => {
+      isLive.value = state.isLive;
+    }),
   );
+  isLive.value = (await window.pakita.live.getState()).isLive;
   await load();
 });
 onUnmounted(() => unsubscribers.forEach((unsubscribe) => unsubscribe()));

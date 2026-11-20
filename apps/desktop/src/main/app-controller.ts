@@ -1175,6 +1175,27 @@ export class AppController {
     });
     this.pickedImages.forget(token);
     await this.syncNow();
+    // The server stored a re-encoded copy, so even this laptop needs it from
+    // storage. Fetch it now, as the last step of the operator's own upload —
+    // a presentation in progress does not hold it back, as it holds back
+    // background downloads. If this fails, synchronisation tries again.
+    const folder = this.mediaFolder;
+    if (folder && isMediaType(media.contentType)) {
+      await folder
+        .download(
+          {
+            sha256: media.sha256,
+            sizeBytes: media.sizeBytes,
+            contentType: media.contentType,
+            name: media.name,
+          },
+          () => this.mediaDownloadUrl(session, media.id),
+          (input, init) => net.fetch(input, init),
+        )
+        .catch((error: unknown) => {
+          console.error('Fetching the uploaded image failed:', error);
+        });
+    }
     const listed = (await this.listMedia()).find(
       (item) => item.id === media.id,
     );
@@ -1250,19 +1271,25 @@ export class AppController {
       folder,
       listMedia: () => this.loadMedia(),
       listAllHashes: () => database.listMediaHashes(),
-      downloadUrl: async (mediaId) => {
-        const workspaceId = this.requireWorkspace();
-        const download = await session.request({
-          method: 'GET',
-          path: `/api/workspaces/${workspaceId}/media/${mediaId}/download`,
-          schema: mediaDownloadSchema,
-        });
-        return download.url;
-      },
+      downloadUrl: (mediaId) => this.mediaDownloadUrl(session, mediaId),
       fetchFunction: (input, init) => net.fetch(input, init),
       isLive: () => this.live.isLive,
       onChange: (states) => this.send(IpcEvent.mediaFiles, states),
     });
+  }
+
+  /** A fresh signed URL for one background's stored bytes. */
+  private async mediaDownloadUrl(
+    session: Session,
+    mediaId: string,
+  ): Promise<string> {
+    const workspaceId = this.requireWorkspace();
+    const download = await session.request({
+      method: 'GET',
+      path: `/api/workspaces/${workspaceId}/media/${mediaId}/download`,
+      schema: mediaDownloadSchema,
+    });
+    return download.url;
   }
 
   private stopMedia(): void {

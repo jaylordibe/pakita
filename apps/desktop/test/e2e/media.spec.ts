@@ -228,6 +228,10 @@ test('shows a still image as the background, uploaded through the API', async ()
     })) as typeof dialog.showOpenDialog;
   }, file);
 
+  // Presenting on this laptop: its own upload arrives anyway.
+  await operator.getByTestId('tab-songs').click();
+  await operator.getByTestId('library-song-Amazing Grace').click();
+  await operator.getByTestId('go-live').click();
   await operator.getByTestId('tab-themes').click();
   await operator.getByTestId('theme-new').click();
   await operator.getByTestId('theme-name').fill('Still');
@@ -237,17 +241,23 @@ test('shows a still image as the background, uploaded through the API', async ()
   const tile = operator.getByTestId('media-cross');
   await expect(tile).toContainText('On this laptop', { timeout: 30_000 });
   await expect(tile).toHaveAttribute('aria-pressed', 'true');
-  await expect(operator.locator('.preview .poster')).toBeVisible();
+  await expect(
+    operator.getByTestId('theme-preview').locator('.poster'),
+  ).toBeVisible();
   await operator.getByTestId('theme-save').click();
   await expect(operator.getByTestId('theme-Still')).toContainText('(default)');
+  await operator.getByTestId('live-stop').click();
 
-  // The other laptop presents with it. It is still presenting from the test
-  // above, and nothing downloads during a presentation: stop it first.
+  // The other laptop is still presenting from the test above: it waits, and
+  // says so, then downloads once the presentation stops.
   const presenter = await second!.firstWindow();
-  await presenter.getByTestId('live-stop').click();
   await presenter.getByTestId('sync-now').click();
   await presenter.getByTestId('tab-themes').click();
   await presenter.getByTestId('theme-Still').click();
+  await expect(presenter.getByTestId('media-cross')).toContainText(
+    'Downloads when the presentation stops',
+  );
+  await presenter.getByTestId('live-stop').click();
   await expect(presenter.getByTestId('media-cross')).toContainText(
     'On this laptop',
     { timeout: 30_000 },
