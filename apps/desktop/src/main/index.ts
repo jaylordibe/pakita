@@ -606,6 +606,9 @@ async function start(): Promise<void> {
   handle(IpcChannel.liveToggleBlackout, noPayload, () =>
     controller.toggleBlackout(),
   );
+  handle(IpcChannel.liveSetTheme, uuid, (themeId) =>
+    controller.setLiveTheme(themeId),
+  );
   handle(IpcChannel.liveStop, noPayload, () => controller.stopLive());
   handle(
     IpcChannel.liveGetState,

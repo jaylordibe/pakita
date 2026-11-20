@@ -92,6 +92,7 @@ export const IpcChannel = {
   livePrevious: 'live:previous',
   liveGoTo: 'live:go-to',
   liveToggleBlackout: 'live:toggle-blackout',
+  liveSetTheme: 'live:set-theme',
   liveStop: 'live:stop',
   liveGetState: 'live:get-state',
 } as const;
@@ -531,8 +532,13 @@ export interface LiveState {
   readonly slides: readonly Slide[];
   readonly index: number;
   readonly isBlackout: boolean;
-  /** How the slides are drawn: fixed when the presentation starts. */
+  /**
+   * How the slides are drawn: fixed when the presentation starts, and
+   * changed only by the operator choosing another theme while live.
+   */
   readonly look: ThemeLook;
+  /** The theme `look` came from; null for the built-in white on black. */
+  readonly themeId: string | null;
   /**
    * `showing`: on the chosen display. `display-missing`: that display was
    * disconnected; output resumes when it returns. `windowed`: no second
@@ -738,6 +744,11 @@ export interface PakitaApi {
     previous(): Promise<LiveState>;
     goTo(index: number): Promise<LiveState>;
     toggleBlackout(): Promise<LiveState>;
+    /**
+     * Draws what is live with another of the laptop's themes, from the same
+     * slide, until the presentation stops. Saved nowhere.
+     */
+    setTheme(themeId: string): Promise<LiveState>;
     stop(): Promise<LiveState>;
     getState(): Promise<LiveState>;
     onState(listener: (state: LiveState) => void): () => void;

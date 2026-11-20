@@ -14,7 +14,7 @@ const slides = [
 describe('LiveSession', () => {
   it('starts on the first slide, not blacked out', () => {
     const session = new LiveSession();
-    session.start('Song', slides, look);
+    session.start('Song', slides, look, 'theme-1');
     expect(session.snapshot('showing')).toMatchObject({
       isLive: true,
       title: 'Song',
@@ -27,7 +27,7 @@ describe('LiveSession', () => {
 
   it('clamps navigation at both ends', () => {
     const session = new LiveSession();
-    session.start('Song', slides, look);
+    session.start('Song', slides, look, 'theme-1');
     session.previous();
     expect(session.snapshot('showing').index).toBe(0);
     session.next();
@@ -43,7 +43,7 @@ describe('LiveSession', () => {
   it('keeps its own copy of the deck', () => {
     const session = new LiveSession();
     const mutableSlides = slides.map((slide) => ({ ...slide }));
-    session.start('Song', mutableSlides, look);
+    session.start('Song', mutableSlides, look, 'theme-1');
     mutableSlides[0]!.text = 'Changed after start';
     mutableSlides.push({ sectionLabel: 'X', text: 'Added' });
 
@@ -58,7 +58,7 @@ describe('LiveSession', () => {
     session.toggleBlackout();
     expect(session.snapshot('off').isBlackout).toBe(false);
 
-    session.start('Song', slides, look);
+    session.start('Song', slides, look, 'theme-1');
     session.toggleBlackout();
     expect(session.snapshot('showing').isBlackout).toBe(true);
     session.stop();
@@ -69,7 +69,33 @@ describe('LiveSession', () => {
       index: 0,
       isBlackout: false,
       look: DEFAULT_THEME_LOOK,
+      themeId: null,
       projector: 'off',
+    });
+  });
+
+  it('changes the theme on the same slide, only while live, until stop', () => {
+    const session = new LiveSession();
+    const evening = { ...DEFAULT_THEME_LOOK, background: 'dusk' as const };
+    session.changeLook(evening, 'theme-2');
+    expect(session.snapshot('off').themeId).toBeNull();
+
+    session.start('Song', slides, look, 'theme-1');
+    session.goTo(2);
+    session.toggleBlackout();
+    session.changeLook(evening, 'theme-2');
+    expect(session.snapshot('showing')).toMatchObject({
+      index: 2,
+      isBlackout: true,
+      look: evening,
+      themeId: 'theme-2',
+    });
+
+    session.stop();
+    session.start('Song', slides, look, 'theme-1');
+    expect(session.snapshot('showing')).toMatchObject({
+      look,
+      themeId: 'theme-1',
     });
   });
 });

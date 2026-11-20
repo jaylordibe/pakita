@@ -214,6 +214,59 @@ test('presents the playlist with the default theme', async () => {
   await operator.getByTestId('live-stop').click();
 });
 
+test('switches the theme while live, on the same slide, until Stop', async () => {
+  await api.request('POST', `/api/workspaces/${api.workspace.id}/themes`, {
+    name: 'Plain',
+    background: 'solid',
+    backgroundColor: '#102030',
+    textColor: '#ffffff',
+    font: 'sans',
+    textScale: 100,
+    textAlign: 'center',
+    isDefault: false,
+  });
+  await operator.getByTestId('sync-now').click();
+  await expect(operator.getByTestId('sync-status')).toContainText(
+    'Synchronised',
+  );
+
+  await operator.getByTestId('playlist-present').click();
+  const projector = await findProjector(application);
+  await expect(projector.locator('#slide')).toHaveText('Amazing grace');
+  const themeSelect = operator.getByTestId('live-theme-select');
+  // The playlist's theme (the church default) is the one on screen.
+  await expect(themeSelect.locator('option:checked')).toHaveText('Evening');
+
+  await themeSelect.selectOption({ label: 'Plain' });
+  await expect(projector.locator('#stage')).toHaveCSS(
+    'background-color',
+    'rgb(16, 32, 48)',
+  );
+  await expect(projector.locator('#stage')).toHaveCSS('font-family', /Inter/);
+  // The same slide: switching a theme never moves the presentation.
+  await expect(projector.locator('#slide')).toHaveText('Amazing grace');
+  // The presenter keys work the presentation, never the theme.
+  await operator.keyboard.press('b');
+  await expect(projector.locator('#stage')).toHaveClass(/is-dark/);
+  await operator.keyboard.press('b');
+  await expect(projector.locator('#stage')).not.toHaveClass(/is-dark/);
+  await expect(themeSelect.locator('option:checked')).toHaveText('Plain');
+
+  // Until Stop: presenting again uses the playlist's own theme.
+  await operator.getByTestId('live-stop').click();
+  await operator.getByTestId('playlist-present').click();
+  // Stop closed the projector window; going live opens a new one.
+  const reopened = await findProjector(application);
+  await expect(reopened.locator('#stage')).toHaveCSS(
+    'background-image',
+    /linear-gradient/,
+  );
+  await expect(
+    operator.getByTestId('live-theme-select').locator('option:checked'),
+  ).toHaveText('Evening');
+  await operator.getByTestId('live-stop').click();
+});
+
 /** The labels of a saved song's default order, as the server holds it. */
 async function savedOrder(title: string): Promise<Array<string | undefined>> {
   const songs = await api.request<{

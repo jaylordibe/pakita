@@ -1339,7 +1339,8 @@ export class AppController {
     if (slides.length === 0) {
       throw new Error('That version of the song has no slides.');
     }
-    this.live.start(song.title, slides, await this.resolveLook(null));
+    const theme = await this.resolveTheme(null);
+    this.live.start(song.title, slides, theme.look, theme.themeId);
     // Straight to the chosen slide: the first is never shown on the way.
     this.live.goTo(slideIndex);
     this.projector.open();
@@ -1368,10 +1369,12 @@ export class AppController {
     if (!loaded) {
       throw new Error('That passage is not on this laptop.');
     }
+    const theme = await this.resolveTheme(null);
     this.live.start(
       `${loaded.reference} (${loaded.translationCode})`,
       loaded.slides,
-      await this.resolveLook(null),
+      theme.look,
+      theme.themeId,
     );
     if (isSingleVerse) {
       this.live.goTo(
@@ -1408,11 +1411,8 @@ export class AppController {
         entries[entryIndex]?.note ?? 'That entry cannot be presented.',
       );
     }
-    this.live.start(
-      playlist.name,
-      deck.slides,
-      await this.resolveLook(playlist.themeId),
-    );
+    const theme = await this.resolveTheme(playlist.themeId);
+    this.live.start(playlist.name, deck.slides, theme.look, theme.themeId);
     this.live.goTo(start);
     this.projector.open();
     return this.broadcastLiveState();
@@ -1435,6 +1435,34 @@ export class AppController {
 
   toggleBlackout(): LiveState {
     this.live.toggleBlackout();
+    return this.broadcastLiveState();
+  }
+
+  /**
+   * Draws what is live with another theme the operator chose, from the
+   * laptop's copy (never the network), at the same slide. It lasts until the
+   * presentation stops, and is saved nowhere.
+   */
+  async setLiveTheme(themeId: string): Promise<LiveState> {
+    if (!this.live.isLive) {
+      throw new Error('Nothing is being presented.');
+    }
+    const { workspaceId } = this.settings.get();
+    const parsed = themeSchema.safeParse(
+      this.database && workspaceId
+        ? await this.database.getTheme(workspaceId, themeId)
+        : null,
+    );
+    if (!parsed.success) {
+      throw new Error('That theme is no longer on this laptop.');
+    }
+    this.live.changeLook(
+      lookOf(
+        parsed.data,
+        await this.localVideoUrlOf(parsed.data.backgroundMediaId),
+      ),
+      parsed.data.id,
+    );
     return this.broadcastLiveState();
   }
 
@@ -1602,23 +1630,33 @@ export class AppController {
     return parsed.success ? parsed.data : null;
   }
 
-  /** A theme by id, else the workspace default, else white on black. */
-  private async resolveLook(themeId: string | null): Promise<ThemeLook> {
+  /**
+   * A theme by id, else the workspace default, else white on black: the look
+   * to draw with, and the theme it came from (null for the built-in one).
+   */
+  private async resolveTheme(
+    themeId: string | null,
+  ): Promise<{ look: ThemeLook; themeId: string | null }> {
     const { workspaceId } = this.settings.get();
-    if (!this.database || !workspaceId) return DEFAULT_THEME_LOOK;
+    if (!this.database || !workspaceId) {
+      return { look: DEFAULT_THEME_LOOK, themeId: null };
+    }
     for (const stored of [
       themeId ? await this.database.getTheme(workspaceId, themeId) : null,
       await this.database.getDefaultTheme(workspaceId),
     ]) {
       const parsed = themeSchema.safeParse(stored);
       if (parsed.success) {
-        return lookOf(
-          parsed.data,
-          await this.localVideoUrlOf(parsed.data.backgroundMediaId),
-        );
+        return {
+          look: lookOf(
+            parsed.data,
+            await this.localVideoUrlOf(parsed.data.backgroundMediaId),
+          ),
+          themeId: parsed.data.id,
+        };
       }
     }
-    return DEFAULT_THEME_LOOK;
+    return { look: DEFAULT_THEME_LOOK, themeId: null };
   }
 
   /**

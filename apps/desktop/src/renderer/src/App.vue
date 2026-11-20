@@ -43,6 +43,7 @@ const liveState = ref<LiveState>({
   index: 0,
   isBlackout: false,
   look: DEFAULT_THEME_LOOK,
+  themeId: null,
   projector: 'off',
 });
 

@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
-import type { DisplayInfo, LiveState } from '../../../shared/ipc-contract';
+import type {
+  DisplayInfo,
+  LiveState,
+  ThemeSummary,
+} from '../../../shared/ipc-contract';
 import { messageOf } from '../errors';
 import AppIcon from './AppIcon.vue';
 import ThemePreview from './ThemePreview.vue';
@@ -10,6 +14,7 @@ const props = defineProps<{ state: LiveState }>();
 const live = window.pakita.live;
 
 const displays = ref<DisplayInfo[]>([]);
+const themes = ref<ThemeSummary[]>([]);
 const errorMessage = ref<string | null>(null);
 
 const PROJECTOR_NOTES: Record<LiveState['projector'], string> = {
@@ -33,6 +38,18 @@ async function chooseDisplay(event: Event): Promise<void> {
     await window.pakita.displays.choose(value);
     await refreshDisplays();
   }
+}
+
+async function refreshThemes(): Promise<void> {
+  themes.value = await window.pakita.themes.list();
+}
+
+// Another theme for what is live, from the same slide, until Stop.
+async function chooseTheme(event: Event): Promise<void> {
+  const select = event.target as HTMLSelectElement;
+  // Let go of focus, so the presenter keys never change the theme.
+  select.blur();
+  if (select.value) await run(() => live.setTheme(select.value));
 }
 
 async function run(action: () => Promise<unknown>): Promise<void> {
@@ -88,6 +105,15 @@ watch(
   },
 );
 
+// The laptop's themes, read afresh each time a presentation starts.
+watch(
+  () => props.state.isLive,
+  (isLive) => {
+    if (isLive) void refreshThemes();
+  },
+  { immediate: true },
+);
+
 let unsubscribe: (() => void) | null = null;
 onMounted(() => {
   void refreshDisplays();
@@ -140,6 +166,23 @@ onUnmounted(() => {
           {{ PROJECTOR_NOTES[state.projector] }}
         </span>
         <span class="grow"></span>
+        <label v-if="state.isLive && themes.length > 0" class="display">
+          <AppIcon name="themes" />
+          <span class="visually-hidden">Theme</span>
+          <select data-testid="live-theme-select" @change="chooseTheme">
+            <option v-if="state.themeId === null" value="" selected disabled>
+              Built-in (white on black)
+            </option>
+            <option
+              v-for="theme in themes"
+              :key="theme.id"
+              :value="theme.id"
+              :selected="theme.id === state.themeId"
+            >
+              {{ theme.name }}
+            </option>
+          </select>
+        </label>
         <label class="display">
           <AppIcon name="monitor" />
           <span class="visually-hidden">Projector</span>

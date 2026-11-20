@@ -172,6 +172,7 @@ const pakita: PakitaApi = {
     previous: () => invoke(IpcChannel.livePrevious),
     goTo: (index) => invoke(IpcChannel.liveGoTo, index),
     toggleBlackout: () => invoke(IpcChannel.liveToggleBlackout),
+    setTheme: (themeId) => invoke(IpcChannel.liveSetTheme, themeId),
     stop: () => invoke(IpcChannel.liveStop),
     getState: () => invoke(IpcChannel.liveGetState),
     onState: (listener) => subscribe(IpcEvent.liveState, listener),

@@ -135,7 +135,9 @@ test/fixtures/ shared test data (a tiny USFM translation)
   (`LiveSession`), and held in main-process memory; synchronisation writes
   only the database, so it can never change what is on screen. The operator
   sees new content by starting the song again. The theme is resolved at the
-  same moment and held with the slides. A playlist is presented as one deck
+  same moment and held with the slides; the only change while live is the
+  operator's own (a theme chosen in the live bar, read from the laptop's
+  copy, kept until Stop and saved nowhere). A playlist is presented as one deck
   of every entry the laptop holds (`playlist-deck.ts`), and each entry shows
   whether it is ready before the service.
 - **A theme never loads anything remote.** Its fonts are bundled
