@@ -19,6 +19,7 @@ import type {
 // switched on per spec to exercise the retry paths.
 export class RecordingStorageAdapter implements FileStorageAdapter {
   readonly providerName = 'recording';
+  readonly isPersistent = true;
   readonly objects = new Map<string, ObjectContent>();
   readonly deleteAttempts: string[] = [];
   // Direct uploads signed so far, by key: what a client was allowed to write.

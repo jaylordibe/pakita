@@ -70,6 +70,11 @@ export interface FileStorageAdapter {
   // this interface instead.
   readonly providerName: string;
 
+  // Whether what is written is kept. False only for the stub, which stores
+  // nothing: a direct upload to it could never complete, so a route that
+  // offers one refuses up front instead.
+  readonly isPersistent: boolean;
+
   // Writes `content` under `storageKey`. The key comes from
   // `FileStorageService.createKey` — server-minted, never request input — and
   // the caller records it in the database BEFORE calling this, so no object can

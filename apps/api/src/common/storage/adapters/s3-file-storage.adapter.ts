@@ -49,6 +49,7 @@ const SIGNED_UPLOAD_HEADERS = new Set([
 @Injectable()
 export class S3FileStorageAdapter implements FileStorageAdapter {
   readonly providerName = 's3';
+  readonly isPersistent = true;
 
   private readonly client: S3Client;
   // Signs URLs for the address clients reach storage at

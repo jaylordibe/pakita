@@ -65,6 +65,11 @@ export class MediaService {
     dto: CreateMediaUploadDto,
     actorId: string,
   ): Promise<DirectUpload> {
+    if (!this.storage.isPersistent) {
+      throw Errors.externalServiceUnavailable(
+        'This server keeps no uploaded files, so it cannot take videos. Its administrator must configure object storage (STORAGE_PROVIDER).',
+      );
+    }
     const usedBytes = await this.usedBytes(this.prisma, workspaceId);
     if (usedBytes + dto.sizeBytes > this.workspaceQuotaBytes) {
       throw Errors.mediaQuotaExceeded(this.workspaceQuotaBytes, usedBytes);

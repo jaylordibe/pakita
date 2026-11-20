@@ -450,4 +450,27 @@ describe('Media (e2e)', () => {
       await uploadVideo(mp4(3000));
     });
   });
+
+  describe('without object storage', () => {
+    it('refuses a video upload on a server whose storage keeps nothing', async () => {
+      const stubbed: INestApplication<App> = await createTestApp();
+      try {
+        const refused = await request(stubbed.getHttpServer())
+          .post(`/api/workspaces/${workspace.id}/media/uploads`)
+          .set('Authorization', `Bearer ${owner.token}`)
+          .send({
+            fileName: 'loop.mp4',
+            sizeBytes: 1000,
+            contentType: 'video/mp4',
+            sha256: sha256Of(mp4()),
+          })
+          .expect(503);
+        expect((refused.body as ErrorBody).errorCode).toBe(
+          'EXTERNAL_SERVICE_UNAVAILABLE',
+        );
+      } finally {
+        await stubbed.close();
+      }
+    });
+  });
 });

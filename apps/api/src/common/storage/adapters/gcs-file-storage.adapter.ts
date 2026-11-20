@@ -30,6 +30,7 @@ import {
 @Injectable()
 export class GcsFileStorageAdapter implements FileStorageAdapter {
   readonly providerName = 'gcs';
+  readonly isPersistent = true;
 
   private readonly storage: Storage;
   private readonly bucketName: string;

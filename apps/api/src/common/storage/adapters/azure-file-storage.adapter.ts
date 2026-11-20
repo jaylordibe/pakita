@@ -49,6 +49,7 @@ interface CachedDelegationKey {
 @Injectable()
 export class AzureFileStorageAdapter implements FileStorageAdapter {
   readonly providerName = 'azure';
+  readonly isPersistent = true;
 
   private readonly blobServiceClient: BlobServiceClient;
   private cachedDelegationKey: CachedDelegationKey | null = null;

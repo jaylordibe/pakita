@@ -64,6 +64,11 @@ export class FileStorageService {
     return this.adapter.providerName;
   }
 
+  /** False when the backend keeps nothing (the stub). */
+  get isPersistent(): boolean {
+    return this.adapter.isPersistent;
+  }
+
   createKey(subdirectory: string, fileExtension: string): string {
     return buildObjectName(subdirectory, fileExtension);
   }

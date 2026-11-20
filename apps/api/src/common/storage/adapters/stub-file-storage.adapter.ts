@@ -18,6 +18,7 @@ import {
 @Injectable()
 export class StubFileStorageAdapter implements FileStorageAdapter {
   readonly providerName = 'stub';
+  readonly isPersistent = false;
 
   private static readonly URL_PREFIX = 'stub://';
   private readonly logger = new Logger(StubFileStorageAdapter.name);
