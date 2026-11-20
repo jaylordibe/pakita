@@ -13,8 +13,8 @@ name: Publish image
 # server pulls the images (deploy/update.sh). apps/api/docs/deployment/README.md
 # is the contract a deployment follows.
 #
-# Publishing is OPT-IN through the repository variable PUBLISH_ENABLED=true, so a
-# fresh clone runs the gates and skips the push.
+# A manual run (workflow_dispatch) re-publishes an existing version tag, e.g.
+# after a failed run; the guard refuses any other ref.
 #
 # Order matters: each image is pushed under its immutable `sha-<commit>` tag, and
 # the runtime is scanned by digest before either is attested or given the moving
@@ -96,7 +96,6 @@ jobs:
   publish:
     name: Build, scan and publish
     needs: [guard, test, desktop, security]
-    if: ${{ vars.PUBLISH_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

@@ -19,6 +19,31 @@ What changes, and why:
   what its per-address sign-in limits rely on. Trusting a network the other
   services share would let any of them forge visitor addresses.
 
+## Releasing a version
+
+Nothing is built on this machine: it downloads the images GitHub builds for
+a release, so a release never slows the other services here, every server
+runs a version someone chose, and going back is `./update.sh <old version>`.
+
+To release, on your own computer:
+
+1. Set the new version (e.g. `0.2.0`) in `package.json`,
+   `apps/api/package.json` and `apps/desktop/package.json`, and commit it on
+   `main`.
+2. Tag that commit and push the tag:
+
+   ```sh
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+   `.github/workflows/publish-image.yml` tests it, then publishes
+   `ghcr.io/jaylordibe/pakita:0.2.0` and `ghcr.io/jaylordibe/pakita-migrate:0.2.0`.
+   It refuses a tag that is not on `main` or does not match the versions.
+3. After the very first release, open both packages on GitHub (your profile
+   → Packages) and check they are **public**. A server pulls without logging
+   in, so a private package fails at `docker compose pull`.
+
 ## 1. Before you start
 
 - A domain for Pakita (e.g. `pakita.yourchurch.org`) whose DNS points at
@@ -38,9 +63,10 @@ What changes, and why:
 ## 2. Install Pakita without its Caddy
 
 Pakita lives in `/srv/pakita`, apart from the other services' folders,
-owned by the user that runs Docker. Clone the release you will run (the tag
-matching `PAKITA_VERSION`, e.g. `v0.1.0`), so these scripts always match
-the server they manage:
+owned by the user that runs Docker. The clone only provides these scripts and
+settings; the server itself comes from the release's images. Clone the
+release you will run (the tag matching `PAKITA_VERSION`, e.g. `v0.1.0`), so
+the scripts always match the server they manage:
 
 ```sh
 sudo mkdir -p /srv/pakita
@@ -51,8 +77,10 @@ cp shared-proxy/compose.override.yaml compose.override.yaml
 cp .env.example .env    # install.sh also does this on its first run
 ```
 
-Every command below runs in `/srv/pakita/deploy`. To update later, check
-out the new tag there first, then run `./update.sh <version>`:
+Every command below runs in `/srv/pakita/deploy`. To update to a release
+later, check out its tag there first, then run `./update.sh <version>`: it
+takes a backup, downloads the new images, migrates the database and waits
+until the API is healthy.
 
 ```sh
 git -C /srv/pakita fetch --depth 1 origin tag v0.2.0

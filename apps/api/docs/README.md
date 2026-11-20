@@ -23,10 +23,9 @@ Three commands deploy it anywhere:
 
 ## This repository publishes; your platform deploys
 
-The template's `.github/workflows/publish-image.yml` (not yet part of Pakita; it returns with Pakita's release tooling) builds, scans and publishes the runtime and
-`migrate` images to GHCR on every push to `main` or `staging`, with a
-build-provenance attestation, once the repository variable `PUBLISH_ENABLED=true`
-is set. It holds no server credential and deploys nothing: a single server, a
+The workspace's `.github/workflows/publish-image.yml` builds, scans and
+publishes the runtime and `migrate` images to GHCR when a version tag
+(`v1.2.3`) is pushed, with a build-provenance attestation. It holds no server credential and deploys nothing: a single server, a
 container service or an autoscaled cluster pulls the same images, and
 [`deployment/`](./deployment/README.md) is the contract each must satisfy.
 

@@ -711,8 +711,8 @@ This repository **publishes**; it never deploys. The template's `.github/workflo
 runs the tests and the security scan, then pushes both images (runtime and
 `migrate`) to GHCR under `sha-<commit>`, scans the runtime's digest (the migrate
 image's scan reports without blocking), attests the build provenance of both, and
-only then moves the `main` / `staging` tag (migrate first). Enable it with the
-repository variable `PUBLISH_ENABLED=true`. Attestations need a public repository,
+only then moves the version tag (migrate first). It runs when a version tag
+(`v1.2.3`) is pushed. Attestations need a public repository,
 or a plan that supports them on private ones (`ATTEST_PROVENANCE=true`).
 
 The `publish` job outputs both pushed digests, as `image` and `migrate-image`
