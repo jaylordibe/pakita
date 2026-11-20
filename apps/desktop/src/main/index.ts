@@ -41,10 +41,19 @@ const developmentServerUrl = app.isPackaged
   : process.env.ELECTRON_RENDERER_URL || undefined;
 const trustedOrigins = createTrustedOrigins(developmentServerUrl);
 
-// The end-to-end tests run against a throwaway profile. Honoured only in an
-// unpackaged build, so it can never redirect a church's real data.
-if (!app.isPackaged && process.env.PAKITA_TEST_USER_DATA_DIRECTORY) {
-  app.setPath('userData', process.env.PAKITA_TEST_USER_DATA_DIRECTORY);
+// An unpackaged run (`pnpm dev`, the end-to-end tests) never shares an
+// installed Pakita's data on the same computer: its own name, so its own
+// keychain item, and its own folder, so a developer's sign-in and database
+// never reach the installed app, nor the other way round. The end-to-end
+// tests run against a throwaway folder instead. Both only unpackaged, so
+// neither can ever redirect a church's real data.
+if (!app.isPackaged) {
+  app.setName(`${app.getName()} (development)`);
+  app.setPath(
+    'userData',
+    process.env.PAKITA_TEST_USER_DATA_DIRECTORY ||
+      join(app.getPath('appData'), app.getName()),
+  );
 }
 
 if (!app.requestSingleInstanceLock()) {

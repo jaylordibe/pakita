@@ -197,5 +197,8 @@ test/fixtures/ shared test data (a tiny USFM translation)
   Electron alike (so packaging rebuilds nothing: `npmRebuild: false`), and
   database code is unit-tested in vitest against a real in-memory SQLite.
   Code that needs Electron itself is tested in `test/e2e`.
-- `PAKITA_TEST_USER_DATA_DIRECTORY` points an unpackaged build at a throwaway
-  profile. A packaged build ignores it.
+- An unpackaged run (`pnpm dev`, the app tests) is named "Pakita
+  (development)", with its own keychain item and data folder, so it never
+  shares an installed Pakita's sign-in or database.
+  `PAKITA_TEST_USER_DATA_DIRECTORY` points it at a throwaway profile instead.
+  A packaged build ignores both.
