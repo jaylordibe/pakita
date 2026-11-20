@@ -97,6 +97,7 @@ describe('Sync changes (e2e)', () => {
       hasMore: false,
       songs: [],
       themes: [],
+      media: [],
       playlists: [],
     });
     expect(second.epoch).toBe(first.epoch);
@@ -199,7 +200,7 @@ describe('Public desktop endpoints (e2e)', () => {
     expect(response.body).toEqual({
       product: 'pakita',
       serverVersion: expect.stringMatching(/^\d+\.\d+\.\d+/),
-      apiLevel: 8,
+      apiLevel: 9,
       minimumDesktopVersion: expect.any(String),
     });
   });

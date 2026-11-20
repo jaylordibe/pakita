@@ -1,6 +1,17 @@
 # Caddy obtains and renews the HTTPS certificate for PAKITA_DOMAIN itself
 # (the domain's DNS must point at this machine, with ports 80 and 443 open).
 {$PAKITA_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy api:3000
+	# Object storage, for URLs the API signed: laptops upload and download
+	# background videos straight to the `pakita` bucket. The path is kept
+	# whole and the Host header passed on, so the signature still matches.
+	# Nothing else of the storage server is reachable, and the bucket answers
+	# no unsigned request. Not compressed, so byte ranges stay byte ranges.
+	handle /pakita/* {
+		reverse_proxy storage:9000
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy api:3000
+	}
 }

@@ -30,6 +30,7 @@ const SOFT_DELETE_MODELS: ReadonlySet<string> = new Set([
   'Workspace',
   'Song',
   'Theme',
+  'Media',
   'Playlist',
 ]);
 

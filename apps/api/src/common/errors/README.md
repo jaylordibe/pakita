@@ -124,6 +124,14 @@ Raised before any handler runs, by Express's body parser (mapped by `fromBodyPar
 | `FILE_NOT_RELEASABLE`  | 409    | `DELETE /files/:id`: the id names the caller's own file, but it is attached to something (or still being processed), so it cannot be released; remove it from the resource that shows it instead. Someone else's file, or one already removed, is `RESOURCE_NOT_FOUND`.                                                                                                 | `null`              |
 | `FILE_CONTENT_INVALID` | 422    | `POST /files`: the content is an accepted type but does not decode, or exceeds the purpose's dimension or pixel limit.                                                                                                                                                                                                                                                  | `null`              |
 | `FILE_QUOTA_EXCEEDED`  | 429    | `POST /files`: the caller already holds the maximum number of uploaded files that are not attached to anything. Attach or release one (`DELETE /files/:id`), or wait for unused uploads to expire (`FILE_UPLOAD_TTL_SECONDS`); a released upload can still count for up to an hour after it was uploaded (`docs/file-uploads.md`). An immediate retry does not help.    | `{ limit: number }` |
+| `FILE_NOT_UPLOADED`    | 409    | A direct upload was completed before storage held its bytes, or storage holds a different size. Send the file to the upload URL (a fresh one if it expired), then complete again.                                                                                                                                                                                      | `null`              |
+
+### Media (HTTP 409)
+
+| Code                   | Status | Trigger                                                                                                                                       | `details` shape                              |
+| ---------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `MEDIA_IN_USE`         | 409    | `DELETE …/media/:id`: the video is the background of one or more themes. Give them another background first.                                  | `{ themeIds: string[] }`                     |
+| `MEDIA_QUOTA_EXCEEDED` | 409    | Starting or attaching a video upload would take the workspace's videos past `MEDIA_WORKSPACE_QUOTA_BYTES`. Delete videos no longer used first. | `{ limitBytes: number, usedBytes: number }` |
 
 `POST /users/me/gdpr-erase` never raises `LAST_OWNER_PROTECTED`. Erasure answers
 a legal obligation and cannot be refused for a commercial relationship, so it

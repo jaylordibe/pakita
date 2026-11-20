@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import {
@@ -161,6 +162,72 @@ describe('S3 storage adapter against a real backend (e2e)', () => {
     const response = await fetch(unsignedUrl);
 
     expect(response.status).toBeGreaterThanOrEqual(400);
+  });
+
+  describe('direct uploads', () => {
+    const body = Buffer.from('a background video, in spirit', 'utf8');
+    const sha256Base64 = createHash('sha256').update(body).digest('base64');
+    const VIDEO_DISPOSITION = `attachment; filename="loop.mp4"`;
+
+    async function signUpload(sizeBytes = body.length) {
+      const storageKey = storage.createKey('files/test-videos', '.mp4');
+      const upload = await storage.createSignedUploadUrl(storageKey, {
+        sizeBytes,
+        contentType: 'video/mp4',
+        sha256Base64,
+        contentDisposition: VIDEO_DISPOSITION,
+        cacheControl: PRIVATE_OBJECT_CACHE_CONTROL,
+      });
+      return { storageKey, upload };
+    }
+    const put = (
+      upload: { url: string; headers: Record<string, string> },
+      payload: Buffer,
+    ) =>
+      fetch(upload.url, {
+        method: 'PUT',
+        headers: upload.headers,
+        body: new Uint8Array(payload),
+      });
+
+    it('stores exactly the signed bytes, with the signed headers', async () => {
+      const { storageKey, upload } = await signUpload();
+      expect((await put(upload, body)).status).toBe(200);
+
+      expect(await storage.head(storageKey)).toEqual({
+        sizeBytes: body.length,
+      });
+      expect((await storage.readStart(storageKey, 7)).toString()).toBe(
+        'a backg',
+      );
+      const head = await inspectionClient.send(
+        new HeadObjectCommand({ Bucket: BUCKET, Key: storageKey }),
+      );
+      expect(head.ContentType).toBe('video/mp4');
+      expect(head.ContentDisposition).toBe(VIDEO_DISPOSITION);
+      expect(head.CacheControl).toBe(PRIVATE_OBJECT_CACHE_CONTROL);
+    });
+
+    it('refuses other bytes, or another size, and stores nothing', async () => {
+      const other = Buffer.from('a background video, in spirit!', 'utf8');
+      const wrongBytes = await signUpload();
+      expect(
+        (await put(wrongBytes.upload, Buffer.from(body).fill(65))).status,
+      ).toBeGreaterThanOrEqual(400);
+      expect(await storage.head(wrongBytes.storageKey)).toBeNull();
+
+      const wrongSize = await signUpload();
+      expect(
+        (await put(wrongSize.upload, other)).status,
+      ).toBeGreaterThanOrEqual(400);
+      expect(await storage.head(wrongSize.storageKey)).toBeNull();
+    });
+
+    it('answers null for a key that holds nothing', async () => {
+      expect(
+        await storage.head(storage.createKey('files/test-videos', '.mp4')),
+      ).toBeNull();
+    });
   });
 
   it('deletes an object it stored', async () => {

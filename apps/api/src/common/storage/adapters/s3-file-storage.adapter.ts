@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
+  NotFound,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -11,7 +13,21 @@ import { NodeHttpHandler } from '@smithy/node-http-handler';
 import {
   FileStorageAdapter,
   ObjectContent,
+  SignedUpload,
+  SignedUploadRequest,
+  StoredObject,
 } from './file-storage-adapter.interface';
+
+// Headers a direct upload must carry exactly as signed. Kept out of the query
+// string, so S3 checks them against the request: a different size, type or
+// body (`x-amz-checksum-sha256`) is refused and nothing is stored.
+const SIGNED_UPLOAD_HEADERS = new Set([
+  'content-length',
+  'content-type',
+  'content-disposition',
+  'cache-control',
+  'x-amz-checksum-sha256',
+]);
 
 // S3 and every S3-compatible backend: AWS S3, Cloudflare R2, DigitalOcean
 // Spaces, Backblaze B2, MinIO, Ceph. Selected with STORAGE_PROVIDER=s3.
@@ -35,6 +51,9 @@ export class S3FileStorageAdapter implements FileStorageAdapter {
   readonly providerName = 's3';
 
   private readonly client: S3Client;
+  // Signs URLs for the address clients reach storage at
+  // (`STORAGE_S3_PUBLIC_ENDPOINT`); the same client when there is none.
+  private readonly signingClient: S3Client;
   private readonly bucket: string;
 
   constructor(configService: ConfigService) {
@@ -45,7 +64,7 @@ export class S3FileStorageAdapter implements FileStorageAdapter {
     const requestTimeoutMs = configService.getOrThrow<number>(
       'storage.requestTimeoutMs',
     );
-    this.client = new S3Client({
+    const clientOptions = {
       // Without an explicit handler the SDK applies NO request or connection
       // timeout, so a slow bucket holds the caller — and its database
       // connection — indefinitely.
@@ -60,7 +79,14 @@ export class S3FileStorageAdapter implements FileStorageAdapter {
       ...(endpoint ? { endpoint } : {}),
       forcePathStyle:
         configService.get<boolean>('storage.s3.isPathStyleForced') ?? false,
-    });
+    };
+    this.client = new S3Client(clientOptions);
+    const publicEndpoint = configService.get<string>(
+      'storage.s3.publicEndpoint',
+    );
+    this.signingClient = publicEndpoint
+      ? new S3Client({ ...clientOptions, endpoint: publicEndpoint })
+      : this.client;
   }
 
   async put(storageKey: string, content: ObjectContent): Promise<void> {
@@ -92,9 +118,66 @@ export class S3FileStorageAdapter implements FileStorageAdapter {
     // network call, and no permission beyond the `s3:GetObject` the signer
     // already holds.
     return getSignedUrl(
-      this.client,
+      this.signingClient,
       new GetObjectCommand({ Bucket: this.bucket, Key: storageKey }),
       { expiresIn: ttlSeconds },
     );
+  }
+
+  async createSignedUploadUrl(
+    storageKey: string,
+    request: SignedUploadRequest,
+    ttlSeconds: number,
+  ): Promise<SignedUpload> {
+    const url = await getSignedUrl(
+      this.signingClient,
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: storageKey,
+        ContentLength: request.sizeBytes,
+        ContentType: request.contentType,
+        ContentDisposition: request.contentDisposition,
+        CacheControl: request.cacheControl,
+        ChecksumSHA256: request.sha256Base64,
+      }),
+      {
+        expiresIn: ttlSeconds,
+        signableHeaders: SIGNED_UPLOAD_HEADERS,
+        unhoistableHeaders: SIGNED_UPLOAD_HEADERS,
+      },
+    );
+    return {
+      url,
+      headers: {
+        'content-type': request.contentType,
+        'content-disposition': request.contentDisposition,
+        'cache-control': request.cacheControl,
+        'x-amz-checksum-sha256': request.sha256Base64,
+      },
+    };
+  }
+
+  async head(storageKey: string): Promise<StoredObject | null> {
+    try {
+      const stored = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: storageKey }),
+      );
+      return { sizeBytes: stored.ContentLength ?? 0 };
+    } catch (error) {
+      if (error instanceof NotFound) return null;
+      throw error;
+    }
+  }
+
+  async readStart(storageKey: string, length: number): Promise<Buffer> {
+    const stored = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: storageKey,
+        Range: `bytes=0-${length - 1}`,
+      }),
+    );
+    if (!stored.Body) return Buffer.alloc(0);
+    return Buffer.from(await stored.Body.transformToByteArray());
   }
 }

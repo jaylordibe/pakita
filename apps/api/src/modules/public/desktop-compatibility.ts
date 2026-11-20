@@ -28,7 +28,9 @@ import { resolve } from 'node:path';
 // 8: searching accounts (GET /users: `search`, `isActive`,
 //    `isPlatformAccount`) and a workspace's members by role
 //    (GET /workspaces/:id/memberships: `roleName`).
-export const API_LEVEL = 8;
+// 9: background videos (/workspaces/:id/media, uploaded straight to
+//    storage), `backgroundMediaId` on themes, and `media` in the sync feed.
+export const API_LEVEL = 9;
 export const MINIMUM_DESKTOP_VERSION = '0.0.0';
 
 // This package's version, read once from its package.json: three levels up

@@ -176,8 +176,10 @@ test/            e2e specs + setup/ (global DB setup, worker isolation)
   imported only by its own adapter. Store `storageKey`, never a URL;
   authorize before issuing a signed URL.
 - **Files:** resource endpoints stay JSON; a file is uploaded with
-  `POST /files` and attached by id through `FilesService` inside the domain's
-  transaction (`docs/file-uploads.md`). No other route takes multipart.
+  `POST /files`, or for a `direct` purpose straight to storage through a
+  signed URL (`FilesService.createDirectUpload` / `completeDirectUpload`),
+  and attached by id through `FilesService` inside the domain's transaction
+  (`docs/file-uploads.md`). No other route takes multipart.
 - **Redis:** build every client from `buildRedisConnectionOptions`.
 - **Background work:** BullMQ only, and by default: work the response does
   not need (every notification, side-effect call, unbounded loop) is

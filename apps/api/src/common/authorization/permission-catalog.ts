@@ -92,6 +92,7 @@ export const AUTHORIZATION_SUBJECTS = [
   'QueueJob',
   'Song',
   'Theme',
+  'Media',
   'Playlist',
   'BibleTranslation',
 ] as const;
@@ -457,6 +458,22 @@ const UPDATE_THEME = workspace(
   "Edit the workspace's themes and choose its default",
 );
 const DELETE_THEME = workspace('delete', 'Theme', 'Delete themes');
+const READ_MEDIA = workspace(
+  'read',
+  'Media',
+  "View and synchronise the workspace's background videos",
+);
+const CREATE_MEDIA = workspace('create', 'Media', 'Upload background videos');
+const UPDATE_MEDIA = workspace(
+  'update',
+  'Media',
+  "Rename the workspace's background videos",
+);
+const DELETE_MEDIA = workspace(
+  'delete',
+  'Media',
+  'Delete background videos no theme uses',
+);
 const READ_PLAYLIST = workspace(
   'read',
   'Playlist',
@@ -521,6 +538,10 @@ export const PERMISSION_CATALOG: readonly PermissionDefinition[] = [
   CREATE_THEME,
   UPDATE_THEME,
   DELETE_THEME,
+  READ_MEDIA,
+  CREATE_MEDIA,
+  UPDATE_MEDIA,
+  DELETE_MEDIA,
   READ_PLAYLIST,
   CREATE_PLAYLIST,
   UPDATE_PLAYLIST,
@@ -732,6 +753,10 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       CREATE_THEME,
       UPDATE_THEME,
       DELETE_THEME,
+      READ_MEDIA,
+      CREATE_MEDIA,
+      UPDATE_MEDIA,
+      DELETE_MEDIA,
       READ_PLAYLIST,
       CREATE_PLAYLIST,
       UPDATE_PLAYLIST,
@@ -766,6 +791,10 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       CREATE_THEME,
       UPDATE_THEME,
       DELETE_THEME,
+      READ_MEDIA,
+      CREATE_MEDIA,
+      UPDATE_MEDIA,
+      DELETE_MEDIA,
       READ_PLAYLIST,
       CREATE_PLAYLIST,
       UPDATE_PLAYLIST,
@@ -792,6 +821,10 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
       CREATE_THEME,
       UPDATE_THEME,
       DELETE_THEME,
+      READ_MEDIA,
+      CREATE_MEDIA,
+      UPDATE_MEDIA,
+      DELETE_MEDIA,
       READ_PLAYLIST,
       CREATE_PLAYLIST,
       UPDATE_PLAYLIST,
@@ -801,14 +834,15 @@ export const ROLE_DEFINITION_CATALOG: Readonly<
   [SeededRoleName.WORKSPACE_STAFF]: {
     scope: RoleScope.WORKSPACE,
     rank: 20,
-    // Presents services: reads (and so synchronises) the library, its themes and
-    // playlists; edits nothing.
+    // Presents services: reads (and so synchronises) the library, its themes,
+    // background videos and playlists; edits nothing.
     description: 'Works here. Reads the workspace, its roster and its library',
     permissions: [
       READ_WORKSPACE,
       READ_WORKSPACE_MEMBERSHIP,
       READ_SONG,
       READ_THEME,
+      READ_MEDIA,
       READ_PLAYLIST,
     ],
   },

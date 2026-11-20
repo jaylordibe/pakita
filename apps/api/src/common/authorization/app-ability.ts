@@ -13,6 +13,7 @@ import type {
   Playlist,
   Song,
   Theme,
+  Media,
   User,
 } from '@prisma/client';
 import type {
@@ -53,6 +54,7 @@ export type AppAbility = PrismaAbility<
           AuditLog: AuditLog;
           Song: Song;
           Theme: Theme;
+          Media: Media;
           Playlist: Playlist;
           BibleTranslation: BibleTranslation;
           QueueJob: QueueJobSubject;

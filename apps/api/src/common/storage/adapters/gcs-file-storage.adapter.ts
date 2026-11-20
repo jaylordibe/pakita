@@ -4,6 +4,9 @@ import { Storage } from '@google-cloud/storage';
 import {
   FileStorageAdapter,
   ObjectContent,
+  SignedUpload,
+  SignedUploadRequest,
+  StoredObject,
 } from './file-storage-adapter.interface';
 
 // Google Cloud Storage. Selected with STORAGE_PROVIDER=gcs.
@@ -93,5 +96,55 @@ export class GcsFileStorageAdapter implements FileStorageAdapter {
         expires: Date.now() + ttlSeconds * 1000,
       });
     return signedUrl;
+  }
+
+  // GCS signs the size (`x-goog-content-length-range`, exact) and the type,
+  // but verifies no SHA-256: the declared hash is checked by every client
+  // that downloads the file.
+  async createSignedUploadUrl(
+    storageKey: string,
+    request: SignedUploadRequest,
+    ttlSeconds: number,
+  ): Promise<SignedUpload> {
+    const headers = {
+      'content-disposition': request.contentDisposition,
+      'cache-control': request.cacheControl,
+      'x-goog-content-length-range': `${request.sizeBytes},${request.sizeBytes}`,
+    };
+    const [url] = await this.storage
+      .bucket(this.bucketName)
+      .file(storageKey)
+      .getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        contentType: request.contentType,
+        extensionHeaders: headers,
+        expires: Date.now() + ttlSeconds * 1000,
+      });
+    return {
+      url,
+      headers: { ...headers, 'content-type': request.contentType },
+    };
+  }
+
+  async head(storageKey: string): Promise<StoredObject | null> {
+    try {
+      const [metadata] = await this.storage
+        .bucket(this.bucketName)
+        .file(storageKey)
+        .getMetadata();
+      return { sizeBytes: Number(metadata.size ?? 0) };
+    } catch (error) {
+      if ((error as { code?: unknown }).code === 404) return null;
+      throw error;
+    }
+  }
+
+  async readStart(storageKey: string, length: number): Promise<Buffer> {
+    const [contents] = await this.storage
+      .bucket(this.bucketName)
+      .file(storageKey)
+      .download({ start: 0, end: length - 1 });
+    return contents;
   }
 }

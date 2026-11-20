@@ -57,6 +57,33 @@ storage cannot sign at that moment, the file is reported as absent (`null`)
 rather than failing the response — a login or token refresh never fails because
 a picture could not be signed.
 
+## Direct uploads (files too large for the API's memory)
+
+A purpose whose policy says `transfer: DIRECT` (today `background_video`,
+up to 1 GiB) never sends its bytes through the API, and `POST /api/files`
+refuses it with 400. Step 1 becomes two calls; step 2 is unchanged.
+
+1. **Start** — a domain route that has already authorized the caller (today
+   `POST /api/workspaces/:id/media/uploads`) calls
+   `FilesService.createDirectUpload` with the declared size, type and
+   SHA-256. The row is written first (`awaiting_upload`, key recorded), then
+   a URL is signed for that key alone, for an hour. The client `PUT`s exactly
+   the declared bytes to it, sending the returned headers unchanged.
+2. **Complete** — the domain's attach call runs
+   `FilesService.completeDirectUpload` before its transaction: storage must
+   hold an object of the declared size (else `409 FILE_NOT_UPLOADED`, and the
+   upload stays usable), and its first bytes must identify as the declared
+   type (else 415, and the file is released). The row becomes `ready` and is
+   attached as usual.
+
+What storage enforces at the `PUT` depends on the backend: S3 checks the
+signed size, type and SHA-256 and stores nothing on a mismatch; GCS checks
+the size; Azure checks neither, which is why `complete` reads the size back.
+The SHA-256 is kept on the row (`sha256`), and a client that downloads the
+file verifies it. An `awaiting_upload` row counts toward the 20 unattached
+files, can be released with `DELETE /api/files/:id`, and is reclaimed by the
+cleanup job once `expiresAt` (the URL's expiry plus 15 minutes) passes.
+
 ## What happens to the bytes
 
 - The type is identified from the bytes (`file-type`: magic numbers, and the
@@ -153,6 +180,7 @@ authorized to read.
 ## Not here
 
 No virus scanning or document sanitisation, no thumbnails or variants, no
-direct-to-storage (presigned) upload, no endpoint to read a file by its own id
+video decoding (a video's codec is checked by the desktop that plays it), no
+endpoint to read a file by its own id
 (only to release an unattached one). The deployment edge must allow request bodies of at least
 `FILE_UPLOAD_MAX_BYTES` on `POST /api/files`.

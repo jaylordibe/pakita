@@ -7,6 +7,7 @@ import { Errors } from '../../common/errors/errors';
 import { rejectNullFields } from '../../common/util/reject-null-fields.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AbilityScopedQueryService } from '../authorization/ability-scoped-query.service';
+import { MediaService } from '../media/media.service';
 import { PermissionCheckService } from '../authorization/permission-check.service';
 import { SyncVersionService } from '../sync/sync-version.service';
 import { CreateThemeDto } from './dto/create-theme.dto';
@@ -27,6 +28,7 @@ export class ThemesService {
     private readonly abilityScopedQueryService: AbilityScopedQueryService,
     private readonly permissionCheckService: PermissionCheckService,
     private readonly syncVersionService: SyncVersionService,
+    private readonly mediaService: MediaService,
   ) {}
 
   async create(
@@ -40,6 +42,13 @@ export class ThemesService {
         transaction,
         workspaceId,
       );
+      if (dto.backgroundMediaId) {
+        await this.mediaService.assertUsableAsBackground(
+          transaction,
+          workspaceId,
+          dto.backgroundMediaId,
+        );
+      }
       if (dto.isDefault) {
         await this.clearDefault(transaction, workspaceId, actorId);
       }
@@ -139,6 +148,13 @@ export class ThemesService {
       // Under the counter's lock: a theme deleted since it was read is not
       // revived (nor made the default).
       await this.assertStillLive(transaction, themeId);
+      if (dto.backgroundMediaId) {
+        await this.mediaService.assertUsableAsBackground(
+          transaction,
+          workspaceId,
+          dto.backgroundMediaId,
+        );
+      }
       if (dto.isDefault) {
         await this.clearDefault(transaction, workspaceId, actorId, themeId);
       }

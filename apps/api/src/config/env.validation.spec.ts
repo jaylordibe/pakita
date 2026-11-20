@@ -420,6 +420,34 @@ describe('env.validation cross-field rules', () => {
       );
     });
 
+    it('refuses S3 at an endpoint that is not this machine', () => {
+      for (const endpoint of [
+        'https://s3.amazonaws.com',
+        'http://localhost.example.com:9451',
+        'http://10.0.0.5:9451',
+      ]) {
+        expect(
+          validate({
+            NODE_ENV: 'test',
+            STORAGE_PROVIDER: 's3',
+            STORAGE_S3_BUCKET: 'uploads',
+            STORAGE_S3_ENDPOINT: endpoint,
+          }).error?.message,
+        ).toContain('cannot be a real provider under NODE_ENV=test');
+      }
+    });
+
+    it("accepts S3 at the test stack's loopback endpoint", () => {
+      expect(
+        validate({
+          NODE_ENV: 'test',
+          STORAGE_PROVIDER: 's3',
+          STORAGE_S3_BUCKET: 'uploads',
+          STORAGE_S3_ENDPOINT: 'http://localhost:9451',
+        }).error,
+      ).toBeUndefined();
+    });
+
     it('accepts the stubs', () => {
       expect(
         validate({

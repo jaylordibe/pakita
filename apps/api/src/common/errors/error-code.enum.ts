@@ -152,6 +152,22 @@ export enum ErrorCode {
    *  can still count for up to an hour after it was uploaded. Retrying
    *  immediately does not help. */
   FILE_QUOTA_EXCEEDED = 'FILE_QUOTA_EXCEEDED',
+  /** 409 — a direct upload was completed before storage held its bytes, or
+   *  with bytes of another size. Send the file to the upload URL first (a
+   *  fresh one, if it expired); the upload itself is still usable until it
+   *  expires. */
+  FILE_NOT_UPLOADED = 'FILE_NOT_UPLOADED',
+
+  // ── Media (409) ──────────────────────────────────────────────────────
+  /** 409 — the video is a background of one or more themes, so it cannot be
+   *  deleted. `details.themeIds` names them: give them another background
+   *  first. */
+  MEDIA_IN_USE = 'MEDIA_IN_USE',
+  /** 409 — the workspace's videos would exceed its storage quota.
+   *  `details.limitBytes` and `details.usedBytes` give the numbers. Delete
+   *  videos the workspace no longer uses, or raise
+   *  `MEDIA_WORKSPACE_QUOTA_BYTES` on the server. */
+  MEDIA_QUOTA_EXCEEDED = 'MEDIA_QUOTA_EXCEEDED',
 
   // ── Infrastructure (429, 500, 503) ───────────────────────────────────
   /** Too many requests. Emitted by the global @nestjs/throttler guard AND by

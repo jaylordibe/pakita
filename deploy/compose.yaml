@@ -1,8 +1,9 @@
 # Pakita server — one machine, Docker Compose. See README.md in this folder.
 #
 # Every value comes from `.env` (created by install.sh from .env.example).
-# Only Caddy publishes ports; the database, Redis and object storage are
-# reachable on the internal network alone.
+# Only Caddy publishes ports; the database and Redis are reachable on the
+# internal network alone. Object storage is reached from outside only through
+# Caddy, on the bucket's path, and only with a URL the API signed.
 name: pakita
 
 x-api-environment: &api-environment
@@ -25,6 +26,9 @@ x-api-environment: &api-environment
   TRUST_PROXY: ${PAKITA_PROXY_ADDRESS:-172.31.250.2}
   STORAGE_PROVIDER: s3
   STORAGE_S3_ENDPOINT: http://storage:9000
+  # Laptops upload and download videos straight to storage, through Caddy on
+  # this domain; the API signs their URLs for this address.
+  STORAGE_S3_PUBLIC_ENDPOINT: https://${PAKITA_DOMAIN}
   STORAGE_S3_FORCE_PATH_STYLE: 'true'
   STORAGE_S3_BUCKET: pakita
   STORAGE_S3_REGION: us-east-1
@@ -156,6 +160,10 @@ services:
       RUSTFS_SECRET_KEY: ${STORAGE_SECRET_KEY}
     volumes:
       - storage-data:/data
+    # On the edge network too, so Caddy can forward the bucket path to it.
+    networks:
+      - default
+      - edge
     healthcheck:
       test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/health || exit 1']
       interval: 5s
@@ -181,7 +189,7 @@ services:
 
 networks:
   default:
-  # Caddy and the API only. Caddy's fixed address lies outside the range
+  # Caddy, the API and object storage only. Caddy's fixed address lies outside the range
   # handed out automatically, so nothing else can take it. Change the three
   # PAKITA_EDGE_* / PAKITA_PROXY_ADDRESS values together if this range is in
   # use on the machine.

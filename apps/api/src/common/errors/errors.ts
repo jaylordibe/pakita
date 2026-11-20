@@ -220,6 +220,29 @@ export const Errors = {
       message:
         'This file can no longer be attached. It expired or was already used; upload it again.',
     }),
+  fileNotUploaded: (): ConflictException =>
+    new ConflictException({
+      errorCode: ErrorCode.FILE_NOT_UPLOADED,
+      message:
+        'Storage does not hold this file yet, or holds different bytes. Send it to the upload URL, then try again.',
+    }),
+  mediaInUse: (themeIds: string[]): ConflictException =>
+    new ConflictException({
+      errorCode: ErrorCode.MEDIA_IN_USE,
+      message:
+        'This video is the background of one or more themes. Give them another background first.',
+      details: { themeIds },
+    }),
+  mediaQuotaExceeded: (
+    limitBytes: number,
+    usedBytes: number,
+  ): ConflictException =>
+    new ConflictException({
+      errorCode: ErrorCode.MEDIA_QUOTA_EXCEEDED,
+      message:
+        "This video would take the church's videos past their storage limit. Delete videos no longer used first.",
+      details: { limitBytes, usedBytes },
+    }),
   fileNotReleasable: (): ConflictException =>
     new ConflictException({
       errorCode: ErrorCode.FILE_NOT_RELEASABLE,

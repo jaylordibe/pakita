@@ -2,6 +2,7 @@ import {
   parseMcpAllowedOrigins,
   parseMcpRedirectOrigins,
 } from '../common/util/mcp-config.util';
+import { MEDIA_DEFAULTS } from './media.defaults';
 import { FILE_UPLOAD_DEFAULTS } from './file-upload.defaults';
 
 export interface AppConfig {
@@ -129,6 +130,11 @@ export interface AppConfig {
       // Set for an S3-compatible backend (Cloudflare R2, DigitalOcean Spaces,
       // MinIO, Ceph). Leave unset for AWS S3 itself.
       endpoint: string | undefined;
+      // The address clients reach storage at, when it differs from `endpoint`
+      // (a self-hosted server on an internal network behind the API's own
+      // reverse proxy). Signed read and upload URLs are minted for it; the API
+      // itself keeps using `endpoint`.
+      publicEndpoint: string | undefined;
       // Path-style addressing (`https://endpoint/bucket/key`). Required by some
       // self-hosted S3-compatible servers.
       isPathStyleForced: boolean;
@@ -156,6 +162,11 @@ export interface AppConfig {
     // before decoding, so a small file claiming enormous dimensions (a
     // decompression bomb) is refused without allocating its pixels.
     imageMaxPixels: number;
+  };
+  media: {
+    // The most bytes of video one workspace may hold, counting uploads not
+    // yet attached. Every laptop of the workspace downloads every video.
+    workspaceQuotaBytes: number;
   };
   swagger: {
     // Whether `/api/docs` is served. Production is hard-OFF and cannot be
@@ -331,6 +342,7 @@ export default (): AppConfig => ({
       bucket: process.env.STORAGE_S3_BUCKET || undefined,
       region: process.env.STORAGE_S3_REGION || undefined,
       endpoint: process.env.STORAGE_S3_ENDPOINT || undefined,
+      publicEndpoint: process.env.STORAGE_S3_PUBLIC_ENDPOINT || undefined,
       isPathStyleForced:
         (process.env.STORAGE_S3_FORCE_PATH_STYLE ?? 'false')
           .trim()
@@ -360,6 +372,12 @@ export default (): AppConfig => ({
       process.env.FILE_IMAGE_MAX_PIXELS ??
         String(FILE_UPLOAD_DEFAULTS.imageMaxPixels),
       10,
+    ),
+  },
+  media: {
+    workspaceQuotaBytes: Number(
+      process.env.MEDIA_WORKSPACE_QUOTA_BYTES ??
+        MEDIA_DEFAULTS.workspaceQuotaBytes,
     ),
   },
   swagger: {

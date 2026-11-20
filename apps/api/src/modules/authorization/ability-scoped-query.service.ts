@@ -32,6 +32,7 @@ export interface WhereInputBySubject {
   AuditLog: Prisma.AuditLogWhereInput;
   Song: Prisma.SongWhereInput;
   Theme: Prisma.ThemeWhereInput;
+  Media: Prisma.MediaWhereInput;
   Playlist: Prisma.PlaylistWhereInput;
 }
 

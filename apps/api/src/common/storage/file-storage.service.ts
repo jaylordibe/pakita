@@ -6,6 +6,8 @@ import { buildObjectName } from '../util/storage-object-name.util';
 import {
   FILE_STORAGE_ADAPTER,
   ObjectContent,
+  SignedUploadRequest,
+  StoredObject,
 } from './adapters/file-storage-adapter.interface';
 import type { FileStorageAdapter } from './adapters/file-storage-adapter.interface';
 
@@ -30,6 +32,12 @@ import type { FileStorageAdapter } from './adapters/file-storage-adapter.interfa
 // always mints the identifying half as a fresh UUID.
 export interface SignedReadUrl {
   url: string;
+  expiresAt: Date;
+}
+
+export interface SignedUploadUrl {
+  url: string;
+  headers: Record<string, string>;
   expiresAt: Date;
 }
 
@@ -104,5 +112,49 @@ export class FileStorageService {
       `Signing a read URL timed out after ${this.requestTimeoutMs} ms`,
     );
     return { url, expiresAt };
+  }
+
+  /**
+   * A short-lived URL that writes one object straight to storage. **AUTHORIZE
+   * FIRST, and record `storageKey` in the database before calling**, as for a
+   * read URL: the URL is a bearer credential to write that key. The lifetime
+   * is clamped like a read URL's.
+   */
+  async createSignedUploadUrl(
+    storageKey: string,
+    request: SignedUploadRequest,
+    ttlSeconds?: number,
+  ): Promise<SignedUploadUrl> {
+    const effectiveTtlSeconds = resolveSignedUrlTtlSeconds(
+      ttlSeconds,
+      this.defaultSignedUrlTtlSeconds,
+    );
+    const expiresAt = new Date(Date.now() + effectiveTtlSeconds * 1000);
+    const signed = await withTimeout(
+      this.adapter.createSignedUploadUrl(
+        storageKey,
+        request,
+        effectiveTtlSeconds,
+      ),
+      this.requestTimeoutMs,
+      `Signing an upload URL timed out after ${this.requestTimeoutMs} ms`,
+    );
+    return { ...signed, expiresAt };
+  }
+
+  head(storageKey: string): Promise<StoredObject | null> {
+    return withTimeout(
+      this.adapter.head(storageKey),
+      this.requestTimeoutMs,
+      `Reading an object's details timed out after ${this.requestTimeoutMs} ms`,
+    );
+  }
+
+  readStart(storageKey: string, length: number): Promise<Buffer> {
+    return withTimeout(
+      this.adapter.readStart(storageKey, length),
+      this.requestTimeoutMs,
+      `Reading the start of an object timed out after ${this.requestTimeoutMs} ms`,
+    );
   }
 }

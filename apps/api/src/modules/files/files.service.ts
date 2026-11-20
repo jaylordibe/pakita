@@ -15,13 +15,31 @@ import { AttachedFileResponseDto } from './dto/attached-file-response.dto';
 import { FileProcessor } from './file-processor';
 import {
   FILE_PURPOSE_POLICIES,
+  FileTransfer,
   MAX_UNATTACHED_FILES_PER_USER,
 } from './file-purpose.policy';
+import type { FilePurposePolicy } from './file-purpose.policy';
 
 export interface UploadedFileInput {
   buffer: Buffer;
   size: number;
   originalname: string;
+}
+
+export interface DirectUploadInput {
+  purpose: FilePurpose;
+  sizeBytes: number;
+  contentType: string;
+  sha256Base64: string;
+  fileName: string;
+  actorId: string;
+}
+
+export interface DirectUpload {
+  file: FileAsset;
+  url: string;
+  headers: Record<string, string>;
+  urlExpiresAt: Date;
 }
 
 export interface AttachFileInput {
@@ -33,6 +51,14 @@ export interface AttachFileInput {
 // A `processing` row older than this belongs to a request that died between
 // writing the row and finishing; no live upload takes anywhere near this long.
 const STALE_PROCESSING_MILLISECONDS = 15 * 60 * 1000;
+// A direct upload's URL lives as long as a signed URL may (an hour, clamped
+// centrally); the row stays completable a little longer, so an upload that
+// finished just before the URL expired can still be completed.
+const DIRECT_UPLOAD_URL_TTL_SECONDS = 60 * 60;
+const DIRECT_UPLOAD_COMPLETE_GRACE_MILLISECONDS = 15 * 60 * 1000;
+// Enough of a file's start for `file-type` to identify any container it knows.
+const CONTENT_SNIFF_BYTES = 4100;
+
 // Objects deleted per cleanup run. Bounded so one run's duration is too; the
 // next run picks up the rest.
 const CLEANUP_BATCH_SIZE = 200;
@@ -54,6 +80,7 @@ export interface CleanupResult {
 
 const UNATTACHED_STATUSES = [
   FileAssetStatus.PROCESSING,
+  FileAssetStatus.AWAITING_UPLOAD,
   FileAssetStatus.READY,
 ] as const;
 
@@ -126,6 +153,11 @@ export class FilesService {
     actorId: string,
   ): Promise<FileAsset> {
     const policy = FILE_PURPOSE_POLICIES[purpose];
+    if (policy.transfer !== FileTransfer.MULTIPART) {
+      throw Errors.badRequest(
+        'Files for this purpose are uploaded directly to storage, not here.',
+      );
+    }
     const maxBytes = Math.min(policy.maxBytes, this.maxUploadBytes);
     if (file.size > maxBytes) {
       throw Errors.payloadTooLarge(
@@ -136,12 +168,7 @@ export class FilesService {
     // Counted, not locked: two simultaneous uploads can both pass at the
     // limit. The route's throttle bounds that overshoot, and every one of
     // these files expires anyway.
-    const unattachedCount = await this.prisma.fileAsset.count({
-      where: quotaWhere(actorId),
-    });
-    if (unattachedCount >= MAX_UNATTACHED_FILES_PER_USER) {
-      throw Errors.fileQuotaExceeded(MAX_UNATTACHED_FILES_PER_USER);
-    }
+    await this.assertUnattachedQuota(actorId);
 
     const accepted = await this.processor.identify(file.buffer, policy);
     const storageKey = this.storage.createKey(
@@ -224,6 +251,164 @@ export class FilesService {
   }
 
   /**
+   * Phase one of a direct upload: record the file (key first, as always),
+   * then sign a URL the client writes the bytes to without them passing
+   * through the API. The declared type, size and SHA-256 are signed where
+   * storage can enforce them, and `completeDirectUpload` checks the type and
+   * size again from what storage holds. **The caller authorizes first.**
+   */
+  async createDirectUpload(input: DirectUploadInput): Promise<DirectUpload> {
+    const policy = FILE_PURPOSE_POLICIES[input.purpose];
+    if (policy.transfer !== FileTransfer.DIRECT) {
+      throw Errors.badRequest(
+        'Files for this purpose are uploaded with POST /files.',
+      );
+    }
+    if (input.sizeBytes > policy.maxBytes) {
+      throw Errors.payloadTooLarge(
+        `This file is larger than the ${policy.maxBytes} bytes allowed here.`,
+      );
+    }
+    const accepted = policy.accepted.get(input.contentType);
+    if (!accepted) {
+      throw this.unsupportedTypeFor(policy);
+    }
+    await this.assertUnattachedQuota(input.actorId);
+
+    const storageKey = this.storage.createKey(
+      policy.storageSubdirectory,
+      `.${accepted.extension}`,
+    );
+    const fileName = sanitizeFileName(input.fileName, accepted.extension);
+    const urlExpiresAt = new Date(
+      Date.now() + DIRECT_UPLOAD_URL_TTL_SECONDS * 1000,
+    );
+    const row = await this.prisma.fileAsset.create({
+      data: {
+        uploadedBy: input.actorId,
+        purpose: input.purpose,
+        status: FileAssetStatus.AWAITING_UPLOAD,
+        storageKey,
+        kind: accepted.kind,
+        contentType: accepted.contentType,
+        sizeBytes: input.sizeBytes,
+        sha256: input.sha256Base64,
+        fileName,
+        expiresAt: new Date(
+          urlExpiresAt.getTime() + DIRECT_UPLOAD_COMPLETE_GRACE_MILLISECONDS,
+        ),
+      },
+    });
+
+    try {
+      const signed = await this.storage.createSignedUploadUrl(
+        storageKey,
+        {
+          sizeBytes: input.sizeBytes,
+          contentType: accepted.contentType,
+          sha256Base64: input.sha256Base64,
+          contentDisposition: buildContentDisposition('attachment', fileName),
+          cacheControl: policy.cacheControl,
+        },
+        DIRECT_UPLOAD_URL_TTL_SECONDS,
+      );
+      return {
+        file: row,
+        url: signed.url,
+        headers: signed.headers,
+        urlExpiresAt: signed.expiresAt,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Signing an upload URL for file ${row.id} failed: ${formatErrorMessage(error)}`,
+      );
+      await this.releaseAwaitingUpload(row.id);
+      throw Errors.externalServiceUnavailable(
+        'File storage is unavailable. Please try again.',
+      );
+    }
+  }
+
+  /**
+   * Phase one, finished: checks what storage holds for the caller's direct
+   * upload — its size, and its type from its first bytes — and makes it
+   * `ready` to attach. Repeating it for a file already `ready` returns it.
+   *
+   * Nothing stored yet, or a different size, is 409 `FILE_NOT_UPLOADED` and
+   * leaves the upload usable. Bytes of another type are 415, and the file is
+   * released. Someone else's file, or one for another purpose, is 404.
+   */
+  async completeDirectUpload(
+    fileId: string,
+    actorId: string,
+    purpose: FilePurpose,
+  ): Promise<FileAsset> {
+    const row = await this.prisma.fileAsset.findFirst({
+      where: { id: fileId, uploadedBy: actorId, purpose },
+    });
+    if (!row) {
+      throw Errors.resourceNotFound('File');
+    }
+    const status = row.status as FileAssetStatus;
+    if (status === FileAssetStatus.READY) return row;
+    if (
+      status !== FileAssetStatus.AWAITING_UPLOAD ||
+      !row.expiresAt ||
+      row.expiresAt <= new Date()
+    ) {
+      throw Errors.fileNotAttachable();
+    }
+
+    let stored: Awaited<ReturnType<FileStorageService['head']>>;
+    let start: Buffer;
+    try {
+      stored = await this.storage.head(row.storageKey);
+      start = stored
+        ? await this.storage.readStart(row.storageKey, CONTENT_SNIFF_BYTES)
+        : Buffer.alloc(0);
+    } catch (error) {
+      this.logger.error(
+        `Reading direct upload ${row.id} back failed: ${formatErrorMessage(error)}`,
+      );
+      throw Errors.externalServiceUnavailable(
+        'File storage is unavailable. Please try again.',
+      );
+    }
+    if (!stored || stored.sizeBytes !== row.sizeBytes) {
+      throw Errors.fileNotUploaded();
+    }
+
+    const policy = FILE_PURPOSE_POLICIES[purpose];
+    const detected = await this.processor
+      .identify(start, policy)
+      .catch(() => null);
+    if (detected?.contentType !== row.contentType) {
+      await this.releaseAwaitingUpload(row.id);
+      throw this.unsupportedTypeFor(policy);
+    }
+
+    // Conditional, like every move out of an unattached state: if the
+    // cleanup job reclaimed the row meanwhile, this request has lost.
+    const finished = await this.prisma.fileAsset.updateMany({
+      where: { id: row.id, status: FileAssetStatus.AWAITING_UPLOAD },
+      data: {
+        status: FileAssetStatus.READY,
+        expiresAt: new Date(Date.now() + this.uploadTtlSeconds * 1000),
+      },
+    });
+    if (finished.count !== 1) {
+      const current = await this.prisma.fileAsset.findUniqueOrThrow({
+        where: { id: row.id },
+      });
+      if ((current.status as FileAssetStatus) === FileAssetStatus.READY) {
+        return current;
+      }
+      throw Errors.fileNotAttachable();
+    }
+    return this.prisma.fileAsset.findUniqueOrThrow({ where: { id: row.id } });
+  }
+
+  /**
    * Phase two: consume a `ready` file for an attach site, inside the caller's
    * transaction. One conditional UPDATE decides it — the file must be the
    * actor's own, for this purpose, `ready` and unexpired — so an id is consumed
@@ -280,7 +465,13 @@ export class FilesService {
    */
   async releaseUnattached(fileId: string, actorId: string): Promise<void> {
     const released = await this.prisma.fileAsset.updateMany({
-      where: { id: fileId, uploadedBy: actorId, status: FileAssetStatus.READY },
+      where: {
+        id: fileId,
+        uploadedBy: actorId,
+        status: {
+          in: [FileAssetStatus.READY, FileAssetStatus.AWAITING_UPLOAD],
+        },
+      },
       data: { status: FileAssetStatus.DELETING, expiresAt: null },
     });
     if (released.count === 1) return;
@@ -418,7 +609,12 @@ export class FilesService {
     const claimed = await this.prisma.fileAsset.updateMany({
       where: {
         OR: [
-          { status: FileAssetStatus.READY, expiresAt: { lte: now } },
+          {
+            status: {
+              in: [FileAssetStatus.READY, FileAssetStatus.AWAITING_UPLOAD],
+            },
+            expiresAt: { lte: now },
+          },
           {
             status: FileAssetStatus.PROCESSING,
             createdAt: {
@@ -486,6 +682,35 @@ export class FilesService {
     } else {
       this.logger.warn(message);
     }
+  }
+
+  // Counted, not locked: two simultaneous uploads can both pass at the
+  // limit. The routes' throttles bound that overshoot, and every one of these
+  // files expires anyway.
+  private async assertUnattachedQuota(actorId: string): Promise<void> {
+    const unattachedCount = await this.prisma.fileAsset.count({
+      where: quotaWhere(actorId),
+    });
+    if (unattachedCount >= MAX_UNATTACHED_FILES_PER_USER) {
+      throw Errors.fileQuotaExceeded(MAX_UNATTACHED_FILES_PER_USER);
+    }
+  }
+
+  private unsupportedTypeFor(policy: FilePurposePolicy): HttpException {
+    return Errors.unsupportedMediaType(
+      `This file type is not accepted here. Accepted: ${[
+        ...policy.accepted.values(),
+      ]
+        .map((type) => type.extension)
+        .join(', ')}.`,
+    );
+  }
+
+  private async releaseAwaitingUpload(fileId: string): Promise<void> {
+    await this.prisma.fileAsset.updateMany({
+      where: { id: fileId, status: FileAssetStatus.AWAITING_UPLOAD },
+      data: { status: FileAssetStatus.DELETING, expiresAt: null },
+    });
   }
 
   private async releaseFailedUpload(fileId: string): Promise<void> {

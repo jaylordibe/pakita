@@ -45,6 +45,7 @@ export const SUBJECT_TENANT_KEY = {
   WorkspaceInvitation: 'workspaceId',
   Song: 'workspaceId',
   Theme: 'workspaceId',
+  Media: 'workspaceId',
   Playlist: 'workspaceId',
 } as const satisfies Partial<Record<AuthorizationSubject, string>>;
 

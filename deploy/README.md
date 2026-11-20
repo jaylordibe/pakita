@@ -7,7 +7,9 @@ presents without the internet.
 
 What runs: Caddy (HTTPS), the Pakita API and its background worker,
 PostgreSQL, Redis and S3-compatible file storage (RustFS). Only Caddy is
-reachable from outside the machine. The full runtime contract the containers
+reachable from outside the machine; it forwards the storage bucket's path too,
+so laptops upload and download background videos straight from storage with
+links the API signed. The full runtime contract the containers
 follow is in [`apps/api/docs/deployment/README.md`](../apps/api/docs/deployment/README.md).
 
 ## What you need
@@ -87,7 +89,8 @@ apps, and says so.
 ./restore.sh backups/<date-time>    # replaces the current data
 ```
 
-A backup holds the database and the uploaded files, with checksums; the API
+A backup holds the database and the uploaded files (background videos
+included, so it grows with them), with checksums; the API
 pauses for the moments it takes (laptops keep presenting: they work offline).
 Copy the `backups` folder off the server regularly (to another machine or to
 cloud storage), and test a restore now and then.

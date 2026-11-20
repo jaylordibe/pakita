@@ -2,6 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   FileStorageAdapter,
   ObjectContent,
+  SignedUpload,
+  SignedUploadRequest,
+  StoredObject,
 } from './file-storage-adapter.interface';
 
 // Used when STORAGE_PROVIDER=stub — the default, and what local development
@@ -39,5 +42,27 @@ export class StubFileStorageAdapter implements FileStorageAdapter {
     return Promise.resolve(
       `${StubFileStorageAdapter.URL_PREFIX}${storageKey}?signature=stub&expires=${expiresAtSeconds}`,
     );
+  }
+
+  // A URL nobody can write to: the stub stores nothing, so a direct upload
+  // never completes against it (`head` finds nothing).
+  createSignedUploadUrl(
+    storageKey: string,
+    request: SignedUploadRequest,
+    ttlSeconds: number,
+  ): Promise<SignedUpload> {
+    const expiresAtSeconds = Math.floor(Date.now() / 1000) + ttlSeconds;
+    return Promise.resolve({
+      url: `${StubFileStorageAdapter.URL_PREFIX}${storageKey}?signature=stub&expires=${expiresAtSeconds}`,
+      headers: { 'content-type': request.contentType },
+    });
+  }
+
+  head(): Promise<StoredObject | null> {
+    return Promise.resolve(null);
+  }
+
+  readStart(): Promise<Buffer> {
+    return Promise.resolve(Buffer.alloc(0));
   }
 }

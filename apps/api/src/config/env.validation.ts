@@ -6,22 +6,16 @@ import {
 } from '../common/util/mcp-config.util';
 import { isTrustedProxyList } from '../common/util/trusted-proxy.util';
 import { FILE_UPLOAD_DEFAULTS } from './file-upload.defaults';
+import { MEDIA_DEFAULTS } from './media.defaults';
 
 // The test suite never reaches a real provider: object storage is billed and
-// holds real files. Tests never read `.env` (`isEnvFileIgnored`),
-// so the stub defaults hold; this refuses the boot if `.env.test` or the
-// shell names a real one anyway.
-function refusedInTest(...realProviders: string[]): Joi.WhenOptions {
-  return {
-    is: 'test',
-    then: Joi.string()
-      .invalid(...realProviders)
-      .messages({
-        'any.invalid':
-          '{{#label}} cannot be a real provider under NODE_ENV=test — the test suite must never call one.',
-      }),
-  };
-}
+// holds real files. Tests never read `.env` (`isEnvFileIgnored`), so the stub
+// defaults hold; STORAGE_PROVIDER refuses the boot if `.env.test` or the shell
+// names a real one anyway. The one exception is S3 at a loopback endpoint
+// (`http(s)://localhost|127.0.0.1|[::1]`, optional port, nothing else): the
+// test stack's own storage container, never a host on the network.
+const LOOPBACK_ENDPOINT =
+  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?\/?$/;
 
 // A public address clients reach, so production must name the real public
 // host: the localhost default below would boot fine and hand out an address
@@ -293,7 +287,20 @@ export const envValidationSchema = Joi.object({
   STORAGE_PROVIDER: Joi.string()
     .valid('stub', 's3', 'gcs', 'azure')
     .default('stub')
-    .when('NODE_ENV', refusedInTest('s3', 'gcs', 'azure'))
+    // Under test, S3 only at a loopback endpoint: the test stack's own
+    // S3-compatible container, neither billed nor outbound. The desktop's
+    // end-to-end tests upload and download a video through it.
+    .when('NODE_ENV', {
+      is: 'test',
+      then: Joi.when('STORAGE_S3_ENDPOINT', {
+        is: Joi.string().pattern(LOOPBACK_ENDPOINT).required(),
+        then: Joi.string().invalid('gcs', 'azure'),
+        otherwise: Joi.string().invalid('s3', 'gcs', 'azure'),
+      }).messages({
+        'any.invalid':
+          '{{#label}} cannot be a real provider under NODE_ENV=test — the test suite must never call one (S3 only at a loopback STORAGE_S3_ENDPOINT).',
+      }),
+    })
     // The stub stores nothing, yet answers every upload with 201 and a file id
     // a profile then points at — in production that is silent data loss.
     .when('NODE_ENV', {
@@ -336,6 +343,13 @@ export const envValidationSchema = Joi.object({
   STORAGE_S3_REGION: Joi.string().allow('').optional(),
   // Set for an S3-compatible backend; leave empty for AWS S3 itself.
   STORAGE_S3_ENDPOINT: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .allow('')
+    .optional(),
+  // Where clients reach storage, when it differs from STORAGE_S3_ENDPOINT:
+  // the church server's own domain, whose reverse proxy forwards the bucket
+  // path to storage on the internal network. Signed URLs are minted for it.
+  STORAGE_S3_PUBLIC_ENDPOINT: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .allow('')
     .optional(),
@@ -389,6 +403,15 @@ export const envValidationSchema = Joi.object({
     .min(1)
     .max(268_402_689)
     .default(FILE_UPLOAD_DEFAULTS.imageMaxPixels),
+
+  // ── Media (background videos) ────────────────────────────────────────────
+  // The most bytes of video one workspace may hold. Every laptop of the
+  // workspace downloads every video, so this also bounds their disks.
+  MEDIA_WORKSPACE_QUOTA_BYTES: Joi.number()
+    .integer()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(MEDIA_DEFAULTS.workspaceQuotaBytes),
 
   // Whether `/api/docs` is served. Only ever NARROWS: production is hard-off in
   // `configuration.ts` regardless of this value, so setting it to `true` there

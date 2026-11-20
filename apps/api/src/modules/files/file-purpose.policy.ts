@@ -56,7 +56,29 @@ const PPTX: AcceptedContentType = {
   extension: 'pptx',
 };
 
+const MP4: AcceptedContentType = {
+  contentType: 'video/mp4',
+  kind: FileKind.VIDEO,
+  extension: 'mp4',
+};
+const WEBM: AcceptedContentType = {
+  contentType: 'video/webm',
+  kind: FileKind.VIDEO,
+  extension: 'webm',
+};
+
+// How a purpose's bytes reach storage. `multipart`: through the API, which
+// identifies and (for images) re-encodes them (`POST /files`). `direct`: from
+// the client straight to storage through a signed URL, then checked by the
+// API (`POST /files/direct-uploads`, then `/complete`), for files too large to
+// hold in the API's memory.
+export enum FileTransfer {
+  MULTIPART = 'multipart',
+  DIRECT = 'direct',
+}
+
 export interface FilePurposePolicy {
+  transfer: FileTransfer;
   // Bytes, before processing. The effective limit is the lower of this and
   // `FILE_UPLOAD_MAX_BYTES`.
   maxBytes: number;
@@ -86,6 +108,7 @@ function acceptedTypes(
 // they are what makes an Office document dangerous to whoever opens it.
 export const FILE_PURPOSE_POLICIES: Record<FilePurpose, FilePurposePolicy> = {
   [FilePurpose.PROFILE_IMAGE]: {
+    transfer: FileTransfer.MULTIPART,
     maxBytes: 10 * MEBIBYTE,
     imageMaxDimension: 1024,
     storageSubdirectory: 'files/profile-images',
@@ -93,10 +116,21 @@ export const FILE_PURPOSE_POLICIES: Record<FilePurpose, FilePurposePolicy> = {
     accepted: acceptedTypes(JPEG, PNG, WEBP),
   },
   [FilePurpose.DOCUMENT]: {
+    transfer: FileTransfer.MULTIPART,
     maxBytes: 25 * MEBIBYTE,
     imageMaxDimension: 4096,
     storageSubdirectory: 'files/documents',
     cacheControl: PRIVATE_OBJECT_CACHE_CONTROL,
     accepted: acceptedTypes(JPEG, PNG, WEBP, PDF, DOCX, XLSX, PPTX),
+  },
+  // A looping theme background. The container is checked from its first
+  // bytes; whether its codec plays is checked by the desktop that picks it.
+  [FilePurpose.BACKGROUND_VIDEO]: {
+    transfer: FileTransfer.DIRECT,
+    maxBytes: 1024 * MEBIBYTE,
+    imageMaxDimension: 0,
+    storageSubdirectory: 'files/background-videos',
+    cacheControl: PRIVATE_OBJECT_CACHE_CONTROL,
+    accepted: acceptedTypes(MP4, WEBM),
   },
 };

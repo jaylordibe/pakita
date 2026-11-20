@@ -1,3 +1,4 @@
+import { MediaResponseDto } from '../../media/dto/media-response.dto';
 import { PlaylistResponseDto } from '../../playlists/dto/playlist-response.dto';
 import { SongResponseDto } from '../../songs/dto/song-response.dto';
 import { ThemeResponseDto } from '../../themes/dto/theme-response.dto';
@@ -18,6 +19,17 @@ export class SyncedThemeDto {
   theme!: ThemeResponseDto | null;
 }
 
+export class SyncedMediaDto {
+  id!: string;
+  syncVersion!: number;
+  /**
+   * A deletion: remove the video, and its downloaded file, locally. `media`
+   * is then null.
+   */
+  isDeleted!: boolean;
+  media!: MediaResponseDto | null;
+}
+
 export class SyncedPlaylistDto {
   id!: string;
   syncVersion!: number;
@@ -28,7 +40,7 @@ export class SyncedPlaylistDto {
 
 /**
  * One page of a workspace's changes, oldest first. A page holds at most
- * `limit` changes in all, across songs, themes and playlists; every change
+ * `limit` changes in all, across songs, themes, media and playlists; every change
  * has its own version, so `nextCursor` never splits one.
  *
  * The desktop keeps `epoch` and `nextCursor`. When `epoch` differs from the
@@ -44,5 +56,10 @@ export class SyncChangesResponseDto {
   hasMore!: boolean;
   songs!: SyncedSongDto[];
   themes!: SyncedThemeDto[];
+  /**
+   * Background videos. A theme names one by `backgroundMediaId`; the bytes
+   * are downloaded separately (`GET …/media/:id/download`).
+   */
+  media!: SyncedMediaDto[];
   playlists!: SyncedPlaylistDto[];
 }

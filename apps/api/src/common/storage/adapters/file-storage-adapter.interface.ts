@@ -16,6 +16,32 @@ export interface ObjectContent {
   cacheControl: string;
 }
 
+// What a client must send to write one object straight to storage, without
+// the bytes passing through the API: a PUT of exactly the declared bytes to
+// `url`, with `headers` sent as given. Every field is SERVER-DETERMINED.
+export interface SignedUploadRequest {
+  // Exact size in bytes. Signed where the backend can enforce it (S3).
+  sizeBytes: number;
+  // The content type the object is stored with. Signed where enforceable.
+  contentType: string;
+  // Base64 SHA-256 of the bytes. Where the backend verifies it (S3), a body
+  // that does not match is refused and nothing is stored.
+  sha256Base64: string;
+  contentDisposition: string;
+  cacheControl: string;
+}
+
+export interface SignedUpload {
+  url: string;
+  // Headers the client sends unchanged; the signature covers them.
+  headers: Record<string, string>;
+}
+
+// What storage holds under a key, read back after a direct upload.
+export interface StoredObject {
+  sizeBytes: number;
+}
+
 // The default `Cache-Control`. Objects are private: the only read path is a
 // signed URL, which lives at most `MAXIMUM_SIGNED_URL_TTL_SECONDS`. `private`
 // keeps a shared proxy or CDN from storing the response, and the max-age stops
@@ -65,6 +91,22 @@ export interface FileStorageAdapter {
   //
   // `ttlSeconds` is clamped by `FileStorageService` before it arrives here.
   createSignedReadUrl(storageKey: string, ttlSeconds: number): Promise<string>;
+
+  // A short-lived URL that writes ONE object, under a server-minted key, from
+  // the client directly. Same rule as a read URL: the caller authorizes first
+  // and records the key in the database BEFORE handing the URL out.
+  createSignedUploadUrl(
+    storageKey: string,
+    request: SignedUploadRequest,
+    ttlSeconds: number,
+  ): Promise<SignedUpload>;
+
+  // The stored object's size, or null when nothing is stored under the key.
+  head(storageKey: string): Promise<StoredObject | null>;
+
+  // Up to `length` bytes from the start of the object, to identify its type
+  // from its content without reading all of it.
+  readStart(storageKey: string, length: number): Promise<Buffer>;
 }
 
 export const FILE_STORAGE_ADAPTER = Symbol('FILE_STORAGE_ADAPTER');

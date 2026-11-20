@@ -53,6 +53,7 @@ import { BibleModule } from './modules/bible/bible.module';
 import { PlaylistsModule } from './modules/playlists/playlists.module';
 import { SongsModule } from './modules/songs/songs.module';
 import { ThemesModule } from './modules/themes/themes.module';
+import { MediaModule } from './modules/media/media.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { PublicModule } from './modules/public/public.module';
 import { UsersModule } from './modules/users/users.module';
@@ -280,6 +281,7 @@ import { UsersModule } from './modules/users/users.module';
     SyncModule,
     SongsModule,
     ThemesModule,
+    MediaModule,
     PlaylistsModule,
     BibleModule,
   ],

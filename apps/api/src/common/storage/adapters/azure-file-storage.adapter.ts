@@ -11,6 +11,9 @@ import {
 import {
   FileStorageAdapter,
   ObjectContent,
+  SignedUpload,
+  SignedUploadRequest,
+  StoredObject,
 } from './file-storage-adapter.interface';
 
 // Azure Blob Storage. Selected with STORAGE_PROVIDER=azure.
@@ -137,6 +140,54 @@ export class AzureFileStorageAdapter implements FileStorageAdapter {
   // being signed; concurrent callers share the in-flight fetch, and a failed
   // fetch is forgotten so the next call retries. The key is held in memory for
   // at most DELEGATION_KEY_LIFETIME_MILLISECONDS.
+  // A SAS grants create and write on one blob; Azure signs neither its size
+  // nor a SHA-256, so `complete` checks the size and every client that
+  // downloads the file checks the hash. The SAS fixes the stored headers.
+  async createSignedUploadUrl(
+    storageKey: string,
+    request: SignedUploadRequest,
+    ttlSeconds: number,
+  ): Promise<SignedUpload> {
+    const startsOn = new Date(Date.now() - CLOCK_SKEW_ALLOWANCE_MILLISECONDS);
+    const expiresOn = new Date(Date.now() + ttlSeconds * 1000);
+    const userDelegationKey = await this.delegationKeyValidUntil(expiresOn);
+    const sasQueryParameters = generateBlobSASQueryParameters(
+      {
+        containerName: this.containerName,
+        blobName: storageKey,
+        permissions: BlobSASPermissions.parse('cw'),
+        startsOn,
+        expiresOn,
+        protocol: SASProtocol.Https,
+        contentType: request.contentType,
+        contentDisposition: request.contentDisposition,
+        cacheControl: request.cacheControl,
+      },
+      userDelegationKey,
+      this.accountName,
+    );
+    return {
+      url: `${this.blobClient(storageKey).url}?${sasQueryParameters.toString()}`,
+      headers: {
+        'x-ms-blob-type': 'BlockBlob',
+        'x-ms-blob-content-type': request.contentType,
+        'x-ms-blob-content-disposition': request.contentDisposition,
+        'x-ms-blob-cache-control': request.cacheControl,
+      },
+    };
+  }
+
+  async head(storageKey: string): Promise<StoredObject | null> {
+    const blob = this.blobClient(storageKey);
+    if (!(await blob.exists())) return null;
+    const properties = await blob.getProperties();
+    return { sizeBytes: properties.contentLength ?? 0 };
+  }
+
+  async readStart(storageKey: string, length: number): Promise<Buffer> {
+    return this.blobClient(storageKey).downloadToBuffer(0, length);
+  }
+
   private delegationKeyValidUntil(
     signatureExpiresOn: Date,
   ): Promise<UserDelegationKey> {

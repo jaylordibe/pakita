@@ -6,4 +6,5 @@
 export enum FilePurpose {
   PROFILE_IMAGE = 'profile_image',
   DOCUMENT = 'document',
+  BACKGROUND_VIDEO = 'background_video',
 }

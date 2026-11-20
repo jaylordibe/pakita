@@ -2193,7 +2193,8 @@
                     "type": "string",
                     "enum": [
                       "profile_image",
-                      "document"
+                      "document",
+                      "background_video"
                     ]
                   }
                 }
@@ -5257,6 +5258,433 @@
         ]
       }
     },
+    "/api/workspaces/{workspaceId}/media/uploads": {
+      "post": {
+        "operationId": "MediaController_createUpload",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMediaUploadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `create` on `Media`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Starts uploading a video: returns where to `PUT` its bytes, straight to\nstorage. 409 `MEDIA_QUOTA_EXCEEDED` when the workspace's videos cannot\nhold it; 413 over 1 GiB; 429 `FILE_QUOTA_EXCEEDED` with too many uploads\nnot yet added.",
+        "tags": [
+          "Media"
+        ]
+      }
+    },
+    "/api/workspaces/{workspaceId}/media": {
+      "post": {
+        "operationId": "MediaController_create",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMediaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `create` on `Media`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Adds an uploaded video. 409 `FILE_NOT_UPLOADED` while storage does not\nhold its bytes yet (send them, then retry); 415 when the bytes are not an\nMP4 or WebM video.",
+        "tags": [
+          "Media"
+        ]
+      },
+      "get": {
+        "operationId": "MediaController_findPaginated",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "description": "Values above 100 are clamped to 100.",
+            "schema": {
+              "minimum": 1,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MediaResponseDto"
+                      }
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `read` on `Media`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Media"
+        ]
+      }
+    },
+    "/api/workspaces/{workspaceId}/media/{mediaId}": {
+      "get": {
+        "operationId": "MediaController_findById",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mediaId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `read` on `Media`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Media"
+        ]
+      },
+      "patch": {
+        "operationId": "MediaController_update",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mediaId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMediaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `update` on `Media`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Media"
+        ]
+      },
+      "delete": {
+        "operationId": "MediaController_remove",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mediaId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `delete` on `Media`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "409 `MEDIA_IN_USE` while a theme shows the video.",
+        "tags": [
+          "Media"
+        ]
+      }
+    },
+    "/api/workspaces/{workspaceId}/media/{mediaId}/download": {
+      "get": {
+        "operationId": "MediaController_createDownloadUrl",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mediaId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaDownloadResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked access token"
+          },
+          "403": {
+            "description": "Authenticated, but no permission grants `read` on `Media`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A short-lived URL for the video's bytes, to download them.",
+        "tags": [
+          "Media"
+        ]
+      }
+    },
     "/api/workspaces/{workspaceId}/playlists": {
       "post": {
         "operationId": "PlaylistsController_create",
@@ -7186,7 +7614,8 @@
           "purpose": {
             "enum": [
               "profile_image",
-              "document"
+              "document",
+              "background_video"
             ],
             "type": "string"
           },
@@ -7194,6 +7623,7 @@
             "description": "Always `ready` in the response to `POST /files`.",
             "enum": [
               "processing",
+              "awaiting_upload",
               "ready",
               "attached",
               "deleting"
@@ -7204,7 +7634,8 @@
             "description": "`image`: re-encoded by the server, metadata removed. `document`: stored as uploaded.",
             "enum": [
               "image",
-              "document"
+              "document",
+              "video"
             ],
             "type": "string"
           },
@@ -8104,6 +8535,11 @@
           "backgroundColor": {
             "type": "string"
           },
+          "backgroundMediaId": {
+            "type": "string",
+            "nullable": true,
+            "description": "A background video (`Media`) looping under the text, or null."
+          },
           "textColor": {
             "type": "string"
           },
@@ -8134,6 +8570,7 @@
           "workspaceId",
           "name",
           "backgroundColor",
+          "backgroundMediaId",
           "textColor",
           "textScale",
           "isDefault",
@@ -8170,6 +8607,96 @@
           "syncVersion",
           "isDeleted",
           "theme"
+        ]
+      },
+      "MediaResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase hex SHA-256 of the bytes; verify the download against it."
+          },
+          "sizeBytes": {
+            "type": "number"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "`video/mp4` or `video/webm`."
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "syncVersion": {
+            "type": "number",
+            "description": "The workspace sync version of the video's latest change."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "name",
+          "sha256",
+          "sizeBytes",
+          "contentType",
+          "width",
+          "height",
+          "durationMs",
+          "syncVersion",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "SyncedMediaDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "syncVersion": {
+            "type": "number"
+          },
+          "isDeleted": {
+            "type": "boolean",
+            "description": "A deletion: remove the video, and its downloaded file, locally. `media`\nis then null."
+          },
+          "media": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MediaResponseDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "syncVersion",
+          "isDeleted",
+          "media"
         ]
       },
       "PlaylistItemKind": {
@@ -8445,6 +8972,13 @@
               "$ref": "#/components/schemas/SyncedThemeDto"
             }
           },
+          "media": {
+            "description": "Background videos. A theme names one by `backgroundMediaId`; the bytes\nare downloaded separately (`GET …/media/:id/download`).",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncedMediaDto"
+            }
+          },
           "playlists": {
             "type": "array",
             "items": {
@@ -8459,6 +8993,7 @@
           "hasMore",
           "songs",
           "themes",
+          "media",
           "playlists"
         ]
       },
@@ -8631,6 +9166,12 @@
               }
             ]
           },
+          "backgroundMediaId": {
+            "type": "string",
+            "nullable": true,
+            "description": "A background video of this workspace, looping under the text. `null`\n(or omitted) shows `background` alone, which is also what a laptop shows\nwhile it does not hold the video yet.",
+            "format": "uuid"
+          },
           "isDefault": {
             "type": "boolean",
             "description": "Makes this the workspace's default theme (and the previous one not).",
@@ -8690,6 +9231,12 @@
               }
             ]
           },
+          "backgroundMediaId": {
+            "type": "string",
+            "nullable": true,
+            "description": "A background video of this workspace, looping under the text. `null`\n(or omitted) shows `background` alone, which is also what a laptop shows\nwhile it does not hold the video yet.",
+            "format": "uuid"
+          },
           "isDefault": {
             "type": "boolean",
             "description": "Makes this the workspace's default theme (and the previous one not).",
@@ -8715,6 +9262,138 @@
             "maximum": 200
           }
         }
+      },
+      "CreateMediaUploadDto": {
+        "type": "object",
+        "properties": {
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "video/mp4",
+              "video/webm"
+            ]
+          },
+          "fileName": {
+            "type": "string",
+            "description": "The file's name on the laptop; stored in a safe display form.",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "sizeBytes": {
+            "type": "number",
+            "description": "Exact size in bytes; storage refuses a body of any other size.",
+            "minimum": 1,
+            "maximum": 1073741824
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Lowercase hex SHA-256 of the bytes. Storage that verifies it refuses\nother bytes, and every laptop that downloads the video checks it.",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "contentType",
+          "fileName",
+          "sizeBytes",
+          "sha256"
+        ]
+      },
+      "MediaUploadResponseDto": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "urlExpiresAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "After this the URL no longer accepts the bytes; start a new upload."
+          }
+        },
+        "required": [
+          "fileId",
+          "url",
+          "headers",
+          "urlExpiresAt"
+        ]
+      },
+      "CreateMediaDto": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "The id `POST …/media/uploads` returned.",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "width": {
+            "type": "number",
+            "description": "Pixels; at most 1920 on the long side and 1080 on the short side.",
+            "minimum": 1,
+            "maximum": 1920
+          },
+          "height": {
+            "type": "number",
+            "description": "Pixels; at most 1920 on the long side and 1080 on the short side.",
+            "minimum": 1,
+            "maximum": 1920
+          },
+          "durationMs": {
+            "type": "number",
+            "description": "Milliseconds; at most an hour.",
+            "minimum": 1,
+            "maximum": 3600000
+          }
+        },
+        "required": [
+          "fileId",
+          "name",
+          "width",
+          "height",
+          "durationMs"
+        ]
+      },
+      "MediaDownloadResponseDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expiresAt"
+        ]
+      },
+      "UpdateMediaDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "name"
+        ]
       },
       "PlaylistItemInputDto": {
         "type": "object",

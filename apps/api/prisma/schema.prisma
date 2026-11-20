@@ -7,17 +7,17 @@ datasource db {
 }
 
 model User {
-  id                      String    @id @default(uuid()) @db.Uuid
-  createdAt               DateTime  @default(now()) @map("created_at")
-  updatedAt               DateTime  @updatedAt @map("updated_at")
-  createdBy               String?   @map("created_by") @db.Uuid
-  updatedBy               String?   @map("updated_by") @db.Uuid
-  deletedAt               DateTime? @map("deleted_at")
-  deletedBy               String?   @map("deleted_by") @db.Uuid
-  isActive                Boolean   @default(true) @map("is_active")
-  firstName               String    @map("first_name")
-  middleName              String?   @map("middle_name")
-  lastName                String    @map("last_name")
+  id                       String    @id @default(uuid()) @db.Uuid
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  createdBy                String?   @map("created_by") @db.Uuid
+  updatedBy                String?   @map("updated_by") @db.Uuid
+  deletedAt                DateTime? @map("deleted_at")
+  deletedBy                String?   @map("deleted_by") @db.Uuid
+  isActive                 Boolean   @default(true) @map("is_active")
+  firstName                String    @map("first_name")
+  middleName               String?   @map("middle_name")
+  lastName                 String    @map("last_name")
   // Unique among LIVE rows only, via partial indexes declared in the users
   // migration (`WHERE deleted_at IS NULL`). A plain @unique would let a
   // soft-deleted account hold its email/username hostage forever. Prisma
@@ -36,22 +36,22 @@ model User {
   // is an index scan on the partial index (3 buffers over 20k rows). It is the
   // same plan `findUnique` would produce. Dropping the `deletedAt` predicate —
   // i.e. using the raw client — is what turns it into a seq scan.
-  username                String?
-  email                   String
-  password                String
-  passwordChangedAt       DateTime? @map("password_changed_at")
+  username                 String?
+  email                    String
+  password                 String
+  passwordChangedAt        DateTime? @map("password_changed_at")
   // Set when an administrator chose the password (account creation, or a
   // reset): until the person picks their own, a session may only change it,
   // read their account and sign out (`JwtAuthGuard`). Cleared
   // only by the person's own password change.
-  isPasswordChangeRequired Boolean  @default(false) @map("is_password_change_required")
-  gender                  String?
+  isPasswordChangeRequired Boolean   @default(false) @map("is_password_change_required")
+  gender                   String?
   // The stored file shown as this person's picture. Unique: an attached file
   // belongs to exactly one reference (see `FileAsset`). Set only through
   // `PUT`/`DELETE /users/me/profile-image` with the id `POST /files` returned.
-  profileImageFileAssetId String?   @unique @map("profile_image_file_asset_id") @db.Uuid
-  birthday                DateTime? @db.Date
-  timezone                String?
+  profileImageFileAssetId  String?   @unique @map("profile_image_file_asset_id") @db.Uuid
+  birthday                 DateTime? @db.Date
+  timezone                 String?
 
   deviceTokens          DeviceToken[]
   // PLATFORM-scope role assignments. WORKSPACE-scope roles live on
@@ -119,16 +119,22 @@ model FileAsset {
   height         Int?
   // User content: the client's file name, reduced to a safe display form.
   fileName       String    @map("file_name")
-  // Set exactly while `ready` (CHECK in the migration): the moment an
-  // unattached file stops being attachable.
+  // Base64 SHA-256 a direct upload declared; storage that verifies it (S3)
+  // refuses other bytes, and every client that downloads the file checks it.
+  // Null for a file uploaded through the API.
+  sha256         String?
+  // Set exactly while `ready` or `awaiting_upload` (CHECK in the migration):
+  // the moment an unattached file stops being attachable, or a direct upload
+  // stops being completable.
   expiresAt      DateTime? @map("expires_at")
   attachedAt     DateTime? @map("attached_at")
   deleteAttempts Int       @default(0) @map("delete_attempts")
 
   /// RESTRICT: users are soft-deleted or anonymised, never hard-deleted, and a
   /// hard delete must not drop rows whose objects are still in storage.
-  uploader        User  @relation("FileAssetUploader", fields: [uploadedBy], references: [id], onDelete: Restrict)
-  profileImageFor User? @relation("UserProfileImage")
+  uploader        User   @relation("FileAssetUploader", fields: [uploadedBy], references: [id], onDelete: Restrict)
+  profileImageFor User?  @relation("UserProfileImage")
+  media           Media?
 
   /// The cleanup job's claim: `ready` rows past `expires_at`, and `processing`
   /// and `deleting` rows by age.
@@ -271,6 +277,7 @@ model Workspace {
   syncState   WorkspaceSyncState?
   songs       Song[]
   themes      Theme[]
+  media       Media[]
   playlists   Playlist[]
 
   @@map("workspaces")
@@ -766,39 +773,83 @@ model BibleVerse {
   @@map("bible_verses")
 }
 
+/// A background video a workspace's themes can show. Synchronised to every
+/// laptop of the workspace like songs, which then download its bytes once,
+/// by content hash, from storage. Soft-deleted so the deletion reaches
+/// laptops as a tombstone; the file is released in the same transaction.
+model Media {
+  id          String    @id @default(uuid()) @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdBy   String?   @map("created_by") @db.Uuid
+  updatedBy   String?   @map("updated_by") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  name        String
+  /// The stored video. Set exactly while the media is live (CHECK in the
+  /// migration): a delete releases the file and clears this.
+  fileAssetId String?   @unique @map("file_asset_id") @db.Uuid
+  /// Lowercase hex SHA-256 of the bytes: the identity laptops store and
+  /// verify the download by.
+  sha256      String
+  sizeBytes   Int       @map("size_bytes")
+  /// `video/mp4` or `video/webm`, identified from the stored bytes.
+  contentType String    @map("content_type")
+  /// As the uploading laptop measured them; every laptop checks again when it
+  /// plays the file.
+  width       Int
+  height      Int
+  durationMs  Int       @map("duration_ms")
+  /// See Song.syncVersion.
+  syncVersion Int       @map("sync_version")
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  fileAsset FileAsset? @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  themes    Theme[]
+
+  @@index([workspaceId, syncVersion])
+  @@map("media")
+}
+
 /// How slides look on the projector: background, text colour, font, size and
 /// alignment. A workspace has at most one default theme, used whenever a
 /// presentation names none. The fonts and background gradients are bundled
 /// with the desktop app, so a theme never needs the network.
 model Theme {
-  id              String    @id @default(uuid()) @db.Uuid
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-  createdBy       String?   @map("created_by") @db.Uuid
-  updatedBy       String?   @map("updated_by") @db.Uuid
-  deletedAt       DateTime? @map("deleted_at")
-  deletedBy       String?   @map("deleted_by") @db.Uuid
-  workspaceId     String    @map("workspace_id") @db.Uuid
-  name            String
+  id                String    @id @default(uuid()) @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  createdBy         String?   @map("created_by") @db.Uuid
+  updatedBy         String?   @map("updated_by") @db.Uuid
+  deletedAt         DateTime? @map("deleted_at")
+  deletedBy         String?   @map("deleted_by") @db.Uuid
+  workspaceId       String    @map("workspace_id") @db.Uuid
+  name              String
   /// `ThemeBackground`: a solid colour or one of the bundled gradients.
-  background      String
+  background        String
   /// `#rrggbb`, used by the solid background.
-  backgroundColor String    @map("background_color")
+  backgroundColor   String    @map("background_color")
   /// `#rrggbb`.
-  textColor       String    @map("text_color")
+  textColor         String    @map("text_color")
   /// `ThemeFont`.
-  font            String
+  font              String
   /// Text size as a percentage of the standard size (50–200).
-  textScale       Int       @map("text_scale")
+  textScale         Int       @map("text_scale")
   /// `ThemeTextAlign`.
-  textAlign       String    @map("text_align")
-  isDefault       Boolean   @default(false) @map("is_default")
+  textAlign         String    @map("text_align")
+  isDefault         Boolean   @default(false) @map("is_default")
+  /// A looping video drawn under the text, from the same workspace. While a
+  /// laptop does not hold it (or cannot play it), `background` shows instead.
+  backgroundMediaId String?   @map("background_media_id") @db.Uuid
   /// See Song.syncVersion.
-  syncVersion     Int       @map("sync_version")
+  syncVersion       Int       @map("sync_version")
 
-  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  playlists Playlist[]
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  backgroundMedia Media?     @relation(fields: [backgroundMediaId], references: [id], onDelete: Restrict)
+  playlists       Playlist[]
 
+  @@index([backgroundMediaId])
   @@index([workspaceId, syncVersion])
   @@map("themes")
 }

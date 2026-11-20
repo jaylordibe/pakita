@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { AppAbility } from '../../common/authorization/app-ability';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AbilityScopedQueryService } from '../authorization/ability-scoped-query.service';
+import { MediaResponseDto } from '../media/dto/media-response.dto';
 import { PlaylistResponseDto } from '../playlists/dto/playlist-response.dto';
 import { PLAYLIST_CONTENT_INCLUDE } from '../playlists/playlists.service';
 import { SONG_CONTENT_INCLUDE } from '../songs/songs.service';
@@ -74,6 +75,16 @@ export class SyncService {
           orderBy: { syncVersion: 'asc' },
           take,
         });
+        const media = await transaction.media.findMany({
+          where: this.abilityScopedQueryService.buildWhereOrEmpty(
+            ability,
+            'read',
+            'Media',
+            changedSince,
+          ),
+          orderBy: { syncVersion: 'asc' },
+          take,
+        });
         const playlists = await transaction.playlist.findMany({
           where: this.abilityScopedQueryService.buildWhereOrEmpty(
             ability,
@@ -85,7 +96,7 @@ export class SyncService {
           orderBy: { syncVersion: 'asc' },
           take,
         });
-        const versions = [...songs, ...themes, ...playlists]
+        const versions = [...songs, ...themes, ...media, ...playlists]
           .map((row) => row.syncVersion)
           .sort((first, second) => first - second);
         const hasMore = versions.length > query.limit;
@@ -108,6 +119,12 @@ export class SyncService {
             syncVersion: row.syncVersion,
             isDeleted: row.deletedAt !== null,
             theme: row.deletedAt === null ? new ThemeResponseDto(row) : null,
+          })),
+          media: media.filter(isOnPage).map((row) => ({
+            id: row.id,
+            syncVersion: row.syncVersion,
+            isDeleted: row.deletedAt !== null,
+            media: row.deletedAt === null ? new MediaResponseDto(row) : null,
           })),
           playlists: playlists.filter(isOnPage).map((row) => ({
             id: row.id,

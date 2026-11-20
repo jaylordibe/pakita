@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -60,6 +61,16 @@ export class CreateThemeDto {
   @ApiProperty({ enum: ThemeTextAlign, enumName: 'ThemeTextAlign' })
   @IsEnum(ThemeTextAlign)
   textAlign!: ThemeTextAlign;
+
+  /**
+   * A background video of this workspace, looping under the text. `null`
+   * (or omitted) shows `background` alone, which is also what a laptop shows
+   * while it does not hold the video yet.
+   */
+  @ApiPropertyOptional({ type: String, format: 'uuid', nullable: true })
+  @IsOptional()
+  @IsUUID()
+  backgroundMediaId?: string | null;
 
   /** Makes this the workspace's default theme (and the previous one not). */
   @ApiPropertyOptional({ default: false })

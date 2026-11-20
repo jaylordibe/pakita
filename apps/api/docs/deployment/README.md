@@ -313,6 +313,19 @@ Objects are **private by default**:
 - Uploads (`POST /api/files`) are held in memory up to `FILE_UPLOAD_MAX_BYTES`
   (default 25 MiB) per request. The platform's edge must allow request bodies at
   least that large on that route, or uploads fail before reaching the API.
+- Background videos (`POST /api/workspaces/:id/media/uploads`) never pass
+  through the API: the client `PUT`s them straight to storage with a signed
+  URL, up to 1 GiB each, and downloads them with `Range` the same way. Clients
+  must therefore reach storage. When the API reaches it at an internal address
+  (`STORAGE_S3_ENDPOINT`), set `STORAGE_S3_PUBLIC_ENDPOINT` to the address
+  clients use (the church server forwards the bucket path from its own domain,
+  `deploy/Caddyfile`): signed URLs are minted for that address, and the signed
+  `Host` must reach storage unchanged. That edge must not compress the bucket
+  path and must allow 1 GiB request bodies on it. S3 checks the signed size,
+  type and SHA-256 of each upload; GCS checks the size; Azure checks neither,
+  so the API compares the stored size, and every laptop verifies the SHA-256
+  of what it downloads. `MEDIA_WORKSPACE_QUOTA_BYTES` caps one workspace's
+  videos, and every laptop of the workspace holds all of them.
 - The worker's `files.cleanup.v1` job (every 10 minutes) deletes unattached
   and released objects. The storage identity therefore needs delete permission
   on the bucket, not only write and read.
@@ -559,7 +572,8 @@ account. Accounts are created by an administrator; see the
 solely through Cloudflare),
 `STORAGE_SIGNED_URL_TTL_SECONDS` (300), `STORAGE_REQUEST_TIMEOUT_MS` (15000),
 `FILE_UPLOAD_MAX_BYTES` (26214400), `FILE_UPLOAD_TTL_SECONDS` (86400),
-`FILE_IMAGE_MAX_PIXELS` (40000000).
+`FILE_IMAGE_MAX_PIXELS` (40000000), `MEDIA_WORKSPACE_QUOTA_BYTES`
+(21474836480, 20 GiB).
 
 ### Optional, MCP endpoint
 
@@ -581,7 +595,7 @@ from `JWT_SECRET`; the issuer is the origin of `API_BASE_URL`.
 
 | Selected | Requires | Optional |
 |---|---|---|
-| `STORAGE_PROVIDER=s3` | `STORAGE_S3_BUCKET` | `STORAGE_S3_REGION`, `STORAGE_S3_ENDPOINT`, `STORAGE_S3_FORCE_PATH_STYLE` |
+| `STORAGE_PROVIDER=s3` | `STORAGE_S3_BUCKET` | `STORAGE_S3_REGION`, `STORAGE_S3_ENDPOINT`, `STORAGE_S3_PUBLIC_ENDPOINT`, `STORAGE_S3_FORCE_PATH_STYLE` |
 | `STORAGE_PROVIDER=gcs` | `STORAGE_GCS_BUCKET` | `STORAGE_GCS_PROJECT_ID` |
 | `STORAGE_PROVIDER=azure` | `STORAGE_AZURE_ACCOUNT_NAME`, `STORAGE_AZURE_CONTAINER` | — |
 

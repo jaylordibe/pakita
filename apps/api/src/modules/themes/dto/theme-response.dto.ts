@@ -14,6 +14,8 @@ export class ThemeResponseDto {
   @ApiProperty({ enum: ThemeBackground, enumName: 'ThemeBackground' })
   background!: ThemeBackground;
   backgroundColor!: string;
+  /** A background video (`Media`) looping under the text, or null. */
+  backgroundMediaId!: string | null;
   textColor!: string;
   @ApiProperty({ enum: ThemeFont, enumName: 'ThemeFont' })
   font!: ThemeFont;
