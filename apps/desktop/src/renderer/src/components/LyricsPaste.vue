@@ -12,6 +12,7 @@ import {
   type LyricsImport,
 } from '../../../shared/lyrics-import';
 import { splitIntoSlides } from '../../../shared/slides';
+import { lyricsWithStanzaBreaks } from '../clipboard-lyrics';
 import { messageOf } from '../errors';
 import { vFitSlideText } from '../fit-slide-text';
 import AppIcon from './AppIcon.vue';
@@ -94,15 +95,39 @@ const plural = (count: number, one: string, many: string) =>
 async function pasteFromClipboard(): Promise<void> {
   errorMessage.value = null;
   try {
-    const pasted = await window.pakita.app.readClipboardText();
-    if (!pasted.trim()) {
+    const copy = await window.pakita.app.readClipboard();
+    if (!copy.text.trim()) {
       errorMessage.value = 'The clipboard has no text. Copy the lyrics first.';
       return;
     }
-    text.value = pasted;
+    text.value = lyricsWithStanzaBreaks(copy.text, copy.html) ?? copy.text;
   } catch (error) {
     errorMessage.value = messageOf(error);
   }
+}
+
+/**
+ * A keyboard paste from a web page that lost its stanza breaks in the text
+ * copy gets them back from the HTML copy; any other paste is left to the
+ * browser.
+ */
+function pasteWithStanzaBreaks(event: ClipboardEvent): void {
+  const box = event.currentTarget;
+  if (!event.clipboardData || !(box instanceof HTMLTextAreaElement)) return;
+  const lyrics = lyricsWithStanzaBreaks(
+    event.clipboardData.getData('text/plain'),
+    event.clipboardData.getData('text/html'),
+  );
+  const replaced = box.selectionEnd - box.selectionStart;
+  if (
+    lyrics === null ||
+    box.value.length - replaced + lyrics.length > MAX_PASTE_LENGTH
+  ) {
+    return;
+  }
+  event.preventDefault();
+  box.setRangeText(lyrics, box.selectionStart, box.selectionEnd, 'end');
+  text.value = box.value;
 }
 
 function proceed(): void {
@@ -152,6 +177,7 @@ onMounted(() => textarea.value?.focus());
           :maxlength="MAX_PASTE_LENGTH"
           spellcheck="false"
           :placeholder="'[Verse 1]\nAmazing grace, how sweet the sound\n…\n\n[Chorus]\n…'"
+          @paste="pasteWithStanzaBreaks"
         ></textarea>
         <p class="field-help">
           Headings such as <span class="kbd">[Verse 1]</span>,

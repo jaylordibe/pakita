@@ -9,8 +9,15 @@ import {
   themeFontValues,
   themeTextAlignValues,
 } from '../shared/api/enums';
-import { IpcChannel, type IpcChannelName } from '../shared/ipc-contract';
-import { MAX_PASTE_LENGTH } from '../shared/lyrics-import';
+import {
+  type ClipboardCopy,
+  IpcChannel,
+  type IpcChannelName,
+} from '../shared/ipc-contract';
+import {
+  MAX_PASTE_HTML_LENGTH,
+  MAX_PASTE_LENGTH,
+} from '../shared/lyrics-import';
 import { AppController } from './app-controller';
 import { showDevelopmentDockIcon, windowIcon } from './app-icon';
 import { bibleTranslationInputSchema } from './bible/bible-translation-input';
@@ -236,19 +243,28 @@ async function start(): Promise<void> {
   handle(IpcChannel.appGetUpdate, noPayload, () => controller.getUpdate());
   handle(IpcChannel.appOpenUpdate, noPayload, () => controller.openUpdate());
   // Write-only, and short: the operator copies a one-time password or code.
-  handle(IpcChannel.appCopyText, z.string().min(1).max(500), (text) => {
-    clipboard.writeText(text);
-  });
-  // Read only when the operator asks, to paste a song's lyrics; text only.
-  handle(IpcChannel.appReadClipboardText, noPayload, async () => {
-    const text = await clipboard.readText();
-    if (text.length > MAX_PASTE_LENGTH) {
-      throw new Error(
-        `The clipboard holds more than ${MAX_PASTE_LENGTH.toLocaleString('en')} characters, too much for one song.`,
-      );
-    }
-    return text;
-  });
+  handle(IpcChannel.appCopyText, z.string().min(1).max(500), (text) =>
+    clipboard.writeText(text),
+  );
+  // Read only when the operator asks, to paste a song's lyrics: the text,
+  // and the HTML that keeps a web page's stanza breaks.
+  handle(
+    IpcChannel.appReadClipboard,
+    noPayload,
+    async (): Promise<ClipboardCopy> => {
+      const text = await clipboard.readText();
+      if (text.length > MAX_PASTE_LENGTH) {
+        throw new Error(
+          `The clipboard holds more than ${MAX_PASTE_LENGTH.toLocaleString('en')} characters, too much for one song.`,
+        );
+      }
+      const [item] = await clipboard.read();
+      const html = item?.types.includes('text/html')
+        ? await (await item.getType('text/html')).text()
+        : '';
+      return { text, html: html.length > MAX_PASTE_HTML_LENGTH ? '' : html };
+    },
+  );
   handle(IpcChannel.databaseGetHealth, noPayload, () =>
     controller.getDatabaseHealth(),
   );

@@ -43,9 +43,10 @@ const LYRICS = [
 ].join('\r\n');
 
 async function putOnClipboard(text: string): Promise<void> {
-  await application.evaluate(({ clipboard }, value) => {
-    clipboard.writeText(value);
-  }, text);
+  await application.evaluate(
+    ({ clipboard }, value) => clipboard.writeText(value),
+    text,
+  );
 }
 
 test.beforeAll(async () => {
@@ -153,4 +154,44 @@ test('still starts a blank song', async () => {
   await operator.getByTestId('song-start-blank').click();
   await expect(operator.getByTestId('section-lyrics-0')).toHaveValue('');
   await expect(operator.getByTestId('song-title')).toHaveValue('');
+});
+
+test('keeps the stanza breaks a web page shows but its text copy loses', async () => {
+  // Shaped like Google's lyrics panel: a block per stanza, spaced by style
+  // alone, so the plain-text copy runs every line together.
+  const stanzas = [
+    ['First verse, line one', 'First verse, line two'],
+    ['Chorus line one', 'Chorus line two'],
+    ['Second verse, line one', 'Second verse, line two'],
+    ['Chorus line one', 'Chorus line two'],
+  ];
+  const html = `<meta charset='utf-8'>${stanzas
+    .map(
+      (lines) =>
+        `<div class="ujudUb" style="margin-bottom: 12px">${lines
+          .map((line) => `<span>${line}</span>`)
+          .join('<br aria-hidden="true">')}</div>`,
+    )
+    .join('')}`;
+  await application.evaluate(
+    ({ clipboard, ClipboardItem }, copy) =>
+      clipboard.write([
+        new ClipboardItem({ 'text/plain': copy.text, 'text/html': copy.html }),
+      ]),
+    { text: stanzas.flat().join('\n'), html },
+  );
+  const expected = stanzas.map((lines) => lines.join('\n')).join('\n\n');
+
+  await operator.getByTestId('new-song').click();
+  const text = operator.getByTestId('lyrics-paste-text');
+  await expect(text).toBeFocused();
+  await operator.keyboard.press('ControlOrMeta+V');
+  await expect(text).toHaveValue(expected);
+  await expect(operator.getByTestId('lyrics-paste-summary')).toHaveText(
+    '3 sections · 4 slides live',
+  );
+
+  await text.fill('');
+  await operator.getByTestId('lyrics-paste-clipboard').click();
+  await expect(text).toHaveValue(expected);
 });

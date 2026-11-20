@@ -9,6 +9,12 @@ import type { ThemeLook } from './theme-look';
 
 export type { Slide, Song };
 
+/** What the system clipboard holds, as text and as HTML. */
+export interface ClipboardCopy {
+  readonly text: string;
+  readonly html: string;
+}
+
 /** Requests from the operator window (renderer → main, with a reply). */
 export const IpcChannel = {
   appGetVersion: 'app:get-version',
@@ -16,7 +22,7 @@ export const IpcChannel = {
   appGetUpdate: 'app:get-update',
   appOpenUpdate: 'app:open-update',
   appCopyText: 'app:copy-text',
-  appReadClipboardText: 'app:read-clipboard-text',
+  appReadClipboard: 'app:read-clipboard',
   databaseGetHealth: 'database:get-health',
   serverConnect: 'server:connect',
   accountSignIn: 'account:sign-in',
@@ -478,10 +484,12 @@ export interface PakitaApi {
      */
     copyText(text: string): Promise<void>;
     /**
-     * The text on the system clipboard, read when the operator presses
-     * "Paste from clipboard". Refused when longer than `MAX_PASTE_LENGTH`.
+     * The system clipboard's text and HTML copies, read when the operator
+     * presses "Paste from clipboard". Refused when the text is longer than
+     * `MAX_PASTE_LENGTH`; the HTML is empty when there is none or it is longer
+     * than `MAX_PASTE_HTML_LENGTH`.
      */
-    readClipboardText(): Promise<string>;
+    readClipboard(): Promise<ClipboardCopy>;
     onUpdateAvailable(listener: (update: AvailableUpdate) => void): () => void;
   };
   readonly database: {

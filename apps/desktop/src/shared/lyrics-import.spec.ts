@@ -6,6 +6,7 @@ import {
   longLinesOf,
   normalizeLyrics,
   paginate,
+  stanzaBreaksFromHtml,
   parseHeader,
 } from './lyrics-import';
 import { splitIntoSlides } from './slides';
@@ -348,5 +349,57 @@ describe('longLinesOf', () => {
     const long = 'This line is certainly longer than forty characters';
     expect(longLinesOf(`Short\n${long}`)).toEqual([long]);
     expect(longLinesOf('주'.repeat(40))).toEqual([]);
+  });
+});
+
+describe('stanzaBreaksFromHtml', () => {
+  const plain = 'Line one\r\nLine two\r\nLine three\r\nLine four';
+
+  it('adds the stanza breaks the HTML has, keeping the plain words', () => {
+    expect(
+      stanzaBreaksFromHtml(
+        plain,
+        '\n\nLine  one\nLine two\n\n\n\nLine three\nLine four\n\n',
+      ),
+    ).toBe('Line one\nLine two\n\nLine three\nLine four');
+  });
+
+  it('keeps a blank line made by two line breaks inside one block', () => {
+    expect(
+      stanzaBreaksFromHtml(
+        plain,
+        'Line one\nLine two\n\nLine three\nLine four',
+      ),
+    ).toBe('Line one\nLine two\n\nLine three\nLine four');
+  });
+
+  it('pastes the plain text when it already has a blank line', () => {
+    expect(
+      stanzaBreaksFromHtml('Line one\n\nLine two', 'Line one\n\nLine two'),
+    ).toBeNull();
+  });
+
+  it('pastes the plain text when the HTML has no breaks', () => {
+    expect(
+      stanzaBreaksFromHtml(plain, 'Line one\nLine two\nLine three\nLine four'),
+    ).toBeNull();
+  });
+
+  it('pastes the plain text when any line differs from the HTML', () => {
+    expect(
+      stanzaBreaksFromHtml(plain, 'Line one\nLine two\n\nLine 3\nLine four'),
+    ).toBeNull();
+    expect(
+      stanzaBreaksFromHtml(plain, 'Line one\nLine two\n\nLine three'),
+    ).toBeNull();
+  });
+
+  it('pastes the plain text when every block is a single line', () => {
+    expect(
+      stanzaBreaksFromHtml(
+        plain,
+        'Line one\n\nLine two\n\nLine three\n\nLine four',
+      ),
+    ).toBeNull();
   });
 });

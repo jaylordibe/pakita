@@ -77,9 +77,12 @@ test/fixtures/ shared test data (a tiny USFM translation)
 - **The clipboard is reached through the main process only**: the renderer
   has no browser permissions. `app:copy-text` writes it (length-capped; a
   one-time password or invitation code is copied through it), and
-  `app:read-clipboard-text` reads it as text only, capped at
-  `MAX_PASTE_LENGTH`, and is called only when the operator presses "Paste
-  from clipboard" on a new song. Nothing watches the clipboard.
+  `app:read-clipboard` reads its text (capped at `MAX_PASTE_LENGTH`) and its
+  HTML copy (dropped above `MAX_PASTE_HTML_LENGTH`), and is called only when
+  the operator presses "Paste from clipboard" on a new song; a keyboard paste
+  into the lyrics box reads the same two copies from the paste event. The
+  HTML is parsed into an inert document only to find stanza breaks
+  (`clipboard-lyrics.ts`), never rendered. Nothing watches the clipboard.
 - **Pasted lyrics are read on the laptop, never changed**
   (`src/shared/lyrics-import.ts`): the importer only decides where sections
   start and where slides break (a blank line, as `splitIntoSlides` reads

@@ -11,6 +11,13 @@ import { kindName } from './song-sections';
 /** The longest paste accepted, in characters. */
 export const MAX_PASTE_LENGTH = 50_000;
 
+/**
+ * The longest HTML copy of the clipboard read alongside its text, in
+ * characters. A web page's copy carries markup and inline styles, several
+ * times the text's length; a larger one is ignored and the text used alone.
+ */
+export const MAX_PASTE_HTML_LENGTH = 1_000_000;
+
 /** The slide sizes offered, in lines; the default is 4. */
 export const LINES_PER_SLIDE_CHOICES = [2, 3, 4, 6] as const;
 export type LinesPerSlide = (typeof LINES_PER_SLIDE_CHOICES)[number];
@@ -383,4 +390,49 @@ export function importLyrics(
     sequence,
     notices,
   };
+}
+
+const comparable = (line: string) => line.replace(/\s+/gu, ' ');
+
+/**
+ * The stanza breaks a web page shows but its plain-text copy loses. Pages
+ * such as Google's lyrics panel put each stanza in its own block, spaced
+ * apart by style alone, so the copied text runs every line together; the
+ * HTML copy keeps the blocks. `htmlText` is that HTML read as text (a line
+ * per line break, a blank line between blocks).
+ *
+ * Returns the plain text with a blank line wherever the HTML breaks a
+ * stanza, or null to paste the plain text as it is: when it already has a
+ * blank line, when the HTML's lines differ from it in any word, or when
+ * every block is one line (a document that makes each line a paragraph).
+ * The words always come from the plain text.
+ */
+export function stanzaBreaksFromHtml(
+  plain: string,
+  htmlText: string,
+): string | null {
+  const plainLines = normalizeLyrics(plain);
+  if (plainLines.includes('')) return null;
+  const htmlLines = normalizeLyrics(htmlText);
+  const htmlWords = withoutBreaks(htmlLines);
+  if (
+    htmlWords.length !== plainLines.length ||
+    htmlWords.length === htmlLines.length ||
+    !htmlWords.every(
+      (line, index) => comparable(line) === comparable(plainLines[index]!),
+    )
+  ) {
+    return null;
+  }
+  const isOneLineEach = htmlLines.every(
+    (line, index) =>
+      line === '' ||
+      ((index === 0 || htmlLines[index - 1] === '') &&
+        (index === htmlLines.length - 1 || htmlLines[index + 1] === '')),
+  );
+  if (isOneLineEach) return null;
+  let next = 0;
+  return htmlLines
+    .map((line) => (line === '' ? '' : plainLines[next++]!))
+    .join('\n');
 }
