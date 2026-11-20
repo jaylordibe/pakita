@@ -187,7 +187,9 @@ onUnmounted(() => unsubscribe?.());
               :look="look"
               :poster-url="chosenMedia?.posterUrl ?? null"
             />
-            <p class="faint">As it appears on the projector.</p>
+            <p class="faint">
+              A sample slide, as it would look on the projector.
+            </p>
           </div>
 
           <div class="sheet field-grid">

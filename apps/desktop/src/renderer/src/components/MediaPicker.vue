@@ -346,15 +346,28 @@ legend {
   gap: 0.5rem;
 }
 
+.tiles > li {
+  min-width: 0;
+}
+
 .tile-wrap {
   position: relative;
 }
 
+/* A card, not a control: undo the global button's centring, single line and
+   fixed height, which would shrink a frame to its icon and let long text
+   push a tile over its neighbour. */
 .tile {
   width: 100%;
+  height: 100%;
+  min-height: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  justify-content: stretch;
   gap: 0.2rem;
   padding: 0.35rem;
+  white-space: normal;
   text-align: left;
   border-radius: var(--radius);
   border: 1px solid var(--border);
