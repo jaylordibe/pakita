@@ -31,8 +31,10 @@ if [ "${#problems[@]}" -gt 0 ]; then
   exit 1
 fi
 
-# Ports 80 and 443, unless Pakita itself already holds them.
-if [ -z "$(compose ps -q caddy 2>/dev/null)" ]; then
+# Ports 80 and 443, unless Pakita itself already holds them, or another
+# reverse proxy on this machine serves Pakita instead (shared-server.md).
+if compose config --services | grep -qx caddy &&
+  [ -z "$(compose ps -q caddy 2>/dev/null)" ]; then
   for port in 80 443; do
     if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
       fail "port $port is already in use on this machine; Caddy needs it."

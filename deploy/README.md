@@ -25,6 +25,9 @@ third-party service. Everything runs on this machine.
 
 ## Install
 
+Another reverse proxy on this machine already holds ports 80 and 443?
+Follow [`shared-server.md`](shared-server.md) instead.
+
 1. Copy this folder to the server (or clone the repository there).
 2. Run `./install.sh`. The first run creates `.env` from `.env.example`,
    generates the database, Redis, storage and sign-in secrets, and lists what
