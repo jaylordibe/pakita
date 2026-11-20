@@ -1,5 +1,6 @@
 {
   "name": "@pakita/desktop",
+  "productName": "Pakita",
   "version": "0.1.0",
   "description": "Pakita desktop — the operator and projector app.",
   "license": "AGPL-3.0-or-later",

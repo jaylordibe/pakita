@@ -5,7 +5,8 @@
 # on Apple's icon grid (`pnpm generate:mac-icon` derives it). Installers are not code-signed yet: operating
 # systems warn on first launch (see the deployment guide).
 appId: io.github.jaylordibe.pakita
-productName: Pakita
+# The app's name (and so its keychain item and data folder) is package.json's
+# productName, which Electron also reads at run time.
 copyright: Copyright © 2026 Jay Lord Ibe
 directories:
   output: release
